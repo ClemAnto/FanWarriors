@@ -4,6 +4,6 @@ const { ccclass } = _decorator;
 @ccclass('HelloWorld')
 export class HelloWorld extends Component {
     start() {
-        console.log('Critter Clash è vivo!');
+        console.log('FanWarriors è vivo!');
     }
 }

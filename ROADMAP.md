@@ -1,4 +1,4 @@
-# Roadmap Tecnica — Critter Clash
+# Roadmap Tecnica — FanWarriors
 
 > Roadmap di sviluppo in Cocos Creator (JavaScript/TypeScript). Stima realistica part-time. Versione 0.1.
 
@@ -35,7 +35,7 @@
 
 **Giorno 1-2: Setup progetto**
 - [ ] Installare Cocos Creator 3.x
-- [ ] Creare nuovo progetto "CritterClash"
+- [ ] Creare nuovo progetto "FanWarriors"
 - [ ] Configurare TypeScript
 - [ ] Setup Git, .gitignore standard Cocos
 - [ ] Configurare risoluzione di riferimento (es. 1280x720 landscape, design canvas)

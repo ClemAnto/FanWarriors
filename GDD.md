@@ -1,4 +1,4 @@
-# Game Design Document — Critter Clash (working title)
+# Game Design Document — FanWarriors
 
 > Documento sintetico di game design. Versione 0.1 — da aggiornare durante lo sviluppo.
 
