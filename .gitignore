@@ -1,0 +1,24 @@
+# Cocos Creator
+library/
+temp/
+local/
+build/
+profiles/
+native/
+.cocos-project.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Node (se userai npm tools)
+node_modules/
