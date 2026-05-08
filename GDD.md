@@ -75,7 +75,7 @@ Ogni specie animale condivide la stessa catena evolutiva a **6 livelli**. I live
 
 ## 7. Progressione del gioco (round)
 
-Stile Tetris: il gioco è endless ma diviso in **round di difficoltà crescente**. Si avanza al round successivo accumulando punti.
+Stile Tetris: il gioco è endless ma diviso in **round di difficoltà crescente**. Si avanza al round successivo raggiungendo un numero di merge.
 
 | Round | Specie disponibili | Personaggi lanciabili | Timer lancio | Note |
 |-------|---------------------|------------------------|--------------|------|
@@ -86,7 +86,7 @@ Stile Tetris: il gioco è endless ma diviso in **round di difficoltà crescente*
 | 9-10 | 7 specie (+ Drago) | Livello 1-3 | ~4s | Tutte le specie attive |
 | 11+ | 7 specie | Livello 1-3 | ~3s | Timer minimo, pressione massima |
 
-**Regole di promozione tra round**: ogni round richiede un punteggio target (es. round 1 → 1000pt, round 2 → 2500pt, round 3 → 5000pt, ecc.). Curva da bilanciare in playtest.
+**Regole di promozione tra round**: si avanza al round successivo dopo aver eseguito un numero di merge totali pari alla soglia del round corrente. Soglie da bilanciare in playtest (es. round 1 → 10 merge, round 2 → 25 merge, ecc.).
 
 ## 8. Sistema di punteggio
 

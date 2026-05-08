@@ -4,7 +4,7 @@ const { ccclass } = _decorator;
 // index = level (1-7), index 0 unused
 export const WARRIOR_RADII = [0, 20, 28, 36, 42, 48, 54, 60];
 
-const COLORS: Color[] = [
+export const COLORS: Color[] = [
     new Color(231,  76,  60),  // 0 Red
     new Color(230, 126,  34),  // 1 Orange
     new Color(241, 196,  15),  // 2 Yellow
@@ -131,7 +131,7 @@ export class Warrior extends Component {
         col.radius = this.radius;
         col.density = 8.0;
         col.friction = 0.8;
-        col.restitution = 0.2;
+        col.restitution = 0.1;
     }
 
     private buildLabel(): void {

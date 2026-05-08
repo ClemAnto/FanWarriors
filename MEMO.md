@@ -15,14 +15,14 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 | `angularDamping` | 2.5 | Blocca la rotazione eccessiva |
 | `density` | 8.0 | Alta densità = resistenza agli urti |
 | `friction` | 0.8 | Attrito warrior-warrior / warrior-wall |
-| `restitution` | 0.2 | Rimbalzo basso tra warrior |
+| `restitution` | 0.1 | Rimbalzo basso tra warrior |
 | `MERGE_DELAY` | 0.3s | Tempo contatto prima del merge |
 
 ### Track walls (Track.ts)
 | Parete | Restitution | Friction |
 |--------|-------------|----------|
 | Laterali (sx/dx) | 0.8 | 0.05 |
-| Fondo (top) | 0.1 | 0.8 |
+| Fondo (top) | 0.0 | 1.0 |
 | Bottom invisibile | 0.0 | 0.0 |
 
 ### InputController

@@ -45,8 +45,8 @@ export class Track extends Component {
         // Lateral walls: elastic bounce
         this.spawnWall('WallLeft',   -TRACK_W / 2, 0, WALL_T, TRACK_H, 0.8, 0.05);
         this.spawnWall('WallRight',   TRACK_W / 2, 0, WALL_T, TRACK_H, 0.8, 0.05);
-        // Top wall (back of track): high damping
-        this.spawnWall('WallTop',    0,  TRACK_H / 2, TRACK_W, WALL_T, 0.1, 0.8);
+        // Top wall (back of track): full damping, no bounce
+        this.spawnWall('WallTop',    0,  TRACK_H / 2, TRACK_W, WALL_T, 0.0, 1.0);
         // Invisible bottom wall: blocks re-entry below launch line
         this.spawnWall('WallBottom', 0, -TRACK_H / 2, TRACK_W, WALL_T, 0.0, 0.0);
     }

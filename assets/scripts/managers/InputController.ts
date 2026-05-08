@@ -15,10 +15,39 @@ export class InputController extends Component {
     private warrior: Warrior | null = null;
     private dragging: boolean = false;
     private rope: Graphics | null = null;
+    private lastTouchPos: Vec2 | null = null;
 
     setWarrior(w: Warrior): void {
         this.warrior = w;
+        this.dragging = false;
+        this.lastTouchPos = null;
         console.log(`[InputController] warrior set — type=${w.type} level=${w.level}`);
+    }
+
+    autoLaunch(): void {
+        if (!this.warrior) return;
+        this.dragging = false;
+        this.clearRope();
+
+        const wPos = this.warriorPos();
+        let dir: Vec2;
+
+        if (this.lastTouchPos) {
+            const drag = new Vec2(this.lastTouchPos.x - wPos.x, this.lastTouchPos.y - wPos.y);
+            dir = drag.length() >= MIN_DRAG
+                ? new Vec2(-drag.x, -drag.y).normalize()
+                : new Vec2(0, 1);
+        } else {
+            dir = new Vec2(0, 1);
+        }
+
+        // Always half force on auto-launch, regardless of drag length
+        const launched = this.warrior;
+        this.warrior = null;
+        this.lastTouchPos = null;
+        launched.applyImpulse(dir.multiplyScalar(MAX_IMPULSE * 0.5));
+        this.onLaunch?.(launched);
+        console.log('[InputController] auto-launch');
     }
 
     start() {
@@ -52,7 +81,8 @@ export class InputController extends Component {
 
     private onTouchMove(e: EventTouch): void {
         if (!this.dragging || !this.warrior) return;
-        this.drawRope(this.toWorld(e.getUILocation()));
+        this.lastTouchPos = this.toWorld(e.getUILocation());
+        this.drawRope(this.lastTouchPos);
     }
 
     private onTouchEnd(e: EventTouch): void {

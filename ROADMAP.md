@@ -1,6 +1,6 @@
 # Roadmap Tecnica — FanWarriors
 
-> Roadmap di sviluppo in Cocos Creator (TypeScript). Stima realistica part-time. Versione 0.3 — aggiornata 2026-05-08.
+> Roadmap di sviluppo in Cocos Creator (TypeScript). Stima realistica part-time. Versione 0.5 — aggiornata 2026-05-09.
 
 ## Stack tecnologico
 
@@ -27,83 +27,83 @@
 
 ---
 
-## FASE 1 — Setup e prototipo greybox *(7–20 mag 2026)*
+## FASE 1 — Setup e prototipo greybox *(7–20 mag 2026)* ✅ chiusa 2026-05-09
 
 **Obiettivo**: prototipo cliccabile con lancio a fionda, rimbalzi corretti e merge funzionante.
 
 ### Settimana 1: Setup e fisica base *(7–13 mag)*
 
-**Giorno 1-2: Setup progetto** *(7–8 mag)* ← **sei qui**
+**Giorno 1-2: Setup progetto** *(7–8 mag)*
 - [x] Installare Cocos Creator 3.8.8
 - [x] Creare nuovo progetto "FanWarriors"
 - [x] Configurare TypeScript strict mode
 - [x] Setup Git, .gitignore standard Cocos
 - [x] Configurare risoluzione di riferimento (1280x720 landscape)
-- [ ] Importare sprite placeholder (cerchi colorati con numeri)
+- [x] Importare sprite placeholder (cerchi colorati con numeri)
 
 **Giorno 3-4: Pista e fisica** *(9–10 mag)*
 - [x] Creare scena principale "GameScene"
-- [ ] Configurare PhysicsSystem2D (Box2D), **gravità globale = 0** (nessuna forza gravitazionale)
-- [ ] Creare "Track" node con SpriteComponent (rettangolo grigio greybox)
-- [ ] Aggiungere muri statici con Collider2D BoxCollider:
+- [x] Configurare PhysicsSystem2D (Box2D), **gravità globale = 0** (nessuna forza gravitazionale)
+- [x] Creare "Track" node con SpriteComponent (rettangolo grigio greybox)
+- [x] Aggiungere muri statici con Collider2D BoxCollider:
   - Pareti laterali: restitution ~0.8, friction bassa (rimbalzo consistente)
   - Fondo pista (top): restitution ~0.1, friction alta (smorzamento forte)
   - Bottom invisibile: blocca il rientro sotto la linea di lancio
-- [ ] Test: una palla lanciata rimbalza elasticamente sulle pareti laterali e si ferma sul fondo
+- [x] Test: una palla lanciata rimbalza elasticamente sulle pareti laterali e si ferma sul fondo
 
 **Giorno 5-7: Meccanica di lancio a fionda** *(11–13 mag)*
-- [ ] Creare prefab "Warrior": SpriteComponent (cerchio + numero), CircleCollider2D, RigidBody2D
+- [x] Creare prefab "Warrior": SpriteComponent (cerchio + numero), CircleCollider2D, RigidBody2D
   - Damping lineare e angolare alti (personaggi stabili, assorbono urti)
   - Friction ~0.05 (superficie scivolosa come bowling)
-- [ ] Spawn position: bottom-center
-- [ ] Input system (mouse e touch equivalenti):
+- [x] Spawn position: bottom-center
+- [x] Input system (mouse e touch equivalenti):
   - Press sul personaggio → inizio drag
   - Drag verso il basso / diagonale-basso → visualizza corda elastica
   - Direzione lancio = opposto al vettore drag (drag giù → lancia su, drag sinistra → lancia destra)
   - Lunghezza drag = forza (cappata a distanza massima)
   - Rilascio sotto soglia minima → annulla lancio
   - Rilascio sopra soglia minima → `applyLinearImpulse` nella direzione opposta al drag
-- [ ] Calibrare soglia minima: deve garantire che qualsiasi lancio valido superi la linea di game over
-- [ ] Calibrare soglia massima: la corda smette di allungarsi al cap visivo
-- [ ] Visualizzare corda elastica (Graphics drawn proceduralmente) e indicatore forza
-- [ ] Test: il personaggio viene lanciato nella direzione opposta al drag, rimbalza sulle pareti, si ferma per attrito
+- [x] Calibrare soglia minima: deve garantire che qualsiasi lancio valido superi la linea di game over
+- [x] Calibrare soglia massima: la corda smette di allungarsi al cap visivo
+- [x] Visualizzare corda elastica (Graphics drawn proceduralmente) e indicatore forza
+- [x] Test: il personaggio viene lanciato nella direzione opposta al drag, rimbalza sulle pareti, si ferma per attrito
 
 ### Settimana 2: Merge, magnetismo, game over *(14–20 mag)*
 
 **Giorno 8-10: Sistema di identificazione e merge** *(14–16 mag)*
-- [ ] Aggiungere a Warrior: `type: number` (0–6) e `level: number` (1–7)
-- [ ] Color-code temporaneo: ogni type un colore, ogni level un numero sul cerchio
-- [ ] Collision detection con stesso type+level (callback `onBeginContact`)
-- [ ] Timer contatto: >300ms → trigger merge
-- [ ] Funzione `mergeWarriors(a, b)`:
+- [x] Aggiungere a Warrior: `type: number` (0–6) e `level: number` (1–7)
+- [x] Color-code temporaneo: ogni type un colore, ogni level un numero sul cerchio
+- [x] Collision detection con stesso type+level (callback `onBeginContact`)
+- [x] Timer contatto: >300ms → trigger merge
+- [x] Funzione `mergeWarriors(a, b)`:
   - Calcola posizione media
   - Distruggi a e b
   - Spawn nuovo Warrior con stesso type, level+1, alla posizione media
   - Effetto visivo placeholder (flash bianco)
 
 **Giorno 11-12: Magnetismo e game over** *(17–18 mag)*
-- [ ] Ogni frame: per ogni Warrior, trovare Warrior compatibili (stessa specie E stesso livello) nel raggio ~2x diametro
-- [ ] Applicare piccola forza di attrazione verso il più vicino — percepibile ma non teletrasportante
-- [ ] Linea game over visibile (Graphics rosso) a metà pista
-- [ ] Logica attraversamento linea:
+- [x] Ogni frame: per ogni Warrior, trovare Warrior compatibili (stessa specie E stesso livello) nel raggio ~2x diametro
+- [x] Applicare piccola forza di attrazione verso il più vicino — percepibile ma non teletrasportante
+- [x] Linea game over visibile (Graphics rosso) a metà pista
+- [x] Logica attraversamento linea:
   - Warrior lanciato che supera **completamente** la linea **dal basso verso l'alto** → in gioco, turno OK
   - Warrior che **non** supera la linea → **game over**
   - Warrior in gioco che riattraversa **dall'alto verso il basso** → **esplode** con malus (non game over)
-- [ ] Schermata game over placeholder: punteggio e "Riprova"
+- [x] Schermata game over placeholder: punteggio e "Riprova"
 
 **Giorno 13-14: Timer di lancio + spawn loop** *(19–20 mag)*
-- [ ] Timer di lancio (Round 1 = 15s): conto alla rovescia visibile
-- [ ] Allo scadere: lancio automatico nella direzione corrente del drag con forza media
-- [ ] Queue di prossimi warrior: array `{type, level}` casuali
-- [ ] Preview "NEXT" (testo placeholder)
-- [ ] Dopo ogni lancio, spawn nuovo warrior dalla queue
-- [ ] Game state: `idle / aiming / inflight / settling`
-- [ ] Refactor in classi pulite: `GameManager`, `Warrior`, `InputController`, `SpawnManager`
-- [ ] **Milestone Fase 1** *(20 mag)*: prototipo giocabile 30s+, merge funzionante, game over attivo
+- [x] Timer di lancio (Round 1 = 15s): conto alla rovescia visibile
+- [x] Allo scadere: lancio automatico nella direzione corrente del drag con forza media
+- [x] Queue di prossimi warrior: array `{type, level}` casuali
+- [x] Preview "NEXT" (testo placeholder)
+- [x] Dopo ogni lancio, spawn nuovo warrior dalla queue
+- [x] Game state: `idle / aiming / inflight / settling`
+- [x] Refactor in classi pulite: `GameManager`, `Warrior`, `InputController`, `SpawnManager`
+- [x] **Milestone Fase 1** *(chiusa 2026-05-09)*: prototipo giocabile 30s+, merge funzionante, game over attivo
 
 ---
 
-## FASE 2 — Core gameplay completo *(21 mag–3 giu 2026)*
+## FASE 2 — Core gameplay completo *(21 mag–3 giu 2026)* ← **sei qui**
 
 **Obiettivo**: tutto il loop di gioco giocabile in greybox — punteggio formula completa, round, game over, malus, esplosioni livelli speciali.
 
@@ -118,16 +118,16 @@
 - [ ] Punteggio non scende sotto zero
 
 **Giorno 18-19: Progressione round** *(24–25 mag)*
-- [ ] Aggiungere `currentRound` al GameManager
-- [ ] Tabella soglie punteggio per avanzare di round
+- [x] Aggiungere `currentRound` al GameManager
+- [ ] Contatore `totalMerges` e tabella soglie merge per avanzare di round (es. 10 merge → round 2)
 - [ ] All'avanzare del round: aggiungere specie alla pool, aggiornare regole spawn, ridurre timer di lancio
 - [ ] Timer di lancio scala con il round (15s → 3s min, curva da bilanciare)
 - [ ] Notifica visiva "ROUND UP" placeholder + breve pausa celebrativa
 
 **Giorno 20-21: Game over e restart** *(26–27 mag)*
-- [ ] Verifica frame-by-frame attraversamento linea (direzione + completezza)
-- [ ] Esplosione malus: warrior distrutto + flash rosso
-- [ ] Restart pulisce scena e resetta stato completo
+- [x] Verifica frame-by-frame attraversamento linea (direzione + completezza) — fix false game over + fix stuck Inflight
+- [ ] Esplosione malus: warrior distrutto + flash rosso — esplosione ✅, flash rosso ❌
+- [x] Restart pulisce scena e resetta stato completo (`director.loadScene`) — fix nodo HalloWarld corrotto al reload
 - [ ] Salvataggio best score in localStorage
 
 ### Settimana 4: Esplosioni livelli speciali e refinement *(28 mag–3 giu)*
@@ -297,8 +297,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-08 — setup completato, fisica ancora da fare.
+> Aggiornato al 2026-05-09 — Fase 1 chiusa. Fase 2 in corso (bug game over/restart risolti).
 
-1. **Prossimo step** *(9-10 mag)*: configurare PhysicsSystem2D con gravità=0, aggiungere 3 muri statici con parametri corretti (restitution 0.8 laterali, 0.1 fondo)
-2. **Fine Settimana 1** *(13 mag)*: meccanica fionda funzionante — drag verso il basso, lancio nella direzione opposta, soglie min/max, corda elastica visibile
-3. **Fine Settimana 2** *(20 mag)*: prototipo Fase 1 completo — merge, magnetismo, game over con regole attraversamento linea, timer di lancio
+1. **Giorno 15-17**: Formula punteggio completa — aggiungere `mergesThisLaunch` (reset ad ogni lancio), applicare moltiplicatore combo, floating score "+N" al punto di merge
+2. **Giorno 15-17**: Malus punteggio — detrarre score in `penaltyExplode`, flash rosso overlay 0.3s, score non scende sotto zero
+3. **Giorno 18-19**: Progressione round — soglie `totalMerges` per round-up, pool specie cresce, timer si riduce, notifica "ROUND UP"
+4. **Giorno 20-21**: Salvataggio best score in localStorage
