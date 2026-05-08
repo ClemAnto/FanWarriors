@@ -52,7 +52,7 @@
 - [ ] Test: una palla lanciata rimbalza elasticamente sulle pareti laterali e si ferma sul fondo
 
 **Giorno 5-7: Meccanica di lancio a fionda** *(11–13 mag)*
-- [ ] Creare prefab "Critter": SpriteComponent (cerchio + numero), CircleCollider2D, RigidBody2D
+- [ ] Creare prefab "Warrior": SpriteComponent (cerchio + numero), CircleCollider2D, RigidBody2D
   - Damping lineare e angolare alti (personaggi stabili, assorbono urti)
   - Friction ~0.05 (superficie scivolosa come bowling)
 - [ ] Spawn position: bottom-center
@@ -71,34 +71,34 @@
 ### Settimana 2: Merge, magnetismo, game over *(14–20 mag)*
 
 **Giorno 8-10: Sistema di identificazione e merge** *(14–16 mag)*
-- [ ] Aggiungere a Critter: `species: number` (0–6) e `level: number` (1–7)
-- [ ] Color-code temporaneo: ogni species un colore, ogni level un numero sul cerchio
-- [ ] Collision detection con stesso species+level (callback `onBeginContact`)
+- [ ] Aggiungere a Warrior: `type: number` (0–6) e `level: number` (1–7)
+- [ ] Color-code temporaneo: ogni type un colore, ogni level un numero sul cerchio
+- [ ] Collision detection con stesso type+level (callback `onBeginContact`)
 - [ ] Timer contatto: >300ms → trigger merge
-- [ ] Funzione `mergeCritters(a, b)`:
+- [ ] Funzione `mergeWarriors(a, b)`:
   - Calcola posizione media
   - Distruggi a e b
-  - Spawn nuovo Critter con stesso species, level+1, alla posizione media
+  - Spawn nuovo Warrior con stesso type, level+1, alla posizione media
   - Effetto visivo placeholder (flash bianco)
 
 **Giorno 11-12: Magnetismo e game over** *(17–18 mag)*
-- [ ] Ogni frame: per ogni Critter, trovare Critter compatibili (stessa specie E stesso livello) nel raggio ~2x diametro
+- [ ] Ogni frame: per ogni Warrior, trovare Warrior compatibili (stessa specie E stesso livello) nel raggio ~2x diametro
 - [ ] Applicare piccola forza di attrazione verso il più vicino — percepibile ma non teletrasportante
 - [ ] Linea game over visibile (Graphics rosso) a metà pista
 - [ ] Logica attraversamento linea:
-  - Critter lanciato che supera **completamente** la linea **dal basso verso l'alto** → in gioco, turno OK
-  - Critter che **non** supera la linea → **game over**
-  - Critter in gioco che riattraversa **dall'alto verso il basso** → **esplode** con malus (non game over)
+  - Warrior lanciato che supera **completamente** la linea **dal basso verso l'alto** → in gioco, turno OK
+  - Warrior che **non** supera la linea → **game over**
+  - Warrior in gioco che riattraversa **dall'alto verso il basso** → **esplode** con malus (non game over)
 - [ ] Schermata game over placeholder: punteggio e "Riprova"
 
 **Giorno 13-14: Timer di lancio + spawn loop** *(19–20 mag)*
 - [ ] Timer di lancio (Round 1 = 15s): conto alla rovescia visibile
 - [ ] Allo scadere: lancio automatico nella direzione corrente del drag con forza media
-- [ ] Queue di prossimi critter: array `{species, level}` casuali
+- [ ] Queue di prossimi warrior: array `{type, level}` casuali
 - [ ] Preview "NEXT" (testo placeholder)
-- [ ] Dopo ogni lancio, spawn nuovo critter dalla queue
+- [ ] Dopo ogni lancio, spawn nuovo warrior dalla queue
 - [ ] Game state: `idle / aiming / inflight / settling`
-- [ ] Refactor in classi pulite: `GameManager`, `Critter`, `InputController`, `SpawnManager`
+- [ ] Refactor in classi pulite: `GameManager`, `Warrior`, `InputController`, `SpawnManager`
 - [ ] **Milestone Fase 1** *(20 mag)*: prototipo giocabile 30s+, merge funzionante, game over attivo
 
 ---
@@ -113,7 +113,7 @@
 - [ ] Formula punteggio: `10 × 2^(livello_creatura - 1) × round_corrente × 2^(merge_nello_stesso_lancio - 1)`
 - [ ] Tracciare `mergesThisLaunch` (reset ad ogni nuovo lancio)
 - [ ] Floating score placeholder: testo "+N" che sale dal punto di merge
-- [ ] Malus: penalità `10 × 2^(livello_creatura - 1) × round_corrente` quando un critter riattraversa la linea
+- [ ] Malus: penalità `10 × 2^(livello_creatura - 1) × round_corrente` quando un warrior riattraversa la linea
 - [ ] Malus: flash rosso overlay (~0.3s) come unico feedback visivo negativo
 - [ ] Punteggio non scende sotto zero
 
@@ -126,17 +126,17 @@
 
 **Giorno 20-21: Game over e restart** *(26–27 mag)*
 - [ ] Verifica frame-by-frame attraversamento linea (direzione + completezza)
-- [ ] Esplosione malus: critter distrutto + flash rosso
+- [ ] Esplosione malus: warrior distrutto + flash rosso
 - [ ] Restart pulisce scena e resetta stato completo
 - [ ] Salvataggio best score in localStorage
 
 ### Settimana 4: Esplosioni livelli speciali e refinement *(28 mag–3 giu)*
 
 **Giorno 22-23: Esplosioni Campione / Eroe / Leggenda** *(28–29 mag)*
-- [ ] Quando merge crea critter di livello 5 (Campione): esplosione placeholder + bonus +500pt
-- [ ] Quando merge crea critter di livello 6 (Eroe): esplosione placeholder + bonus +1000pt
-- [ ] Quando merge crea critter di livello 7 (Leggenda): esplosione placeholder + bonus +2000pt
-- [ ] Ogni esplosione: VFX placeholder (cerchio che cresce e svanisce), critter distrutto
+- [ ] Quando merge crea warrior di livello 5 (Campione): esplosione placeholder + bonus +500pt
+- [ ] Quando merge crea warrior di livello 6 (Eroe): esplosione placeholder + bonus +1000pt
+- [ ] Quando merge crea warrior di livello 7 (Leggenda): esplosione placeholder + bonus +2000pt
+- [ ] Ogni esplosione: VFX placeholder (cerchio che cresce e svanisce), warrior distrutto
 
 **Giorno 24-25: Tutorial e logica spawn avanzata** *(30–31 mag)*
 - [ ] Logica spawn: round 1-2 solo livello 1; round 3-4 livelli 1-2; round 7+ livelli 1-3
@@ -224,7 +224,7 @@
 - [ ] Implementare AudioManager con volume controls (musica separata da SFX)
 - [ ] Implementare sistema **6-tier floating score** v1 (testo + colori + FX per fascia)
 - [ ] Implementare slowmo: ×0.8 da 10k pt (tier 5), ×0.5 da 12k pt (tier 6)
-- [ ] Trail leggero dietro al critter in volo
+- [ ] Trail leggero dietro al warrior in volo
 - [ ] Squash & stretch sull'atterraggio
 
 ### Settimana 9: Bilanciamento approfondito *(2–8 lug)*
@@ -291,7 +291,7 @@
 | Asset art costoso/lungo (37 sprite + animazioni) | Alta | Alto | Iniziare con AI generation + rifinitura per i 28 base; commissionare solo i livelli speciali se budget lo consente |
 | Magnetismo difficile da bilanciare | Alta | Medio | Esporre come parametro live-tunabile, testare presto |
 | Calibrazione soglie fionda (min/max vs linea game over) | Media | Medio | Testare su tutti gli angoli di lancio fin dalla Fase 1 |
-| Performance mobile con particelle | Bassa | Medio | 3 asset particellari riutilizzati con parametri variabili; pool di particelle; max ~30 critter simultanei |
+| Performance mobile con particelle | Bassa | Medio | 3 asset particellari riutilizzati con parametri variabili; pool di particelle; max ~30 warrior simultanei |
 | Poki rifiuta per "troppo simile a Suika" | Bassa | Alto | Enfatizzare differenziatori: fionda, magnetismo selettivo, malus, round |
 | Scope creep | Alta | Alto | Rispettare lista "out of scope" del GDD |
 

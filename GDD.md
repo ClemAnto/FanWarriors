@@ -28,14 +28,15 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 
 ## 5. Loop di gioco
 
-1. Il giocatore vede un personaggio in attesa di lancio (bottom center) e l'anteprima del prossimo (NEXT)
-2. Mira con drag (angolo + forza visualizzati come freccia)
-3. Rilascia → il personaggio scivola sulla pista
-4. La pista è in **leggera salita verso il fondo (alto)**: l'attrito + gravità rallentano e fermano il personaggio in alto
-5. Personaggi dello stesso tipo+livello che si trovano vicini si **attraggono magneticamente** (raggio corto)
-6. Dopo qualche centinaio di millisecondi di contatto, **due personaggi uguali si fondono** al centro nella loro evoluzione successiva
-7. Il giocatore continua a lanciare, accumulando punti per ogni merge
-8. **Game over**: se un personaggio non supera la linea del nastro rosso (a metà pista) — anche un solo personaggio oltre la linea è fine partita
+1. La partita inizia con **3 warrior prefill** già posizionati nella parte alta della pista (tipi 0, 1, 2 — un warrior per tipo), dando al giocatore targets immediati per il merge
+2. Il giocatore vede un personaggio in attesa di lancio (bottom center) e l'anteprima del prossimo (NEXT)
+3. Mira con drag (angolo + forza visualizzati come freccia)
+4. Rilascia → il personaggio scivola sulla pista
+5. La pista è in **leggera salita verso il fondo (alto)**: l'attrito + gravità rallentano e fermano il personaggio in alto
+6. Personaggi dello stesso tipo+livello che si trovano vicini si **attraggono magneticamente** (raggio corto)
+7. Dopo qualche centinaio di millisecondi di contatto, **due personaggi uguali si fondono** al centro nella loro evoluzione successiva
+8. Il giocatore continua a lanciare, accumulando punti per ogni merge
+9. **Game over**: se il personaggio lanciato non supera la linea del nastro rosso (a metà pista) — anche un solo personaggio oltre la linea è fine partita
 
 ## 6. Sistema di evoluzione
 
@@ -43,15 +44,15 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 
 Ogni specie animale condivide la stessa catena evolutiva a **6 livelli**. I livelli 5 e 6 sono disponibili solo per alcune specie selezionate.
 
-| Livello | Nome | Equipaggiamento | Note |
-|---------|------|-----------------|------|
-| 1 | **Cucciolo** | Nessun accessorio | Punto di partenza, forma più piccola |
-| 2 | **Apprendista** | Arma e scudo di legno | Prima trasformazione |
-| 3 | **Soldato** | Arma vera (piccola) | Aspetto da combattente |
-| 4 | **Guerriero** | Elmetto/copricapo + arma più imponente | Presenza sul campo |
-| 5 | **Campione** | Elmetto/copricapo + stivali + arma rara | *Solo alcune specie* — al raggiungimento **esplode** dando bonus di punti e liberando spazio |
-| 6 | **Eroe** | Armatura completa + arma epica | *Solo alcune specie* — al raggiungimento **esplode** dando bonus alto di punti e liberando spazio |
-| 7 | **Leggenda** | Armatura e arma leggendaria | *Solo 1 specie* — il culmine assoluto della catena |
+| Livello | Nome | Equipaggiamento | Raggio | Note |
+|---------|------|-----------------|--------|------|
+| 1 | **Cucciolo** | Nessun accessorio | 20px | Punto di partenza, forma più piccola |
+| 2 | **Apprendista** | Arma e scudo di legno | 28px | Prima trasformazione |
+| 3 | **Soldato** | Arma vera (piccola) | 36px | Aspetto da combattente |
+| 4 | **Guerriero** | Elmetto/copricapo + arma più imponente | 42px | Presenza sul campo |
+| 5 | **Campione** | Elmetto/copricapo + stivali + arma rara | 48px | *Solo alcune specie* — al raggiungimento **esplode** dando bonus di punti e liberando spazio |
+| 6 | **Eroe** | Armatura completa + arma epica | 54px | *Solo alcune specie* — al raggiungimento **esplode** dando bonus alto di punti e liberando spazio |
+| 7 | **Leggenda** | Armatura e arma leggendaria | 60px | *Solo 1 specie* — il culmine assoluto della catena |
 
 ### Specie disponibili (7 totali)
 
@@ -212,23 +213,24 @@ Il timer è **poco visibile quando il tempo è abbondante** e si accende progres
 - **Gravità**: ignorata — nessuna forza gravitazionale applicata ai personaggi
 
 #### Superficie
-- La pista è **scivolosa come una pista da bowling**: attrito molto basso (~0.05), il personaggio lanciato mantiene la velocità a lungo
+- Il rallentamento è controllato dal **damping lineare** del rigidbody (non da un attrito di superficie), producendo il comportamento di scivolata + smorzamento progressivo tipico del bowling/curling
 
 #### Pareti e bordi
-- **Pareti laterali**: rimbalzo **consistente ed elastico** (restituzione ~0.8) — il personaggio rimbalza con poca perdita di energia, consentendo traiettorie di rimbalzo utili strategicamente
-- **Fondo pista** (parete in alto): **alto smorzamento** (restituzione ~0.2, attrito alto) — il personaggio perde quasi tutta la velocità all'impatto e si ferma vicino al fondo
+- **Pareti laterali**: rimbalzo **consistente ed elastico** (restituzione ~0.8, attrito basso ~0.05) — il personaggio rimbalza con poca perdita di energia, consentendo traiettorie di rimbalzo utili strategicamente
+- **Fondo pista** (parete in alto): **alto smorzamento** (restituzione ~0.1, attrito alto ~0.8) — il personaggio perde quasi tutta la velocità all'impatto e si ferma vicino al fondo
 - **Ingresso pista** (in basso): muro invisibile sotto il punto di lancio, il personaggio non può tornare indietro
 
 #### Stabilità dei personaggi in pista
-- I personaggi fermi sono **molto stabili**: alto damping lineare e angolare, assorbono gli urti senza essere proiettati via
+- I personaggi fermi sono **molto stabili**: alto damping lineare e angolare (2.5), assorbono gli urti senza essere proiettati via
 - Il personaggio lanciato **trasferisce poca energia cinetica** ai personaggi colpiti — l'impatto è morbido, non una bocciata da biliardo
 - I personaggi si spostano leggermente per colpo ma si fermano rapidamente
+- Un sistema di **settling** rileva quando tutti i personaggi in pista sono fermi (velocità < soglia) e solo allora abilita il lancio successivo — impedisce lanci multipli sovrapposti
 
 ### Magnetismo
 - Attivo **esclusivamente** tra personaggi che possono fondersi: **stessa specie E stesso livello evolutivo**
 - Nessuna attrazione tra specie diverse o livelli diversi, anche se visivamente vicini
-- Raggio: ~2x il diametro del personaggio
-- Forza: leggera, percettibile ma non "teleportante"
+- Raggio: ~75px (fisso, non scala con la dimensione del warrior)
+- Forza: **quadratica con la prossimità** — quasi impercettibile a distanza, molto più forte a contatto ravvicinato; evita il "teletrasporto" mantenendo l'effetto di aggancio
 - Soglia di merge: dopo **~300ms di contatto continuo**, fusione
 - Nuovo personaggio appare al **centro geometrico** dei due fondenti, con piccola animazione di scale-up + flash
 

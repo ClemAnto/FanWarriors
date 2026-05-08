@@ -17,6 +17,7 @@ Progetto Cocos Creator 3.8.8, TypeScript, gioco puzzle-arcade ibrido tra Suika G
 - File scripts: PascalCase.ts (es. GameManager.ts)
 - Cartelle: lowercase (managers/, entities/, utils/)
 - Decoratori @ccclass con stesso nome della classe
+- Log (console.log/warn/error) sempre in inglese
 
 ## Stato attuale
 Fase 1 — Setup e prototipo greybox in corso.
