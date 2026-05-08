@@ -1,281 +1,304 @@
 # Roadmap Tecnica — FanWarriors
 
-> Roadmap di sviluppo in Cocos Creator (JavaScript/TypeScript). Stima realistica part-time. Versione 0.1.
+> Roadmap di sviluppo in Cocos Creator (TypeScript). Stima realistica part-time. Versione 0.3 — aggiornata 2026-05-08.
 
 ## Stack tecnologico
 
-- **Engine**: Cocos Creator (versione 3.x consigliata)
-- **Linguaggio**: TypeScript (preferito) o JavaScript
+- **Engine**: Cocos Creator 3.8.8
+- **Linguaggio**: TypeScript (strict mode)
 - **Fisica**: Box2D (modulo built-in di Cocos)
 - **Build target**: HTML5 (Web Mobile + Desktop)
 - **SDK portale**: Poki SDK (o CrazyGames SDK) — integrazione finale
-- **Version control**: Git (consigliato repo privato GitHub/GitLab)
+- **Version control**: Git (repo privato GitHub/GitLab)
 - **Asset pipeline**: PNG sprite + Aseprite/Photoshop, audio in OGG/MP3
 
 ## Stima totale realistica
 
-- **8-12 settimane part-time** (10-15h/settimana)
-- Distribuite indicativamente come segue:
+- **Inizio**: 7 maggio 2026
+- **10-15h/settimana** part-time
 
-| Fase | Durata | Output |
-|------|--------|--------|
-| 1. Setup + prototipo greybox | 2 settimane | Fisica + lancio + merge funzionanti |
-| 2. Core gameplay completo | 2 settimane | Loop completo greybox |
-| 3. Asset + UI definitiva | 3 settimane | Look finale |
-| 4. Polish + audio + balancing | 2 settimane | Esperienza rifinita |
-| 5. Integrazione SDK + submission | 1 settimana | Build pubblicabile |
+| Fase | Durata | Periodo | Milestone |
+|------|--------|---------|-----------|
+| 1. Setup + prototipo greybox | 2 settimane | 7–20 mag | Fisica + lancio fionda + merge funzionanti |
+| 2. Core gameplay completo | 2 settimane | 21 mag–3 giu | Loop completo greybox |
+| 3. Asset + UI definitiva | 3 settimane | 4–24 giu | Look finale |
+| 4. Polish + audio + balancing | 2 settimane | 25 giu–8 lug | Esperienza rifinita |
+| 5. Integrazione SDK + submission | 1 settimana | 9–15 lug | Build pubblicabile |
 
 ---
 
-## FASE 1 — Setup e prototipo greybox (Settimane 1-2)
+## FASE 1 — Setup e prototipo greybox *(7–20 mag 2026)*
 
-**Obiettivo**: avere un prototipo cliccabile in cui si lancia un cerchio sulla pista, rimbalza, si ferma per attrito, e due cerchi uguali si uniscono al contatto.
+**Obiettivo**: prototipo cliccabile con lancio a fionda, rimbalzi corretti e merge funzionante.
 
-### Settimana 1: Setup e fisica base
+### Settimana 1: Setup e fisica base *(7–13 mag)*
 
-**Giorno 1-2: Setup progetto**
-- [ ] Installare Cocos Creator 3.x
-- [ ] Creare nuovo progetto "FanWarriors"
-- [ ] Configurare TypeScript
-- [ ] Setup Git, .gitignore standard Cocos
-- [ ] Configurare risoluzione di riferimento (es. 1280x720 landscape, design canvas)
-- [ ] Importare un set di sprite placeholder (cerchi colorati con numeri = "guerrieri" temporanei)
+**Giorno 1-2: Setup progetto** *(7–8 mag)* ← **sei qui**
+- [x] Installare Cocos Creator 3.8.8
+- [x] Creare nuovo progetto "FanWarriors"
+- [x] Configurare TypeScript strict mode
+- [x] Setup Git, .gitignore standard Cocos
+- [x] Configurare risoluzione di riferimento (1280x720 landscape)
+- [ ] Importare sprite placeholder (cerchi colorati con numeri)
 
-**Giorno 3-4: Pista e fisica**
-- [ ] Creare scena principale "GameScene"
-- [ ] Configurare PhysicsSystem2D (Box2D)
+**Giorno 3-4: Pista e fisica** *(9–10 mag)*
+- [x] Creare scena principale "GameScene"
+- [ ] Configurare PhysicsSystem2D (Box2D), **gravità globale = 0** (nessuna forza gravitazionale)
 - [ ] Creare "Track" node con SpriteComponent (rettangolo grigio greybox)
-- [ ] Aggiungere 4 muri statici (Collider2D BoxCollider): pareti sx, dx, fondo (top), bottom invisibile
-- [ ] Configurare gravità globale a 0 (gestiremo manualmente la "salita")
-- [ ] Test: una palla che cade dentro non subisce gravità
+- [ ] Aggiungere muri statici con Collider2D BoxCollider:
+  - Pareti laterali: restitution ~0.8, friction bassa (rimbalzo consistente)
+  - Fondo pista (top): restitution ~0.1, friction alta (smorzamento forte)
+  - Bottom invisibile: blocca il rientro sotto la linea di lancio
+- [ ] Test: una palla lanciata rimbalza elasticamente sulle pareti laterali e si ferma sul fondo
 
-**Giorno 5-7: Lancio personaggio**
-- [ ] Creare prefab "Critter" con: SpriteComponent (cerchio colorato + numero), CircleCollider2D, RigidBody2D
+**Giorno 5-7: Meccanica di lancio a fionda** *(11–13 mag)*
+- [ ] Creare prefab "Critter": SpriteComponent (cerchio + numero), CircleCollider2D, RigidBody2D
+  - Damping lineare e angolare alti (personaggi stabili, assorbono urti)
+  - Friction ~0.05 (superficie scivolosa come bowling)
 - [ ] Spawn position: bottom-center
-- [ ] Input system: drag con mouse → calcola direzione e magnitude
-- [ ] Visualizzare freccia di mira (Graphics o Sprite ruotato)
-- [ ] Al rilascio: applyLinearImpulse al rigidbody nella direzione mira
-- [ ] **Forza simulata di "salita verso il basso"**: applicare ogni frame una gravità custom verso il bottom (es. -200 sull'asse Y se Y+ è up)
-- [ ] Configurare friction (~0.4) e restitution (~0.6) sui personaggi
-- [ ] Test: il personaggio scivola, rimbalza sulle pareti, si ferma per attrito
+- [ ] Input system (mouse e touch equivalenti):
+  - Press sul personaggio → inizio drag
+  - Drag verso il basso / diagonale-basso → visualizza corda elastica
+  - Direzione lancio = opposto al vettore drag (drag giù → lancia su, drag sinistra → lancia destra)
+  - Lunghezza drag = forza (cappata a distanza massima)
+  - Rilascio sotto soglia minima → annulla lancio
+  - Rilascio sopra soglia minima → `applyLinearImpulse` nella direzione opposta al drag
+- [ ] Calibrare soglia minima: deve garantire che qualsiasi lancio valido superi la linea di game over
+- [ ] Calibrare soglia massima: la corda smette di allungarsi al cap visivo
+- [ ] Visualizzare corda elastica (Graphics drawn proceduralmente) e indicatore forza
+- [ ] Test: il personaggio viene lanciato nella direzione opposta al drag, rimbalza sulle pareti, si ferma per attrito
 
-### Settimana 2: Merge e magnetismo
+### Settimana 2: Merge, magnetismo, game over *(14–20 mag)*
 
-**Giorno 8-10: Sistema di identificazione e merge**
-- [ ] Aggiungere a Critter: properties `species: number` (0-6) e `level: number` (1-5)
-- [ ] Color-code temporaneo: ogni species un colore diverso, ogni level un numero scritto sul cerchio
-- [ ] Implementare detection di collisione con stesso species+level (callback onBeginContact)
-- [ ] Timer di "contact persistence": se restano in contatto >300ms → trigger merge
+**Giorno 8-10: Sistema di identificazione e merge** *(14–16 mag)*
+- [ ] Aggiungere a Critter: `species: number` (0–6) e `level: number` (1–7)
+- [ ] Color-code temporaneo: ogni species un colore, ogni level un numero sul cerchio
+- [ ] Collision detection con stesso species+level (callback `onBeginContact`)
+- [ ] Timer contatto: >300ms → trigger merge
 - [ ] Funzione `mergeCritters(a, b)`:
   - Calcola posizione media
   - Distruggi a e b
   - Spawn nuovo Critter con stesso species, level+1, alla posizione media
   - Effetto visivo placeholder (flash bianco)
 
-**Giorno 11-12: Magnetismo**
-- [ ] Ogni frame, per ogni Critter, calcolare i Critter compatibili nel raggio di ~2x diametro
-- [ ] Applicare una piccola forza di attrazione verso il critter compatibile più vicino
-- [ ] Tuning della forza: deve essere percepibile ma non "teletrasportare"
-- [ ] Test: lanci due rane lvl 1, si avvicinano, si toccano, si fondono in una rana lvl 2
+**Giorno 11-12: Magnetismo e game over** *(17–18 mag)*
+- [ ] Ogni frame: per ogni Critter, trovare Critter compatibili (stessa specie E stesso livello) nel raggio ~2x diametro
+- [ ] Applicare piccola forza di attrazione verso il più vicino — percepibile ma non teletrasportante
+- [ ] Linea game over visibile (Graphics rosso) a metà pista
+- [ ] Logica attraversamento linea:
+  - Critter lanciato che supera **completamente** la linea **dal basso verso l'alto** → in gioco, turno OK
+  - Critter che **non** supera la linea → **game over**
+  - Critter in gioco che riattraversa **dall'alto verso il basso** → **esplode** con malus (non game over)
+- [ ] Schermata game over placeholder: punteggio e "Riprova"
 
-**Giorno 13-14: Refactor + spawn loop**
-- [ ] Implementare "queue" di prossimi critter: array di {species, level} casuali
-- [ ] Mostrare preview "NEXT" (anche solo come testo sullo schermo per ora)
-- [ ] Dopo ogni lancio, spawn nuovo critter dalla queue alla position di lancio
-- [ ] Game state base: idle / aiming / inflight / settling
-- [ ] Refactor del codice in classi pulite: GameManager, Critter, InputController, SpawnManager
-- [ ] **Milestone Fase 1**: prototipo giocabile per 30+ secondi senza crash, merge funzionante
+**Giorno 13-14: Timer di lancio + spawn loop** *(19–20 mag)*
+- [ ] Timer di lancio (Round 1 = 15s): conto alla rovescia visibile
+- [ ] Allo scadere: lancio automatico nella direzione corrente del drag con forza media
+- [ ] Queue di prossimi critter: array `{species, level}` casuali
+- [ ] Preview "NEXT" (testo placeholder)
+- [ ] Dopo ogni lancio, spawn nuovo critter dalla queue
+- [ ] Game state: `idle / aiming / inflight / settling`
+- [ ] Refactor in classi pulite: `GameManager`, `Critter`, `InputController`, `SpawnManager`
+- [ ] **Milestone Fase 1** *(20 mag)*: prototipo giocabile 30s+, merge funzionante, game over attivo
 
 ---
 
-## FASE 2 — Core gameplay completo (Settimane 3-4)
+## FASE 2 — Core gameplay completo *(21 mag–3 giu 2026)*
 
-**Obiettivo**: tutto il loop di gioco è giocabile in greybox: punteggio, livelli, game over, esplosione lvl 5.
+**Obiettivo**: tutto il loop di gioco giocabile in greybox — punteggio formula completa, round, game over, malus, esplosioni livelli speciali.
 
-### Settimana 3: Punteggio, livelli, game over
+### Settimana 3: Punteggio e round *(21–27 mag)*
 
-**Giorno 15-17: Sistema di punteggio**
-- [ ] Aggiungere proprietà `score` al GameManager
-- [ ] Punti su merge in base a level di destinazione (10, 30, 80, 200, 500)
-- [ ] UI temporanea: testo punteggio top-left
-- [ ] Combo detection: se merge a catena entro 1s, moltiplicatore x1.5/x2/x3
-- [ ] Visualizzazione "+10", "+30" che fluttua dal punto di merge
+**Giorno 15-17: Sistema di punteggio** *(21–23 mag)*
+- [ ] Formula punteggio: `10 × 2^(livello_creatura - 1) × round_corrente × 2^(merge_nello_stesso_lancio - 1)`
+- [ ] Tracciare `mergesThisLaunch` (reset ad ogni nuovo lancio)
+- [ ] Floating score placeholder: testo "+N" che sale dal punto di merge
+- [ ] Malus: penalità `10 × 2^(livello_creatura - 1) × round_corrente` quando un critter riattraversa la linea
+- [ ] Malus: flash rosso overlay (~0.3s) come unico feedback visivo negativo
+- [ ] Punteggio non scende sotto zero
 
-**Giorno 18-19: Livelli del gioco**
-- [ ] Aggiungere `gameLevel` (1-10+) al GameManager
-- [ ] Tabella di soglie punteggio per level-up
-- [ ] All'aumento di gameLevel: aggiungere nuova specie alla pool spawnabile, aggiornare regole spawn
-- [ ] Notifica visiva "LIVELLO UP" + breve pausa celebrativa
-- [ ] Implementare logica spawn: a gameLevel 1-2 solo level 1; a gameLevel 3-4 anche level 2; ecc.
+**Giorno 18-19: Progressione round** *(24–25 mag)*
+- [ ] Aggiungere `currentRound` al GameManager
+- [ ] Tabella soglie punteggio per avanzare di round
+- [ ] All'avanzare del round: aggiungere specie alla pool, aggiornare regole spawn, ridurre timer di lancio
+- [ ] Timer di lancio scala con il round (15s → 3s min, curva da bilanciare)
+- [ ] Notifica visiva "ROUND UP" placeholder + breve pausa celebrativa
 
-**Giorno 20-21: Game over**
-- [ ] Linea rossa visibile a metà pista (Graphics o sprite)
-- [ ] Check ogni frame: se un critter "settled" (velocità < soglia) ha la sua position oltre la linea per >0.5s → game over
-- [ ] Schermata game over: pannello con punteggio, "Riprova", "Menu"
-- [ ] Restart partita pulisce scena e resetta state
+**Giorno 20-21: Game over e restart** *(26–27 mag)*
+- [ ] Verifica frame-by-frame attraversamento linea (direzione + completezza)
+- [ ] Esplosione malus: critter distrutto + flash rosso
+- [ ] Restart pulisce scena e resetta stato completo
+- [ ] Salvataggio best score in localStorage
 
-### Settimana 4: Esplosione livello 5 e refinement
+### Settimana 4: Esplosioni livelli speciali e refinement *(28 mag–3 giu)*
 
-**Giorno 22-23: Esplosione livello 5**
-- [ ] Quando si crea un critter di level 5, dopo breve animazione, "esplode"
-- [ ] Esplosione: VFX placeholder (cerchio che cresce e svanisce)
-- [ ] Restituisce 500 punti bonus
-- [ ] Distrugge il critter, libera spazio
-- [ ] (Opzionale) leggera onda d'urto fisica che spinge i critter vicini
+**Giorno 22-23: Esplosioni Campione / Eroe / Leggenda** *(28–29 mag)*
+- [ ] Quando merge crea critter di livello 5 (Campione): esplosione placeholder + bonus +500pt
+- [ ] Quando merge crea critter di livello 6 (Eroe): esplosione placeholder + bonus +1000pt
+- [ ] Quando merge crea critter di livello 7 (Leggenda): esplosione placeholder + bonus +2000pt
+- [ ] Ogni esplosione: VFX placeholder (cerchio che cresce e svanisce), critter distrutto
 
-**Giorno 24-25: Tutorial primo lancio**
-- [ ] Alla primissima partita, mostrare 3 popup:
-  - "Trascina per mirare"
-  - "Rilascia per lanciare"
-  - "Unisci due uguali per evolverli!"
-- [ ] Salvare flag in localStorage per non rimostrarli
-- [ ] (Avvertenza: usa localStorage solo nel build standalone, NON in artefatti web — qui siamo in build HTML5 normale, quindi ok)
+**Giorno 24-25: Tutorial e logica spawn avanzata** *(30–31 mag)*
+- [ ] Logica spawn: round 1-2 solo livello 1; round 3-4 livelli 1-2; round 7+ livelli 1-3
+- [ ] Spawn specie scalato per round (3 specie → 7 specie progressivamente)
+- [ ] Tutorial primo lancio: 3 popup ("Trascina verso il basso", "Rilascia per lanciare", "Unisci due uguali!")
+- [ ] Flag in localStorage per non rimostrare tutorial
 
-**Giorno 26-28: Bilanciamento iniziale e bug fixing**
+**Giorno 26-28: Bilanciamento iniziale** *(1–3 giu)*
 - [ ] Playtest sessioni multiple
-- [ ] Tunare: forza magnetismo, attrito, gravità simulata, tempo di contatto per merge
-- [ ] Tunare: curva difficoltà (soglie level-up, frequenza spawn livelli alti)
+- [ ] Tuning: forza magnetismo, attrito, tempi merge, soglie min/max fionda
+- [ ] Tuning: curva soglie punteggio per round-up
 - [ ] Fix bug evidenti
-- [ ] **Milestone Fase 2**: il gioco è completo come loop, anche se brutto da vedere. Si gioca, si perde, si rigioca.
+- [ ] **Milestone Fase 2** *(3 giu)*: loop completo e giocabile anche se visivamente greybox
 
 ---
 
-## FASE 3 — Asset definitivi e UI (Settimane 5-7)
+## FASE 3 — Asset definitivi e UI *(4–24 giu 2026)*
 
-**Obiettivo**: il gioco assomiglia al mockup finale.
+**Obiettivo**: il gioco assomiglia al prodotto finale.
 
-### Settimana 5: Sprite dei personaggi
+### Settimana 5: Sprite personaggi + ambiente *(4–10 giu)*
 
-- [ ] Decisione finale stile artistico (cartoon vs stilizzato — rivalutare con prototipo)
-- [ ] Procurare/disegnare/commissionare 35 sprite (7 specie × 5 livelli)
+- [ ] Decisione finale stile artistico (rivalutare con prototipo)
+- [ ] Produrre/commissionare **28 sprite base** (7 specie × 4 livelli: Cucciolo, Apprendista, Soldato, Guerriero)
   - Opzioni: AI generation + rifinitura, illustratore freelance, asset pack
-  - Budget stimato se commissionato: 500-2000€
-- [ ] Esportare in dimensioni adeguate (es. 128x128 base + retina 256x256)
-- [ ] Importare in Cocos come Atlas (per performance)
-- [ ] Sostituire i placeholder con sprite veri
-- [ ] Aggiungere il numero di livello sulla base (UI overlay o parte dello sprite)
+  - Budget stimato se commissionato: 600–2.000€ per i 28 base
+- [ ] Produrre **~8–9 sprite livelli speciali**: Campione (~4–5 specie), Eroe (~2–3 specie), Leggenda (1 specie)
+- [ ] Esportare a 128×128 base + 256×256 retina, importare come Atlas
+- [ ] Sostituire placeholder con sprite definitivi
+- [ ] Sprite pista (texture ghiaccio/legno laccato), nastro rosso animato, background fisso
 
-### Settimana 6: Pista, background, VFX
+### Settimana 6: Animazioni + VFX *(11–17 giu)*
 
-- [ ] Sprite della pista (texture ghiaccio o legno laccato)
-- [ ] Background fisso (castello + fiera medievale, da mockup)
-- [ ] Nastro rosso animato (leggera ondulazione)
-- [ ] Pareti della pista con prospettiva (più strette in alto)
-- [ ] Effetti particellari su:
-  - Merge (scintille colorate)
-  - Esplosione level 5 (esplosione festosa con confetti)
-  - Magnetismo attivo (leggero glow tra i critter compatibili)
-  - Atterraggio (piccola polvere)
+- [ ] Animazioni per ogni sprite: idle (respiro), squash on landing, pop on merge
+- [ ] Animazioni esplosione bonus (3 varianti): Campione, Eroe, Leggenda
+- [ ] Animazione esplosione malus
+- [ ] **3 asset particellari** riutilizzati con parametri variabili per tier:
+  - Scintille (`startSize`, `totalParticles` scalati per tier 4–6)
+  - Esplosione (scala e densità per tier 5–6 e bonus Campione/Eroe/Leggenda)
+  - Coriandoli con gravità (tier 5–6)
+  - Aura magnetismo (asset dedicato fisso)
+- [ ] VFX di scena via codice: screen shake, flash overlay, flash rosso malus, slowmo
 
-### Settimana 7: UI completa
+### Settimana 7: UI completa *(18–24 giu)*
 
 - [ ] Schermata splash + menu principale
-- [ ] HUD in-game definitivo (font, layout, animazioni numeri punteggio)
-- [ ] Schermata game over con tutti i dettagli
-- [ ] Pause menu
-- [ ] Tutorial popup con grafica definitiva
+- [ ] HUD definitivo:
+  - Punteggio con animazione **contachilometri** (tween su label)
+  - Round con animazione **scale-up + bounce** al cambio
+  - Timer con 4 stati visivi (quasi invisibile → pulse rosso) + ticchettio audio ultimi 5s
+- [ ] **6 stili floating score** (testo, colore, dimensione per ogni tier v1)
+- [ ] Corda elastica della fionda (Graphics procedurali)
+- [ ] Anteprima NEXT definitiva
+- [ ] Schermata game over, pausa, tutorial popup definitivi
 - [ ] Pulsanti settings (audio on/off)
-- [ ] Animazione "NEXT" (preview prossimo critter)
-- [ ] **Milestone Fase 3**: il gioco assomiglia visivamente al prodotto finale.
+- [ ] **Milestone Fase 3** *(24 giu)*: il gioco assomiglia visivamente al prodotto finale
 
 ---
 
-## FASE 4 — Polish, audio, bilanciamento (Settimane 8-9)
+## FASE 4 — Polish, audio, bilanciamento *(25 giu–8 lug 2026)*
 
 **Obiettivo**: il gioco si sente "premium".
 
-### Settimana 8: Audio e juice
+### Settimana 8: Audio e juice completo *(25 giu–1 lug)*
 
-- [ ] Procurare/comporre musica di sottofondo (1-2 loop)
-- [ ] Procurare/registrare ~15 SFX
-  - Lancio, atterraggio, magnetismo, merge (5 varianti per livello), esplosione, game over, level up, click UI, vittoria, ambient
-- [ ] Implementare AudioManager con volume controls
-- [ ] Aggiungere "juice" al gameplay:
-  - Camera shake leggera su esplosione lvl 5
-  - Squash & stretch su atterraggio
-  - Slow-motion 0.3s su merge importante (lvl 4→5)
-  - Floating numbers per i punti
-  - Trail leggero dietro al critter in volo
+- [ ] Procurare/comporre **1–2 loop musicali** (medievale-festivo)
+- [ ] Procurare/registrare **~17 SFX + 6 varianti merge**:
 
-### Settimana 9: Bilanciamento approfondito
+  | SFX | Note |
+  |-----|------|
+  | Lancio (whoosh) | |
+  | Landing (thud morbido) | |
+  | Magnetismo (click) | |
+  | Merge livello 1→6 | 6 varianti chime ascendente |
+  | Esplosione Campione | Boom medio + cheer |
+  | Esplosione Eroe | Boom grande + cheer |
+  | Esplosione Leggenda | Boom epico + cheer lungo |
+  | Malus | Buzz/clang negativo |
+  | Ticchettio timer | Tick per secondo, ultimi 5s |
+  | Avvicinamento game over | Heartbeat sottile |
+  | Game over | Trombetta triste comica |
+  | Nuovo round | Fanfara breve |
+  | Click UI | |
 
-- [ ] **Playtest con 5-10 persone esterne** (importantissimo, non saltare)
-- [ ] Raccogliere feedback su: difficoltà, leggibilità, feel del lancio, chiarezza dei merge
+- [ ] Implementare AudioManager con volume controls (musica separata da SFX)
+- [ ] Implementare sistema **6-tier floating score** v1 (testo + colori + FX per fascia)
+- [ ] Implementare slowmo: ×0.8 da 10k pt (tier 5), ×0.5 da 12k pt (tier 6)
+- [ ] Trail leggero dietro al critter in volo
+- [ ] Squash & stretch sull'atterraggio
+
+### Settimana 9: Bilanciamento approfondito *(2–8 lug)*
+
+- [ ] **Playtest con 5–10 persone esterne** (non saltare — è il test più importante)
+- [ ] Raccogliere feedback su: difficoltà, leggibilità, feel della fionda, chiarezza merge, timer
 - [ ] Iterare su:
-  - Curve di difficoltà
-  - Velocità progressione livelli
-  - Frequenza spawn varietà specie
-  - Forza magnetismo (è il parametro più sensibile)
-- [ ] Aggiungere audio cue di "stress" quando si è vicini al game over
-- [ ] **Milestone Fase 4**: il gioco è divertente da giocare ripetutamente.
+  - Curva soglie punteggio per avanzare di round
+  - Timer di lancio per round (15s → 3s, forma della curva)
+  - Forza e raggio magnetismo
+  - Soglie min/max fionda
+  - Distribuzione specie/livello nello spawn
+- [ ] **Milestone Fase 4** *(8 lug)*: il gioco è divertente da giocare ripetutamente
 
 ---
 
-## FASE 5 — Integrazione SDK e pubblicazione (Settimana 10+)
+## FASE 5 — Integrazione SDK e pubblicazione *(9–15 lug 2026)*
 
 **Obiettivo**: gioco pubblicato sui portali.
 
-### Integrazione Poki SDK
+### Integrazione Poki SDK *(9–11 lug)*
 
 - [ ] Registrare account sviluppatore Poki (o CrazyGames)
-- [ ] Leggere documentazione SDK (https://sdk.poki.com/)
+- [ ] Leggere documentazione SDK
 - [ ] Implementare:
   - `PokiSDK.init()` all'avvio
   - `PokiSDK.gameplayStart()` quando inizia partita
   - `PokiSDK.gameplayStop()` a game over
-  - `PokiSDK.commercialBreak()` tra partite (interstitial), non durante gameplay
-  - (Opzionale) `PokiSDK.rewardedBreak()` per "rivivi una volta"
+  - `PokiSDK.commercialBreak()` tra partite (mai durante gameplay)
 - [ ] Implementare loading screen secondo specifiche Poki
 - [ ] Test in Poki sandbox
 
-### Asset di marketing
+### Asset di marketing *(12–13 lug)*
 
-- [ ] **Thumbnail** (cruciale): immagine 512x512 accattivante con i personaggi più belli, colori saturi, leggibile in piccolo
-- [ ] Screenshots di gameplay (3-5)
-- [ ] Trailer GIF/video breve (15-30s) che mostra: lancio, merge, esplosione, livello up
-- [ ] Descrizione del gioco (in inglese)
+- [ ] **Thumbnail** (cruciale): 512×512, personaggi più belli, colori saturi, leggibile in piccolo
+- [ ] Screenshots di gameplay (3–5)
+- [ ] Trailer GIF/video breve (15–30s): lancio fionda → merge → esplosione → round up
+- [ ] Descrizione del gioco in inglese
 - [ ] Tag: merge, casual, puzzle, physics, animals
 
-### Submission
+### Submission *(14–15 lug)*
 
-- [ ] Build HTML5 ottimizzata (max 20-30MB consigliato per Poki)
-- [ ] Test su browser multipli (Chrome, Firefox, Safari, Edge)
+- [ ] Build HTML5 ottimizzata (target <20MB)
+- [ ] Test su Chrome, Firefox, Safari, Edge
 - [ ] Test su device reali: iPhone, Android, tablet, desktop
 - [ ] Submit a Poki/CrazyGames
-- [ ] Attendere review (1-4 settimane di solito)
-- [ ] Iterare su feedback dei portali (richiedono spesso aggiustamenti UI o di SDK)
+- [ ] Attendere review (1–4 settimane) e iterare su feedback portale
 
 ---
 
 ## Strumenti raccomandati
 
-- **Cocos Creator 3.x** — engine
+- **Cocos Creator 3.8.8** — engine
 - **VS Code** — editor (con plugin Cocos)
 - **Aseprite** o **Photoshop** — sprite
 - **Audacity** o **Reaper** — audio
-- **Tiled** o editor interno Cocos — eventuali level layout
-- **TexturePacker** — atlas (Cocos ha anche il suo)
+- **TexturePacker** — atlas sprite
 - **GitHub/GitLab** — version control + backup
-
-## Risorse utili da consultare
-
-- Documentazione Cocos Creator: https://docs.cocos.com/creator/manual/en/
-- Poki for Developers: https://developers.poki.com/
-- CrazyGames Developer Portal: https://developer.crazygames.com/
-- Esempi di SDK integration: cercare "poki sdk html5 example" su GitHub
 
 ## Rischi principali e mitigazioni
 
 | Rischio | Probabilità | Impatto | Mitigazione |
 |---------|-------------|---------|-------------|
-| Asset art troppo costoso/lungo | Alta | Alto | Iniziare con AI generation + rifinitura, validare prima di commissionare 35 sprite finiti |
-| Magnetismo difficile da bilanciare | Alta | Medio | Esporre come parametro live-tunabile, testare presto con utenti reali |
-| Performance su mobile basso-end | Media | Medio | Limitare numero max critter simultanei (~30), atlas sprite, evitare effetti pesanti |
-| Poki rifiuta per "troppo simile a Suika" | Bassa | Alto | Enfatizzare differenziatori (curling, magnetismo, livelli) nel pitch e nel gameplay |
-| Scope creep durante sviluppo | Alta | Alto | Mantenere la lista "out of scope" del GDD come reminder |
+| Asset art costoso/lungo (37 sprite + animazioni) | Alta | Alto | Iniziare con AI generation + rifinitura per i 28 base; commissionare solo i livelli speciali se budget lo consente |
+| Magnetismo difficile da bilanciare | Alta | Medio | Esporre come parametro live-tunabile, testare presto |
+| Calibrazione soglie fionda (min/max vs linea game over) | Media | Medio | Testare su tutti gli angoli di lancio fin dalla Fase 1 |
+| Performance mobile con particelle | Bassa | Medio | 3 asset particellari riutilizzati con parametri variabili; pool di particelle; max ~30 critter simultanei |
+| Poki rifiuta per "troppo simile a Suika" | Bassa | Alto | Enfatizzare differenziatori: fionda, magnetismo selettivo, malus, round |
+| Scope creep | Alta | Alto | Rispettare lista "out of scope" del GDD |
 
 ## Prossime azioni concrete
 
-1. **Oggi/domani**: installare Cocos Creator 3.x, creare progetto vuoto, fare un "hello world" con un cerchio che cade per familiarizzare
-2. **Settimana 1**: completare i punti della Settimana 1 di questa roadmap
-3. **A fine Settimana 2**: avere il prototipo della Fase 1 funzionante e fare una decisione informata se continuare con questo concept o pivottare
+> Aggiornato al 2026-05-08 — setup completato, fisica ancora da fare.
+
+1. **Prossimo step** *(9-10 mag)*: configurare PhysicsSystem2D con gravità=0, aggiungere 3 muri statici con parametri corretti (restitution 0.8 laterali, 0.1 fondo)
+2. **Fine Settimana 1** *(13 mag)*: meccanica fionda funzionante — drag verso il basso, lancio nella direzione opposta, soglie min/max, corda elastica visibile
+3. **Fine Settimana 2** *(20 mag)*: prototipo Fase 1 completo — merge, magnetismo, game over con regole attraversamento linea, timer di lancio
