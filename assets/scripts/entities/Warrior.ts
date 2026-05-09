@@ -52,14 +52,22 @@ export class Warrior extends Component {
         this.getComponent(RigidBody2D)?.applyForceToCenter(force, true);
     }
 
+    settle(): void {
+        const rb = this.getComponent(RigidBody2D);
+        if (!rb) return;
+        rb.linearDamping  = 12;
+        rb.angularDamping = 4;
+    }
+
     forceStop(): void {
         const rb = this.getComponent(RigidBody2D);
         if (!rb) return;
-        rb.linearVelocity = new Vec2(0, 0);
+        rb.linearVelocity  = new Vec2(0, 0);
         rb.angularVelocity = 0;
+        this.settle();
     }
 
-    private onBeginContact(self: Collider2D, other: Collider2D): void {
+    private onBeginContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
         if (!otherW || otherW.type !== this.type || otherW.level !== this.level) return;
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
@@ -86,7 +94,7 @@ export class Warrior extends Component {
         this.scheduleOnce(cb, MERGE_DELAY);
     }
 
-    private onEndContact(self: Collider2D, other: Collider2D): void {
+    private onEndContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
         if (!otherW) return;
         const cb = this.mergeCallbacks.get(otherW);
@@ -129,8 +137,11 @@ export class Warrior extends Component {
         labelNode.setPosition(0, 0);
         const label = labelNode.addComponent(Label);
         label.string = String(this.level);
-        label.fontSize = Math.round(this.radius * 0.55);
+        label.fontSize = Math.round(this.radius * 0.9);
         label.isBold = true;
-        labelNode.color = new Color(255, 255, 255, 255);
+        label.color = new Color(255, 255, 255, 255);
+        label.enableOutline = true;
+        label.outlineColor = new Color(0, 0, 0, 255);
+        label.outlineWidth = 2;
     }
 }

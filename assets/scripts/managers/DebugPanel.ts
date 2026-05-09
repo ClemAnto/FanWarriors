@@ -1,14 +1,11 @@
-import { _decorator, Component, Node, Graphics, Label, Color, Vec2, Input, input, EventTouch } from 'cc';
+import { _decorator, Component, Node, Graphics, Label, Color, Vec2, Input, input, EventTouch, EventMouse, view } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 import { GAME_OVER_LINE_Y, TRACK_W } from '../entities/Track';
 const { ccclass } = _decorator;
 
-const DESIGN_W = 1280;
-const DESIGN_H = 720;
-
-// ── Panel geometry (world space, canvas 1280×720 centred at origin) ──
-const CX         = 490;   // centre x — same as HUD_RIGHT_X
+// ── Panel geometry (world space, canvas 720×1280 centred at origin) ──
+const CX         = 230;   // centre x — right side of track, portrait-visible (X:±360)
 const PANEL_TOP  =  68;   // below HUD NEXT preview (which sits at y≈90)
 const PANEL_BOT  = -352;
 const PANEL_W    =  230;
@@ -42,9 +39,9 @@ const MERGE_BTN_GAP = 52;
 const ACTION_Y   = -90;
 const ACTION_W   =  48;
 const ACTION_H   =  22;
-const SAVE_X     = CX - 62;
+const SAVE_X     = CX - 50;
 const LOAD_X     = CX;
-const RESET_X    = CX + 62;
+const RESET_X    = CX + 50;
 
 // Palette
 const PAL_TITLE_Y  = -118;
@@ -94,6 +91,9 @@ export class DebugPanel extends Component {
         input.on(Input.EventType.TOUCH_MOVE,   this.onTouchMove,  this);
         input.on(Input.EventType.TOUCH_END,    this.onTouchEnd,   this);
         input.on(Input.EventType.TOUCH_CANCEL, this.onTouchEnd,   this);
+        input.on(Input.EventType.MOUSE_DOWN,   this.onMouseDown,  this);
+        input.on(Input.EventType.MOUSE_MOVE,   this.onMouseMove,  this);
+        input.on(Input.EventType.MOUSE_UP,     this.onMouseUp,    this);
     }
 
     onDestroy(): void {
@@ -101,6 +101,9 @@ export class DebugPanel extends Component {
         input.off(Input.EventType.TOUCH_MOVE,   this.onTouchMove,  this);
         input.off(Input.EventType.TOUCH_END,    this.onTouchEnd,   this);
         input.off(Input.EventType.TOUCH_CANCEL, this.onTouchEnd,   this);
+        input.off(Input.EventType.MOUSE_DOWN,   this.onMouseDown,  this);
+        input.off(Input.EventType.MOUSE_MOVE,   this.onMouseMove,  this);
+        input.off(Input.EventType.MOUSE_UP,     this.onMouseUp,    this);
         if (this.ghost?.isValid) this.ghost.destroy();
     }
 
@@ -252,14 +255,21 @@ export class DebugPanel extends Component {
         return l;
     }
 
-    // ── touch handling ──
+    // ── input handling (touch + mouse) ──
 
     private toWorld(ui: Vec2): Vec2 {
-        return new Vec2(ui.x - DESIGN_W / 2, ui.y - DESIGN_H / 2);
+        const vs = view.getVisibleSize();
+        return new Vec2(ui.x - vs.width / 2, ui.y - vs.height / 2);
     }
 
-    private onTouchStart(e: EventTouch): void {
-        const p = this.toWorld(e.getUILocation());
+    private onTouchStart(e: EventTouch): void { this.handleStart(this.toWorld(e.getUILocation())); }
+    private onTouchMove(e: EventTouch):  void { this.handleMove(this.toWorld(e.getUILocation())); }
+    private onTouchEnd(e: EventTouch):   void { this.handleEnd(this.toWorld(e.getUILocation())); }
+    private onMouseDown(e: EventMouse):  void { this.handleStart(this.toWorld(e.getUILocation())); }
+    private onMouseMove(e: EventMouse):  void { this.handleMove(this.toWorld(e.getUILocation())); }
+    private onMouseUp(e: EventMouse):    void { this.handleEnd(this.toWorld(e.getUILocation())); }
+
+    private handleStart(p: Vec2): void {
 
         // Pause / Resume
         if (this.inRect(p, CX - BTN_PAUSE_W / 2, BTN_PAUSE_Y - BTN_PAUSE_H / 2, BTN_PAUSE_W, BTN_PAUSE_H)) {
@@ -332,16 +342,14 @@ export class DebugPanel extends Component {
         }
     }
 
-    private onTouchMove(e: EventTouch): void {
+    private handleMove(p: Vec2): void {
         if (this.dragType < 0) return;
-        const p = this.toWorld(e.getUILocation());
         if (this.ghost?.isValid) this.ghost.setPosition(p.x, p.y);
     }
 
-    private onTouchEnd(e: EventTouch): void {
+    private handleEnd(p: Vec2): void {
         // Palette drag: place warrior on drop inside track
         if (this.dragType >= 0) {
-            const p = this.toWorld(e.getUILocation());
             if (this.ghost?.isValid) { this.ghost.destroy(); this.ghost = null; }
             if (Math.abs(p.x) <= TRACK_W / 2 && p.y > GAME_OVER_LINE_Y + 20) {
                 this.gm.addDebugWarrior(this.dragType, 1, p.x, p.y);
@@ -352,7 +360,6 @@ export class DebugPanel extends Component {
 
         // Short tap on warrior → cycle level
         if (this.tapWarrior && this.tapStart) {
-            const p = this.toWorld(e.getUILocation());
             if (Vec2.distance(p, this.tapStart) < 15 && this.tapWarrior.node?.isValid) {
                 this.gm.cycleDebugWarriorLevel(this.tapWarrior);
             }
