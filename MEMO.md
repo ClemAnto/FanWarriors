@@ -1,4 +1,4 @@
-# MEMO — Note tecniche FanWarriors
+# MEMO — Note tecniche FunWarriors
 
 > Note di implementazione, gotcha, decisioni di tuning e parametri calibrati. Da consultare all'inizio di ogni sessione di sviluppo.
 

@@ -1,4 +1,4 @@
-# Game Design Document — FanWarriors
+# Game Design Document — FunWarriors
 
 > Documento sintetico di game design. Versione 0.1 — da aggiornare durante lo sviluppo.
 

@@ -1,4 +1,4 @@
-# Note Tecniche — FanWarriors
+# Note Tecniche — FunWarriors
 
 > Decisioni architetturali non ovvie. Da aggiornare quando si fanno scelte significative.
 

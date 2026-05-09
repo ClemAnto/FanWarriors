@@ -1,4 +1,4 @@
-# Roadmap Tecnica — FanWarriors
+# Roadmap Tecnica — FunWarriors
 
 > Roadmap di sviluppo in Cocos Creator (TypeScript). Stima realistica part-time. Versione 0.5 — aggiornata 2026-05-09.
 
@@ -35,7 +35,7 @@
 
 **Giorno 1-2: Setup progetto** *(7–8 mag)*
 - [x] Installare Cocos Creator 3.8.8
-- [x] Creare nuovo progetto "FanWarriors"
+- [x] Creare nuovo progetto "FunWarriors"
 - [x] Configurare TypeScript strict mode
 - [x] Setup Git, .gitignore standard Cocos
 - [x] Configurare risoluzione di riferimento (1280x720 landscape)

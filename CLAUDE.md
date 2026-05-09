@@ -1,4 +1,4 @@
-# FanWarriors — Contesto progetto
+# FunWarriors — Contesto progetto
 
 Progetto Cocos Creator 3.8.8, TypeScript, gioco puzzle-arcade ibrido tra Suika Game e curling per portali HTML5 (Poki/CrazyGames).
 
