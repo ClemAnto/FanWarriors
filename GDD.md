@@ -56,15 +56,18 @@ Ogni specie animale condivide la stessa catena evolutiva a **6 livelli**. I live
 
 ### Specie disponibili (7 totali)
 
-1. **Rana** — verde, agile, pugnale
-2. **Gatto** — arancione, agile, spada
-3. **Gallina** — bianca, comica, lancia
-4. **Lupo** — grigio, robusto, ascia
-5. **Aquila** — marrone, fiera, arco
-6. **Leone** — dorato, regale, mazza
-7. **Drago** — viola, maestoso, scettro di fuoco
+| # | Specie | Colore | Stile | Arma | Livello max | Introdotta al round |
+|---|--------|--------|-------|------|-------------|---------------------|
+| 1 | Rana | Verde | Agile | Pugnale | 4 — Guerriero | 1 |
+| 2 | Gatto | Arancione | Agile | Spada | 4 — Guerriero | 1 |
+| 3 | Gallina | Bianca | Comica | Lancia | 4 — Guerriero | 1 |
+| 4 | Lupo | Grigio | Robusto | Ascia | 5 — Campione 💥 | 3 |
+| 5 | Aquila | Marrone | Fiera | Arco | 5 — Campione 💥 | 5 |
+| 6 | Leone | Dorato | Regale | Mazza | 6 — Eroe 💥 | 7 |
+| 7 | Drago | Viola | Maestoso | Scettro di fuoco | 7 — Leggenda 💥 | 9 |
 
-> Nota: l'ordine 1→7 può anche riflettere una scala di "rarità/potenza percepita" introdotta nel gioco col progredire dei round.
+> 💥 = al raggiungimento del livello max la creatura esplode con bonus punti.
+> L'ordine 1→7 riflette la scala di rarità/potenza percepita, introdotta col progredire dei round.
 
 ### Regole di merge
 
@@ -243,14 +246,13 @@ La linea di game over è visualizzata come **nastro rosso** orizzontale a metà 
 - **Lancio valido**: il personaggio lanciato deve **superare completamente la linea dal basso verso l'alto** per entrare in gioco — il turno è considerato ok
 - **Game over**: se il personaggio lanciato non supera completamente la linea (rimane sotto o si ferma sulla linea) → game over immediato
 
-### Rimbalzo oltre la linea (malus)
+### Rimbalzo oltre la linea
 
-Se un personaggio già in gioco, a seguito di rimbalzi, **riattraversa completamente la linea dall'alto verso il basso**:
-- **Non** causa game over
-- Il personaggio **esplode** con un'animazione di penalità
-- Viene applicato un **malus al punteggio** pari al valore di un merge della sua categoria: `10 × 2^(livello_creatura - 1) × round_corrente`
-- Il malus non può portare il punteggio sotto zero
-- **Feedback visivo malus**: un **flash rosso semitrasparente** copre l'intera schermata per ~0.3s (vignette rossa che appare e svanisce rapidamente) — unico effetto negativo, usato esclusivamente per i malus
+Se un personaggio già in gioco, a seguito di rimbalzi, **riattraversa completamente la linea dall'alto verso il basso** (il bordo superiore del cerchio scende sotto `GAME_OVER_LINE_Y`):
+- Causa **game over immediato** (stessa conseguenza del mancato attraversamento dal basso)
+- **Feedback visivo**: flash rosso semitrasparente (~0.3s) prima della schermata di game over
+
+> **Decisione di design (2026-05-09):** il malus a punteggio è stato rimosso in favore del game over immediato — rende la linea rossa un confine rigido e aumenta la tensione strategica.
 
 ### Schermata di fine partita
 - Punteggio finale, round raggiunto, "Riprova", "Menu"
@@ -305,10 +307,10 @@ Ad ogni merge il punteggio nel HUD non salta al valore finale, ma **si increment
 
 ### Sprite personaggi
 - **7 specie × 4 livelli base** (Cucciolo, Apprendista, Soldato, Guerriero) = **28 sprite**
-- **Campione** (livello 5, solo alcune specie): ~4–5 sprite
-- **Eroe** (livello 6, solo alcune specie): ~2–3 sprite
-- **Leggenda** (livello 7, solo 1 specie): 1 sprite
-- **Totale stimato: ~35–37 sprite**
+- **Campione** (livello 5 — Lupo, Aquila, Leone, Drago): 4 sprite
+- **Eroe** (livello 6 — Leone, Drago): 2 sprite
+- **Leggenda** (livello 7 — Drago): 1 sprite
+- **Totale: 35 sprite**
 
 ### Animazioni personaggi
 - Idle (respiro leggero) — per ogni sprite

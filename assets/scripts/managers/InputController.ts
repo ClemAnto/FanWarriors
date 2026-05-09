@@ -4,13 +4,16 @@ const { ccclass } = _decorator;
 
 const DESIGN_W = 1280;
 const DESIGN_H = 720;
-const MIN_DRAG = 40;   // px — below this threshold the launch is cancelled
-const MAX_DRAG = 150;  // px — force cap, rope stops stretching visually
-const MAX_IMPULSE = 800;
+const MIN_DRAG = 20;   // px — below this threshold the launch is cancelled
+const MAX_DRAG = 80;  // px — force cap, rope stops stretching visually
+const MAX_IMPULSE = 300;
 
 @ccclass('InputController')
 export class InputController extends Component {
-    onLaunch: ((warrior: Warrior) => void) | null = null;
+    onLaunch: ((warrior: Warrior, force: number) => void) | null = null;
+
+    aimAngleDeg = 0;   // live angle from vertical, clamped to ±75°
+    aimForcePct = 0;   // live force percentage 0–100
 
     private warrior: Warrior | null = null;
     private dragging: boolean = false;
@@ -21,7 +24,15 @@ export class InputController extends Component {
         this.warrior = w;
         this.dragging = false;
         this.lastTouchPos = null;
+        this.aimAngleDeg = 0;
+        this.aimForcePct = 0;
         console.log(`[InputController] warrior set — type=${w.type} level=${w.level}`);
+    }
+
+    clearWarrior(): void {
+        this.warrior = null;
+        this.dragging = false;
+        this.clearRope();
     }
 
     autoLaunch(): void {
@@ -41,12 +52,12 @@ export class InputController extends Component {
             dir = new Vec2(0, 1);
         }
 
-        // Always half force on auto-launch, regardless of drag length
+        dir = this.clampLaunchDir(dir);
         const launched = this.warrior;
         this.warrior = null;
         this.lastTouchPos = null;
         launched.applyImpulse(dir.multiplyScalar(MAX_IMPULSE * 0.5));
-        this.onLaunch?.(launched);
+        this.onLaunch?.(launched, MAX_IMPULSE * 0.5);
         console.log('[InputController] auto-launch');
     }
 
@@ -101,14 +112,14 @@ export class InputController extends Component {
         }
 
         const t       = Math.min(len, MAX_DRAG) / MAX_DRAG;
-        const dir     = new Vec2(-drag.x, -drag.y).normalize();
+        const dir     = this.clampLaunchDir(new Vec2(-drag.x, -drag.y).normalize());
         const impulse = dir.multiplyScalar(t * MAX_IMPULSE);
 
         console.log(`[InputController] launch — drag=${len.toFixed(0)}px t=${t.toFixed(2)} impulse=(${impulse.x.toFixed(0)},${impulse.y.toFixed(0)})`);
         const launched = this.warrior;
         this.warrior = null;
         launched.applyImpulse(impulse);
-        this.onLaunch?.(launched);
+        this.onLaunch?.(launched, impulse.length());
     }
 
     private drawRope(touch: Vec2): void {
@@ -134,9 +145,12 @@ export class InputController extends Component {
         this.rope.lineTo(wPos.x + nx * len, wPos.y + ny * len);
         this.rope.stroke();
 
-        // Direction arrow (launch side) — only shown above min threshold
+        // Direction arrow (launch side) — clamped to ±75°, only shown above min threshold
         if (rawLen >= MIN_DRAG) {
-            this.drawDirectionArrow(wPos, new Vec2(-nx, -ny), t, color);
+            const launchDir = this.clampLaunchDir(new Vec2(-nx, -ny));
+            this.aimAngleDeg = Math.round(Math.atan2(launchDir.x, launchDir.y) * 180 / Math.PI);
+            this.aimForcePct = Math.round(t * 100);
+            this.drawDirectionArrow(wPos, launchDir, t, color);
         }
     }
 
@@ -177,6 +191,14 @@ export class InputController extends Component {
 
     private clearRope(): void {
         this.rope?.clear();
+    }
+
+    // Clamp launch direction to ±75° from straight up (Y axis)
+    private clampLaunchDir(dir: Vec2): Vec2 {
+        const MAX_ANGLE = 75 * Math.PI / 180;
+        const angle = Math.atan2(dir.x, dir.y);   // 0 = up, positive = right
+        const clamped = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, angle));
+        return new Vec2(Math.sin(clamped), Math.cos(clamped));
     }
 
     // Convert getUILocation() (origin bottom-left, design resolution) to canvas-local world space

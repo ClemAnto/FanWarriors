@@ -119,16 +119,17 @@
 
 **Giorno 18-19: Progressione round** *(24–25 mag)*
 - [x] Aggiungere `currentRound` al GameManager
-- [ ] Contatore `totalMerges` e tabella soglie merge per avanzare di round (es. 10 merge → round 2)
-- [ ] All'avanzare del round: aggiungere specie alla pool, aggiornare regole spawn, ridurre timer di lancio
-- [ ] Timer di lancio scala con il round (15s → 3s min, curva da bilanciare)
-- [ ] Notifica visiva "ROUND UP" placeholder + breve pausa celebrativa
+- [x] Contatore `totalMerges` e tabella soglie merge per avanzare di round (ROUND_THRESHOLDS: 10/25/45/70/100/135)
+- [x] All'avanzare del round: aggiungere specie alla pool, aggiornare regole spawn, ridurre timer di lancio
+- [x] Timer di lancio scala con il round (`max(3, 15 - (round-1)*2)`)
+- [x] Notifica visiva "ROUND UP" con tween scala + pausa `roundUpPause`
 
 **Giorno 20-21: Game over e restart** *(26–27 mag)*
-- [x] Verifica frame-by-frame attraversamento linea (direzione + completezza) — fix false game over + fix stuck Inflight
-- [x] Esplosione malus: warrior distrutto + flash rosso
-- [x] Restart pulisce scena e resetta stato completo (`director.loadScene`) — fix nodo HalloWarld corrotto al reload
-- [ ] Salvataggio best score in localStorage
+- [x] Verifica frame-by-frame attraversamento linea (direzione + completezza) — usa bordo superiore (`y + radius`)
+- [x] Rimbalzo oltre linea → **game over immediato** (decisione design: rimosso malus a punteggio)
+- [x] Flash rosso prima del game over
+- [x] Restart con `director.loadScene(sceneName)` — sceneName catturato in `start()`
+- [x] Salvataggio best score in localStorage
 
 ### Settimana 4: Esplosioni livelli speciali e refinement *(28 mag–3 giu)*
 
@@ -143,6 +144,15 @@
 - [x] Spawn specie scalato per round (3 specie → 7 specie progressivamente)
 - [x] Tutorial primo lancio: 3 popup ("Trascina verso il basso", "Rilascia per lanciare", "Unisci due uguali!")
 - [x] Flag in localStorage per non rimostrare tutorial
+
+**Decisioni di design prese in Fase 2:**
+- Pista a **funnel** (imbuto): pareti inclinate 6°, più strette in cima, con PolygonCollider2D
+- Larghezza pista ridotta di 1/3: TRACK_W 648 → **432px**
+- Lancio immediato (`waitForSettling = false`): il warrior successivo si attiva appena quello lanciato supera la linea
+- Rimbalzo oltre la linea → **game over** (non più malus a punteggio)
+- Momentum conservation al merge: 75% velocità media dei due warrior
+- Angolo lancio clamped a ±75° dalla verticale
+- Debug panel con PAUSE/RESUME, round ±, merge ±, SAVE/LOAD/RESET, palette drag-and-drop
 
 **Giorno 26-28: Bilanciamento iniziale** *(1–3 giu)*
 - [ ] Playtest sessioni multiple *(manuale)*
@@ -297,6 +307,7 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-09 — Fase 1 chiusa. Fase 2 quasi completa (tutta la logica codice implementata).
+> Aggiornato al 2026-05-09 — Fase 1 chiusa. Fase 2: logica codice completa, manca il playtest.
 
-1. **Giorno 26-28**: Playtest manuale + tuning parametri + fix bug → sblocca Milestone Fase 2
+1. **Giorno 26-28**: Playtest manuale + tuning parametri (magnetismo, forza lancio, FUNNEL_ANGLE_DEG, waitForSettling) + fix bug → sblocca Milestone Fase 2
+2. **Fase 3**: decidere se mantenere funnel o tornare a pareti dritte dopo il playtest — impatta la produzione sprite (sfondo e bordi pista)

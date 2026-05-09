@@ -26,6 +26,7 @@ export class Warrior extends Component {
 
     get radius(): number { return WARRIOR_RADII[this.level] ?? 30; }
     get velocity(): Vec2 { return this.getComponent(RigidBody2D)?.linearVelocity ?? new Vec2(0, 0); }
+    set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
 

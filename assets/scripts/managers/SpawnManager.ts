@@ -32,7 +32,7 @@ export class SpawnManager {
     }
 
     prefill(): Warrior[] {
-        const positions = [{ x: -180, y: 240 }, { x: 0, y: 270 }, { x: 180, y: 240 }];
+        const positions = [{ x: -90, y: 220 }, { x: 0, y: 250 }, { x: 90, y: 220 }];
         return positions.map(({ x, y }, i) => {
             const w = Warrior.spawn(this.parent, i % this.spawnTypes, 1, x, y);
             w.crossedLine = true;

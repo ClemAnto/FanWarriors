@@ -18,6 +18,9 @@ const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
 const ROUND_THRESHOLDS = [0, 10, 25, 45, 70, 100, 135] as const;
 
+// Max evolution level per species (index = type 0-6: Rana, Gatto, Gallina, Lupo, Aquila, Leone, Drago)
+const SPECIES_MAX_LEVEL = [4, 4, 4, 5, 5, 6, 7] as const;
+
 function launchTimerForRound(round: number): number {
     return Math.max(3, 15 - (round - 1) * 2);
 }
@@ -59,6 +62,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private roundUpPause = false;
     private timerRemaining = LAUNCH_TIMER;
     private timerPaused = false;
+    private waitForSettling = false;
+    private sceneName = '';
 
     // hud refs
     private scoreLabel: Label | null = null;
@@ -68,6 +73,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private timerLabel: Label | null = null;
 
     start() {
+        this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
         PhysicsSystem2D.instance.enable = true;
         PhysicsSystem2D.instance.gravity = new Vec2(0, 0);
@@ -272,13 +278,19 @@ export class GameManager extends Component implements IGameManagerDebug {
                 if (y >= GAME_OVER_LINE_Y) {
                     w.crossedLine = true;
                     console.log('[GameManager] warrior crossed line — in play');
-                    if (this.state === GameState.Inflight) this.state = GameState.Settling;
-                    if (!this.pendingWarrior && this.state !== GameState.GameOver)
-                        this.pendingWarrior = this.createWarrior();
+                    if (this.state === GameState.Inflight) {
+                        if (this.waitForSettling) {
+                            this.state = GameState.Settling;
+                            if (!this.pendingWarrior)
+                                this.pendingWarrior = this.createWarrior();
+                        } else {
+                            this.activateWarrior(this.createWarrior());
+                        }
+                    }
                 }
             } else if (w.crossedLine) {
-                if (prev > GAME_OVER_LINE_Y && y <= GAME_OVER_LINE_Y) {
-                    console.log('[GameManager] warrior crossed back down — penalty');
+                if (prev + w.radius > GAME_OVER_LINE_Y && y + w.radius <= GAME_OVER_LINE_Y) {
+                    console.log('[GameManager] warrior fully below game-over line — penalty');
                     this.penaltyExplode(w);
                 }
             }
@@ -287,24 +299,16 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private penaltyExplode(w: Warrior): void {
-        const malus = 10 * (1 << (w.level - 1)) * this.currentRound;
-        this.score = Math.max(0, this.score - malus);
-        this.updateScoreLabel();
-        console.log(`[GameManager] penalty −${malus} pts`);
+    private penaltyExplode(_w: Warrior): void {
+        console.log(`[GameManager] warrior fell below line — game over`);
         this.showRedFlash();
-
-        this.warriors = this.warriors.filter(x => x !== w);
-        this.prevY.delete(w);
-        tween(w.node)
-            .to(0.06, { scale: new Vec3(1.3, 1.3, 1) })
-            .call(() => w.node?.isValid && w.node.destroy())
-            .start();
+        this.triggerGameOver();
     }
 
     private triggerGameOver(): void {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
+        this.inputCtrl.clearWarrior();
         console.log('[GameManager] game over');
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
@@ -355,7 +359,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         retry.fontSize = 36;
         retry.color = new Color(255, 255, 255, 255);
         retryNode.addComponent(UITransform);
-        retryNode.on(Node.EventType.TOUCH_START, () => director.loadScene('GameScene'), this);
+        retryNode.on(Node.EventType.TOUCH_START, () => director.loadScene(this.sceneName), this);
     }
 
     // --- merge ---
@@ -364,20 +368,15 @@ export class GameManager extends Component implements IGameManagerDebug {
         const midX = (a.node.position.x + b.node.position.x) / 2;
         const midY = (a.node.position.y + b.node.position.y) / 2;
         const newLevel = a.level + 1;
-        console.log(`[GameManager] merge! type=${a.type} lv${a.level}+lv${b.level} → lv${newLevel}`);
+        const maxLevel = SPECIES_MAX_LEVEL[a.type] ?? 7;
+        const vx = (a.velocity.x + b.velocity.x) * 0.5 * 0.75;
+        const vy = (a.velocity.y + b.velocity.y) * 0.5 * 0.75;
+        console.log(`[GameManager] merge! type=${a.type} lv${a.level}+lv${b.level} → lv${newLevel} (max=${maxLevel}) v=(${vx.toFixed(1)},${vy.toFixed(1)})`);
 
         this.prevY.delete(a);
         this.prevY.delete(b);
         a.node.destroy();
         b.node.destroy();
-
-        if (newLevel > 7) return;
-
-        const merged = Warrior.spawn(this.node.parent!, a.type, newLevel, midX, midY);
-        merged.crossedLine = true;
-        merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
-        this.warriors.push(merged);
-        if (newLevel < 5) this.flashMerge(merged);
 
         this.totalMerges++;
         this.mergesThisLaunch++;
@@ -388,7 +387,23 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.updateScoreLabel();
         this.updateMergesLabel();
 
-        if (newLevel >= 5) this.triggerSpecialExplosion(merged, newLevel);
+        if (newLevel > maxLevel) {
+            // Both at max level — consume both, free space, no new warrior spawned
+            this.flashBurst(midX, midY, a.type);
+            return;
+        }
+
+        const merged = Warrior.spawn(this.node.parent!, a.type, newLevel, midX, midY);
+        merged.crossedLine = true;
+        merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
+        merged.velocity = new Vec2(vx, vy);
+        this.warriors.push(merged);
+
+        if (newLevel === maxLevel && maxLevel >= 5) {
+            this.triggerSpecialExplosion(merged, newLevel);
+        } else {
+            this.flashMerge(merged);
+        }
     }
 
     // --- HUD ---
@@ -738,6 +753,22 @@ export class GameManager extends Component implements IGameManagerDebug {
             .start();
     }
 
+    private flashBurst(x: number, y: number, type: number): void {
+        const vfx = new Node('BurstVFX');
+        vfx.setParent(this.node.parent!);
+        vfx.setPosition(x, y);
+        const g = vfx.addComponent(Graphics);
+        g.lineWidth = 4;
+        g.strokeColor = COLORS[type];
+        g.circle(0, 0, WARRIOR_RADII[4]);
+        g.stroke();
+        const op = vfx.addComponent(UIOpacity);
+        op.opacity = 200;
+        tween(vfx).to(0.3, { scale: new Vec3(2, 2, 1) }).start();
+        tween(op).to(0.3, { opacity: 0 })
+            .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
+    }
+
     private spawnFloatingScore(x: number, y: number, points: number): void {
         const node = new Node('FloatingScore');
         node.setParent(this.node.parent!);
@@ -796,6 +827,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!this.debugLabel) return;
         const inPlay = this.warriors.filter(w => w.launched && w.node?.isValid);
         const moving = inPlay.filter(w => w.velocity.length() >= SETTLE_VELOCITY).length;
-        this.debugLabel.string = `state: ${GameState[this.state]}  moving: ${moving}/${inPlay.length}`;
+        const angleDeg = this.inputCtrl.aimAngleDeg;
+        const angleStr = (angleDeg >= 0 ? '+' : '') + angleDeg + '°';
+        this.debugLabel.string = `state: ${GameState[this.state]}  moving: ${moving}/${inPlay.length}  angle: ${angleStr}  force: ${this.inputCtrl.aimForcePct}%`;
     }
 }

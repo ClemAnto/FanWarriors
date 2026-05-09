@@ -77,6 +77,10 @@ export class DebugPanel extends Component {
     private pauseLbl!: Label;
     private roundLbl!: Label;
     private mergesLbl!: Label;
+    private saveLbl!: Label;
+    private loadLbl!: Label;
+    private resetLbl!: Label;
+    private pressedAction: 'save' | 'load' | 'reset' | null = null;
     private ghost: Node | null = null;
     private dragType = -1;
     private tapWarrior: Warrior | null = null;
@@ -123,9 +127,9 @@ export class DebugPanel extends Component {
         this.lbl('+', CX + MERGE_BTN_GAP, MERGE_ROW_Y, 18, new Color(220, 220, 220, 230));
 
         // Save / Load / Reset
-        this.lbl('SAVE',  SAVE_X,  ACTION_Y, 12, new Color(200, 200, 200, 230));
-        this.lbl('LOAD',  LOAD_X,  ACTION_Y, 12, new Color(200, 200, 200, 230));
-        this.lbl('RESET', RESET_X, ACTION_Y, 11, new Color(200, 200, 200, 230));
+        this.saveLbl  = this.lbl('SAVE',  SAVE_X,  ACTION_Y, 12, new Color(200, 200, 200, 230));
+        this.loadLbl  = this.lbl('LOAD',  LOAD_X,  ACTION_Y, 12, new Color(200, 200, 200, 230));
+        this.resetLbl = this.lbl('RESET', RESET_X, ACTION_Y, 11, new Color(200, 200, 200, 230));
 
         // Palette
         this.lbl('PALETTE', CX, PAL_TITLE_Y, 11, new Color(110, 110, 130, 200));
@@ -182,29 +186,32 @@ export class DebugPanel extends Component {
         g.fill();
 
         // SAVE button (blue-ish)
-        g.fillColor = new Color(30, 70, 130, 230);
+        const savePressed  = this.pressedAction === 'save';
+        g.fillColor = savePressed ? new Color(90, 160, 255, 255) : new Color(30, 70, 130, 230);
         g.rect(SAVE_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
         g.fill();
-        g.strokeColor = new Color(80, 140, 220, 180);
-        g.lineWidth = 1;
+        g.strokeColor = savePressed ? new Color(180, 220, 255, 255) : new Color(80, 140, 220, 180);
+        g.lineWidth = savePressed ? 2 : 1;
         g.rect(SAVE_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
         g.stroke();
 
         // LOAD button (green-ish)
-        g.fillColor = new Color(30, 100, 50, 230);
+        const loadPressed  = this.pressedAction === 'load';
+        g.fillColor = loadPressed ? new Color(60, 210, 110, 255) : new Color(30, 100, 50, 230);
         g.rect(LOAD_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
         g.fill();
-        g.strokeColor = new Color(80, 200, 120, 180);
-        g.lineWidth = 1;
+        g.strokeColor = loadPressed ? new Color(160, 255, 200, 255) : new Color(80, 200, 120, 180);
+        g.lineWidth = loadPressed ? 2 : 1;
         g.rect(LOAD_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
         g.stroke();
 
         // RESET button (orange-ish)
-        g.fillColor = new Color(130, 70, 20, 230);
+        const resetPressed = this.pressedAction === 'reset';
+        g.fillColor = resetPressed ? new Color(240, 150, 50, 255) : new Color(130, 70, 20, 230);
         g.rect(RESET_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
         g.fill();
-        g.strokeColor = new Color(220, 140, 60, 180);
-        g.lineWidth = 1;
+        g.strokeColor = resetPressed ? new Color(255, 210, 130, 255) : new Color(220, 140, 60, 180);
+        g.lineWidth = resetPressed ? 2 : 1;
         g.rect(RESET_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
         g.stroke();
 
@@ -287,19 +294,17 @@ export class DebugPanel extends Component {
 
         // SAVE
         if (this.inRect(p, SAVE_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H)) {
-            this.gm.saveDebugState();
+            this.flashAction('save', this.saveLbl, 'SAVE', () => this.gm.saveDebugState());
             return;
         }
         // LOAD
         if (this.inRect(p, LOAD_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H)) {
-            this.gm.loadDebugState();
-            this.refresh();
+            this.flashAction('load', this.loadLbl, 'LOAD', () => { this.gm.loadDebugState(); this.refresh(); });
             return;
         }
         // RESET
         if (this.inRect(p, RESET_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H)) {
-            this.gm.resetDebugState();
-            this.refresh();
+            this.flashAction('reset', this.resetLbl, 'RESET', () => { this.gm.resetDebugState(); this.refresh(); });
             return;
         }
 
@@ -368,6 +373,20 @@ export class DebugPanel extends Component {
         g.circle(0, 0, WARRIOR_RADII[1]);
         g.stroke();
         this.ghost = n;
+    }
+
+    private flashAction(which: 'save' | 'load' | 'reset', label: Label, originalText: string, op: () => void): void {
+        this.pressedAction = which;
+        this.drawPanel();
+        op();
+        label.string = '✓';
+        label.color  = new Color(80, 230, 110, 255);
+        this.scheduleOnce(() => {
+            this.pressedAction = null;
+            label.string = originalText;
+            label.color  = new Color(200, 200, 200, 230);
+            this.drawPanel();
+        }, 0.9);
     }
 
     private inRect(p: Vec2, x: number, y: number, w: number, h: number): boolean {
