@@ -9,7 +9,7 @@ const { ccclass } = _decorator;
 
 const MAX_ROUND          = 7;
 const SPAWN_TYPES        = 3;
-const MAGNET_GAP         = 80;  // surface-to-surface px at which attraction starts
+const MAGNET_GAP         = 30;  // surface-to-surface px at which attraction starts
 const MAGNET_FORCE       = 20;  // base force for a level-1 warrior
 const SETTLE_VELOCITY    = 0.1;    // px/s — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY = 0.8;    // seconds before checking if launched warrior failed to cross
