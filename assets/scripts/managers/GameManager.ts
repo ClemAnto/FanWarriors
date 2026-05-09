@@ -4,11 +4,13 @@ import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
 import { GAME_OVER_LINE_Y, TRACK_W } from '../entities/Track';
+import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
+const MAX_ROUND          = 7;
 const SPAWN_TYPES        = 3;
-const MAGNET_RADIUS      = 75;
-const MAGNET_FORCE       = 8;
+const MAGNET_GAP         = 80;  // surface-to-surface px at which attraction starts
+const MAGNET_FORCE       = 20;  // base force for a level-1 warrior
 const SETTLE_VELOCITY    = 0.1;    // px/s — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY = 0.8;    // seconds before checking if launched warrior failed to cross
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
@@ -39,7 +41,7 @@ const HUD_RIGHT_X =  490;
 const HUD_TOP_Y   =  290;
 
 @ccclass('GameManager')
-export class GameManager extends Component {
+export class GameManager extends Component implements IGameManagerDebug {
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -56,6 +58,7 @@ export class GameManager extends Component {
     private mergesThisLaunch = 0;
     private roundUpPause = false;
     private timerRemaining = LAUNCH_TIMER;
+    private timerPaused = false;
 
     // hud refs
     private scoreLabel: Label | null = null;
@@ -83,6 +86,115 @@ export class GameManager extends Component {
         this.debugLabel = this.createDebugLabel();
         this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
         this.showTutorial(() => this.activateWarrior(firstWarrior));
+
+        const debugNode = new Node('DebugPanel');
+        debugNode.setParent(this.node.parent!);
+        debugNode.addComponent(DebugPanel).init(this);
+    }
+
+    // ── IGameManagerDebug ──
+
+    isTimerPaused(): boolean { return this.timerPaused; }
+    setTimerPaused(v: boolean): void { this.timerPaused = v; }
+
+    getCurrentRound(): number { return this.currentRound; }
+
+    setDebugRound(r: number): void {
+        this.currentRound = Math.max(1, Math.min(MAX_ROUND, r));
+        this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
+        this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
+        this.timerRemaining = launchTimerForRound(this.currentRound);
+        this.updateRoundLabel();
+        console.log(`[GameManager] debug: round → ${this.currentRound}`);
+    }
+
+    getTotalMerges(): number { return this.totalMerges; }
+
+    setTotalMerges(n: number): void {
+        this.totalMerges = Math.max(0, n);
+        this.updateMergesLabel();
+        console.log(`[GameManager] debug: totalMerges → ${this.totalMerges}`);
+    }
+
+    getWarriors(): readonly Warrior[] { return this.warriors; }
+
+    addDebugWarrior(type: number, level: number, x: number, y: number): void {
+        const w = Warrior.spawn(this.node.parent!, type, level, x, y);
+        w.crossedLine = true;
+        w.onMergeReady = (a, b) => this.mergeWarriors(a, b);
+        this.warriors.push(w);
+        console.log(`[GameManager] debug: placed type=${type} lv=${level} at (${x.toFixed(0)},${y.toFixed(0)})`);
+    }
+
+    cycleDebugWarriorLevel(w: Warrior): void {
+        if (!w.node?.isValid) return;
+        const pos      = w.node.position.clone();
+        const type     = w.type;
+        const newLevel = w.level < 7 ? w.level + 1 : 1;
+        this.warriors  = this.warriors.filter(x => x !== w);
+        this.prevY.delete(w);
+        w.node.destroy();
+        const nw = Warrior.spawn(this.node.parent!, type, newLevel, pos.x, pos.y);
+        nw.crossedLine  = true;
+        nw.onMergeReady = (a, b) => this.mergeWarriors(a, b);
+        this.warriors.push(nw);
+        console.log(`[GameManager] debug: cycled type=${type} → lv${newLevel}`);
+    }
+
+    saveDebugState(): void {
+        const state = {
+            warriors: this.warriors
+                .filter(w => w.crossedLine && w.node?.isValid)
+                .map(w => ({ type: w.type, level: w.level, x: w.node.position.x, y: w.node.position.y })),
+            round: this.currentRound,
+            totalMerges: this.totalMerges,
+        };
+        sys.localStorage.setItem('fw_debug_state', JSON.stringify(state));
+        console.log(`[GameManager] debug: state saved (${state.warriors.length} warriors, round ${state.round})`);
+    }
+
+    loadDebugState(): void {
+        const raw = sys.localStorage.getItem('fw_debug_state');
+        if (!raw) { console.warn('[GameManager] debug: no saved state'); return; }
+        const state = JSON.parse(raw) as { warriors: { type: number; level: number; x: number; y: number }[]; round: number; totalMerges: number };
+
+        [...this.warriors].filter(w => w.crossedLine).forEach(w => {
+            this.warriors = this.warriors.filter(x => x !== w);
+            this.prevY.delete(w);
+            if (w.node?.isValid) w.node.destroy();
+        });
+
+        for (const s of state.warriors) this.addDebugWarrior(s.type, s.level, s.x, s.y);
+
+        this.currentRound = Math.max(1, Math.min(MAX_ROUND, state.round));
+        this.totalMerges  = Math.max(0, state.totalMerges);
+        this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
+        this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
+        this.timerRemaining = launchTimerForRound(this.currentRound);
+        this.updateRoundLabel();
+        this.updateMergesLabel();
+        console.log(`[GameManager] debug: state loaded (${state.warriors.length} warriors, round ${this.currentRound})`);
+    }
+
+    resetDebugState(): void {
+        [...this.warriors].filter(w => w.crossedLine).forEach(w => {
+            this.warriors = this.warriors.filter(x => x !== w);
+            this.prevY.delete(w);
+            if (w.node?.isValid) w.node.destroy();
+        });
+        this.warriors.push(...this.spawnMgr.prefill());
+
+        this.currentRound     = 1;
+        this.totalMerges      = 0;
+        this.mergesThisLaunch = 0;
+        this.score            = 0;
+        this.spawnMgr.setSpawnTypes(spawnTypesForRound(1));
+        this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(1));
+        this.timerRemaining = launchTimerForRound(1);
+        this.updateRoundLabel();
+        this.updateMergesLabel();
+        this.updateScoreLabel();
+        console.log('[GameManager] debug: state reset');
     }
 
     update(dt: number) {
@@ -337,6 +449,7 @@ export class GameManager extends Component {
     }
 
     private tickTimer(dt: number): void {
+        if (this.timerPaused) return;
         this.timerRemaining -= dt;
         this.updateTimerLabel();
         if (this.timerRemaining <= 0) {
@@ -580,11 +693,12 @@ export class GameManager extends Component {
     // --- physics helpers ---
 
     private applyMagnetism(): void {
+        const r1sq = WARRIOR_RADII[1] * WARRIOR_RADII[1]; // level-1 radius² — mass reference
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
             if (!a.node?.isValid || a.merging) continue;
 
-            let nearestDist = Infinity;
+            let nearestGap = Infinity;
             let nearest: Warrior | null = null;
 
             for (let j = 0; j < this.warriors.length; j++) {
@@ -596,8 +710,10 @@ export class GameManager extends Component {
                     new Vec2(a.node.position.x, a.node.position.y),
                     new Vec2(b.node.position.x, b.node.position.y)
                 );
-                if (dist < MAGNET_RADIUS && dist < nearestDist) {
-                    nearestDist = dist;
+                // surface-to-surface gap: independent of warrior size
+                const gap = Math.max(0, dist - a.radius - b.radius);
+                if (gap < MAGNET_GAP && gap < nearestGap) {
+                    nearestGap = gap;
                     nearest = b;
                 }
             }
@@ -607,8 +723,10 @@ export class GameManager extends Component {
                     nearest.node.position.x - a.node.position.x,
                     nearest.node.position.y - a.node.position.y
                 ).normalize();
-                const t = 1 - (nearestDist / MAGNET_RADIUS);
-                a.applyForce(dir.multiplyScalar(MAGNET_FORCE * (1 + t * t * 8)));
+                const t = 1 - (nearestGap / MAGNET_GAP);
+                // scale force by mass (∝ r²) so acceleration is equal for all levels
+                const massScale = (a.radius * a.radius) / r1sq;
+                a.applyForce(dir.multiplyScalar(MAGNET_FORCE * (1 + t * t * 8) * massScale));
             }
         }
     }
