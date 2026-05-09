@@ -1,5 +1,6 @@
 import { _decorator, Component, PhysicsSystem2D, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, director, sys } from 'cc';
-import { Warrior, WARRIOR_RADII, COLORS } from '../entities/Warrior';
+import { Warrior } from '../entities/Warrior';
+import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
@@ -8,7 +9,6 @@ import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
 const MAX_ROUND          = 7;
-const SPAWN_TYPES        = 3;
 const MAGNET_GAP         = 30;  // surface-to-surface px at which attraction starts
 const MAGNET_FORCE       = 20;  // base force for a level-1 warrior
 const SETTLE_VELOCITY    = 0.4;    // Box2D velocity units — warrior is "stopped" below this
@@ -18,18 +18,8 @@ const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
 const ROUND_THRESHOLDS = [0, 10, 25, 45, 70, 100, 135] as const;
 
-// Max evolution level per species (index = type 0-6: Rana, Gatto, Gallina, Lupo, Aquila, Leone, Drago)
-const SPECIES_MAX_LEVEL = [4, 4, 4, 5, 5, 6, 7] as const;
-
 function launchTimerForRound(round: number): number {
     return Math.max(3, 15 - (round - 1) * 2);
-}
-
-function spawnTypesForRound(round: number): number {
-    if (round <= 2) return 3;
-    if (round <= 4) return 4;
-    if (round <= 6) return 5;
-    return 7;
 }
 
 function spawnMaxLevelForRound(round: number): number {
@@ -82,7 +72,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.onLaunch = (w) => this.onWarriorLaunched(w);
 
-        this.spawnMgr = new SpawnManager(this.node.parent!, SPAWN_TYPES);
+        this.spawnMgr = new SpawnManager(this.node.parent!, spawnTypesForRound(1));
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.updateNextPreview();
 
@@ -368,7 +358,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const midX = (a.node.position.x + b.node.position.x) / 2;
         const midY = (a.node.position.y + b.node.position.y) / 2;
         const newLevel = a.level + 1;
-        const maxLevel = SPECIES_MAX_LEVEL[a.type] ?? 7;
+        const maxLevel = WARRIORS[a.type]?.maxLevel ?? 7;
         const vx = (a.velocity.x + b.velocity.x) * 0.5 * 0.75;
         const vy = (a.velocity.y + b.velocity.y) * 0.5 * 0.75;
         console.log(`[GameManager] merge! type=${a.type} lv${a.level}+lv${b.level} → lv${newLevel} (max=${maxLevel}) v=(${vx.toFixed(1)},${vy.toFixed(1)})`);
@@ -515,17 +505,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private triggerSpecialExplosion(w: Warrior, level: number): void {
-        const BONUSES  = [0, 0, 0, 0, 0, 500, 1000, 2000];
-        const LABELS   = ['', '', '', '', '', 'CAMPIONE!', 'EROE!', 'LEGGENDA!'];
-        const VFX_COLORS = [
-            new Color(0, 0, 0), new Color(0, 0, 0), new Color(0, 0, 0),
-            new Color(0, 0, 0), new Color(0, 0, 0),
-            new Color(255, 200,  50, 255),  // 5 — gold
-            new Color(180, 100, 255, 255),  // 6 — purple
-            new Color(255,  80,  60, 255),  // 7 — red
-        ];
-        const bonus = BONUSES[level] ?? 0;
-        const color = VFX_COLORS[level] ?? new Color(255, 255, 255, 255);
+        const lvConf = LEVEL_CONFIG[level];
+        const bonus = lvConf?.bonus ?? 0;
+        const color = lvConf?.vfxColor ?? new Color(255, 255, 255, 255);
         const mx = w.node.position.x;
         const my = w.node.position.y;
         const r  = w.radius;
@@ -561,7 +543,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         labelNode.setParent(this.node.parent!);
         labelNode.setPosition(mx, my + 10);
         const lbl = labelNode.addComponent(Label);
-        lbl.string = LABELS[level];
+        lbl.string = lvConf?.label ?? '';
         lbl.fontSize = 40;
         lbl.isBold = true;
         lbl.color = color;
@@ -571,7 +553,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
             .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
 
-        console.log(`[GameManager] ${LABELS[level]} explosion — bonus +${bonus}pts`);
+        console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
     }
 
     // --- tutorial ---
@@ -672,8 +654,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             g = this.nextPreviewNode.addComponent(Graphics);
         }
 
-        const r = WARRIOR_RADII[level] * 0.9;
-        g.fillColor = COLORS[type];
+        const r = (LEVEL_CONFIG[level]?.radius ?? 20) * 0.9;
+        g.fillColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
         g.circle(0, 0, r);
         g.fill();
         g.strokeColor = new Color(255, 255, 255, 180);
@@ -708,7 +690,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     // --- physics helpers ---
 
     private applyMagnetism(): void {
-        const r1sq = WARRIOR_RADII[1] * WARRIOR_RADII[1]; // level-1 radius² — mass reference
+        const r1 = LEVEL_CONFIG[1]?.radius ?? 20;
+        const r1sq = r1 * r1; // level-1 radius² — mass reference
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
             if (!a.node?.isValid || a.merging) continue;
@@ -759,8 +742,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         vfx.setPosition(x, y);
         const g = vfx.addComponent(Graphics);
         g.lineWidth = 4;
-        g.strokeColor = COLORS[type];
-        g.circle(0, 0, WARRIOR_RADII[4]);
+        g.strokeColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
+        g.circle(0, 0, LEVEL_CONFIG[4]?.radius ?? 42);
         g.stroke();
         const op = vfx.addComponent(UIOpacity);
         op.opacity = 200;

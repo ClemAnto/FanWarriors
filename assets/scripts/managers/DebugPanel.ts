@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Graphics, Label, Color, Vec2, Input, input, EventTouch } from 'cc';
-import { COLORS, WARRIOR_RADII, Warrior } from '../entities/Warrior';
+import { Warrior } from '../entities/Warrior';
+import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 import { GAME_OVER_LINE_Y, TRACK_W } from '../entities/Track';
 const { ccclass } = _decorator;
 
@@ -136,7 +137,7 @@ export class DebugPanel extends Component {
         for (let t = 0; t < 7; t++) {
             const y = PAL_START_Y - t * ICON_SPACING;
             this.lbl('1',       CX,              y, 11, new Color(255, 255, 255, 210));
-            this.lbl(String(t), CX + ICON_R + 12, y, 10, COLORS[t]);
+            this.lbl(String(t), CX + ICON_R + 12, y, 10, WARRIORS[t]?.color ?? new Color(200, 200, 200));
         }
     }
 
@@ -218,7 +219,8 @@ export class DebugPanel extends Component {
         // Palette icons (7 types, level 1)
         for (let t = 0; t < 7; t++) {
             const y = PAL_START_Y - t * ICON_SPACING;
-            g.fillColor = new Color(COLORS[t].r, COLORS[t].g, COLORS[t].b, 210);
+            const wc = WARRIORS[t]?.color ?? new Color(200, 200, 200);
+            g.fillColor = new Color(wc.r, wc.g, wc.b, 210);
             g.circle(CX, y, ICON_R);
             g.fill();
             g.strokeColor = new Color(255, 255, 255, 110);
@@ -365,12 +367,14 @@ export class DebugPanel extends Component {
         n.setParent(this.node.parent!);
         n.setPosition(pos.x, pos.y);
         const g = n.addComponent(Graphics);
-        g.fillColor = new Color(COLORS[type].r, COLORS[type].g, COLORS[type].b, 140);
-        g.circle(0, 0, WARRIOR_RADII[1]);
+        const wc = WARRIORS[type]?.color ?? new Color(200, 200, 200);
+        g.fillColor = new Color(wc.r, wc.g, wc.b, 140);
+        const r1 = LEVEL_CONFIG[1]?.radius ?? 20;
+        g.circle(0, 0, r1);
         g.fill();
         g.strokeColor = new Color(255, 255, 255, 160);
         g.lineWidth = 2;
-        g.circle(0, 0, WARRIOR_RADII[1]);
+        g.circle(0, 0, r1);
         g.stroke();
         this.ghost = n;
     }

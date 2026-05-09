@@ -1,18 +1,6 @@
 import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2 } from 'cc';
+import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 const { ccclass } = _decorator;
-
-// index = level (1-7), index 0 unused
-export const WARRIOR_RADII = [0, 20, 28, 36, 42, 48, 54, 60];
-
-export const COLORS: Color[] = [
-    new Color(231,  76,  60),  // 0 Red
-    new Color(230, 126,  34),  // 1 Orange
-    new Color(241, 196,  15),  // 2 Yellow
-    new Color( 46, 204, 113),  // 3 Green
-    new Color( 52, 152, 219),  // 4 Blue
-    new Color(155,  89, 182),  // 5 Purple
-    new Color( 26, 188, 156),  // 6 Teal
-];
 
 const MERGE_DELAY = 0.3;
 
@@ -24,7 +12,7 @@ export class Warrior extends Component {
     launched: boolean = false;
     crossedLine: boolean = false;
 
-    get radius(): number { return WARRIOR_RADII[this.level] ?? 30; }
+    get radius(): number { return LEVEL_CONFIG[this.level]?.radius ?? 30; }
     get velocity(): Vec2 { return this.getComponent(RigidBody2D)?.linearVelocity ?? new Vec2(0, 0); }
     set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
@@ -112,7 +100,7 @@ export class Warrior extends Component {
     private buildGraphics(): void {
         const r = this.radius;
         const g = this.node.addComponent(Graphics);
-        g.fillColor = COLORS[this.type];
+        g.fillColor = WARRIORS[this.type]?.color ?? new Color(200, 200, 200);
         g.circle(0, 0, r);
         g.fill();
         g.strokeColor = new Color(255, 255, 255, 180);
