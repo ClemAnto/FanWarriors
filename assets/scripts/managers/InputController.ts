@@ -84,7 +84,8 @@ export class InputController extends Component {
         if (!this.warrior || this.dragging) return;
         const touch = this.toWorld(e.getUILocation());
         const wPos = this.warriorPos();
-        if (Vec2.distance(touch, wPos) <= this.warrior.radius) {
+        const hitRadius = Math.max(this.warrior.radius, 44);
+        if (Vec2.distance(touch, wPos) <= hitRadius) {
             this.dragging = true;
             console.log('[InputController] drag started');
         }

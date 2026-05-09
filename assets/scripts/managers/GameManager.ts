@@ -8,6 +8,7 @@ import { GAME_OVER_LINE_Y, TRACK_W } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
+const DEBUG              = false;  // set true to show debug panel and overlay
 const MAX_ROUND          = 7;
 const MAGNET_GAP         = 30;  // surface-to-surface px at which attraction starts
 const MAGNET_FORCE       = 20;  // base force for a level-1 warrior
@@ -79,13 +80,15 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.warriors.push(...this.spawnMgr.prefill());
         const firstWarrior = this.createWarrior();
         this.createHud();
-        this.debugLabel = this.createDebugLabel();
+        this.debugLabel = DEBUG ? this.createDebugLabel() : null;
         this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
         this.showTutorial(() => this.activateWarrior(firstWarrior));
 
-        const debugNode = new Node('DebugPanel');
-        debugNode.setParent(this.node.parent!);
-        debugNode.addComponent(DebugPanel).init(this);
+        if (DEBUG) {
+            const debugNode = new Node('DebugPanel');
+            debugNode.setParent(this.node.parent!);
+            debugNode.addComponent(DebugPanel).init(this);
+        }
     }
 
     // ── IGameManagerDebug ──
