@@ -110,12 +110,12 @@
 ### Settimana 3: Punteggio e round *(21–27 mag)*
 
 **Giorno 15-17: Sistema di punteggio** *(21–23 mag)*
-- [ ] Formula punteggio: `10 × 2^(livello_creatura - 1) × round_corrente × 2^(merge_nello_stesso_lancio - 1)`
-- [ ] Tracciare `mergesThisLaunch` (reset ad ogni nuovo lancio)
-- [ ] Floating score placeholder: testo "+N" che sale dal punto di merge
-- [ ] Malus: penalità `10 × 2^(livello_creatura - 1) × round_corrente` quando un warrior riattraversa la linea
-- [ ] Malus: flash rosso overlay (~0.3s) come unico feedback visivo negativo
-- [ ] Punteggio non scende sotto zero
+- [x] Formula punteggio: `10 × 2^(livello_creatura - 1) × round_corrente × 2^(merge_nello_stesso_lancio - 1)`
+- [x] Tracciare `mergesThisLaunch` (reset ad ogni nuovo lancio)
+- [x] Floating score placeholder: testo "+N" che sale dal punto di merge
+- [x] Malus: penalità `10 × 2^(livello_creatura - 1) × round_corrente` quando un warrior riattraversa la linea
+- [x] Malus: flash rosso overlay (~0.3s) come unico feedback visivo negativo
+- [x] Punteggio non scende sotto zero
 
 **Giorno 18-19: Progressione round** *(24–25 mag)*
 - [x] Aggiungere `currentRound` al GameManager
@@ -126,29 +126,29 @@
 
 **Giorno 20-21: Game over e restart** *(26–27 mag)*
 - [x] Verifica frame-by-frame attraversamento linea (direzione + completezza) — fix false game over + fix stuck Inflight
-- [ ] Esplosione malus: warrior distrutto + flash rosso — esplosione ✅, flash rosso ❌
+- [x] Esplosione malus: warrior distrutto + flash rosso
 - [x] Restart pulisce scena e resetta stato completo (`director.loadScene`) — fix nodo HalloWarld corrotto al reload
 - [ ] Salvataggio best score in localStorage
 
 ### Settimana 4: Esplosioni livelli speciali e refinement *(28 mag–3 giu)*
 
 **Giorno 22-23: Esplosioni Campione / Eroe / Leggenda** *(28–29 mag)*
-- [ ] Quando merge crea warrior di livello 5 (Campione): esplosione placeholder + bonus +500pt
-- [ ] Quando merge crea warrior di livello 6 (Eroe): esplosione placeholder + bonus +1000pt
-- [ ] Quando merge crea warrior di livello 7 (Leggenda): esplosione placeholder + bonus +2000pt
-- [ ] Ogni esplosione: VFX placeholder (cerchio che cresce e svanisce), warrior distrutto
+- [x] Quando merge crea warrior di livello 5 (Campione): esplosione placeholder + bonus +500pt
+- [x] Quando merge crea warrior di livello 6 (Eroe): esplosione placeholder + bonus +1000pt
+- [x] Quando merge crea warrior di livello 7 (Leggenda): esplosione placeholder + bonus +2000pt
+- [x] Ogni esplosione: VFX placeholder (2 cerchi che crescono e svaniscono), warrior distrutto
 
 **Giorno 24-25: Tutorial e logica spawn avanzata** *(30–31 mag)*
-- [ ] Logica spawn: round 1-2 solo livello 1; round 3-4 livelli 1-2; round 7+ livelli 1-3
-- [ ] Spawn specie scalato per round (3 specie → 7 specie progressivamente)
-- [ ] Tutorial primo lancio: 3 popup ("Trascina verso il basso", "Rilascia per lanciare", "Unisci due uguali!")
-- [ ] Flag in localStorage per non rimostrare tutorial
+- [x] Logica spawn: round 1-2 solo livello 1; round 3-4 livelli 1-2; round 7+ livelli 1-3
+- [x] Spawn specie scalato per round (3 specie → 7 specie progressivamente)
+- [x] Tutorial primo lancio: 3 popup ("Trascina verso il basso", "Rilascia per lanciare", "Unisci due uguali!")
+- [x] Flag in localStorage per non rimostrare tutorial
 
 **Giorno 26-28: Bilanciamento iniziale** *(1–3 giu)*
-- [ ] Playtest sessioni multiple
-- [ ] Tuning: forza magnetismo, attrito, tempi merge, soglie min/max fionda
-- [ ] Tuning: curva soglie punteggio per round-up
-- [ ] Fix bug evidenti
+- [ ] Playtest sessioni multiple *(manuale)*
+- [ ] Tuning: forza magnetismo, attrito, tempi merge, soglie min/max fionda *(post-playtest)*
+- [ ] Tuning: curva soglie punteggio per round-up *(post-playtest)*
+- [ ] Fix bug evidenti *(post-playtest)*
 - [ ] **Milestone Fase 2** *(3 giu)*: loop completo e giocabile anche se visivamente greybox
 
 ---
@@ -297,9 +297,6 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-09 — Fase 1 chiusa. Fase 2 in corso (bug game over/restart risolti).
+> Aggiornato al 2026-05-09 — Fase 1 chiusa. Fase 2 quasi completa (tutta la logica codice implementata).
 
-1. **Giorno 15-17**: Formula punteggio completa — aggiungere `mergesThisLaunch` (reset ad ogni lancio), applicare moltiplicatore combo, floating score "+N" al punto di merge
-2. **Giorno 15-17**: Malus punteggio — detrarre score in `penaltyExplode`, flash rosso overlay 0.3s, score non scende sotto zero
-3. **Giorno 18-19**: Progressione round — soglie `totalMerges` per round-up, pool specie cresce, timer si riduce, notifica "ROUND UP"
-4. **Giorno 20-21**: Salvataggio best score in localStorage
+1. **Giorno 26-28**: Playtest manuale + tuning parametri + fix bug → sblocca Milestone Fase 2

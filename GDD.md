@@ -178,7 +178,7 @@ Il lancio si ispira a **Puzzle Bobble** per la direzione (sempre verso l'alto da
 
 1. **Press** sul personaggio in attesa
 2. **Drag verso il basso** (o in diagonale basso-sinistra / basso-destra) per caricare la fionda
-3. Viene visualizzata una **corda elastica** tra il punto di press e la posizione corrente del drag
+3. Vengono visualizzati due indicatori sovrapposti: una **corda elastica** sul lato del drag (dal personaggio verso il punto di tocco) e una **freccia di direzione** sul lato opposto (dal personaggio verso la traiettoria di lancio); entrambi scalano cromaticamente verde → rosso con la forza caricata. La freccia è composta da un'asta sottile + testa di freccia riempita, e scala in lunghezza con la forza
 4. La **direzione di lancio è opposta al drag**: drag in basso → lancio verso l'alto; drag in basso-sinistra → lancio in alto-destra
 5. La **lunghezza del drag** determina la forza del lancio (più si tira, più si carica)
 6. **Rilascio** → il personaggio viene proiettato nella direzione opposta con la forza caricata

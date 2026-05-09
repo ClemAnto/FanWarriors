@@ -7,6 +7,7 @@ export const SPAWN_Y = -220;
 export class SpawnManager {
     private parent: Node;
     private spawnTypes: number;
+    private maxLevel = 1;
     private nextType = 0;
     private nextLevel = 1;
 
@@ -40,9 +41,17 @@ export class SpawnManager {
         });
     }
 
+    setSpawnTypes(n: number): void {
+        this.spawnTypes = n;
+    }
+
+    setMaxLevel(n: number): void {
+        this.maxLevel = n;
+    }
+
     private generateNext(): void {
         this.nextType  = Math.floor(Math.random() * this.spawnTypes);
-        this.nextLevel = 1;
+        this.nextLevel = Math.floor(Math.random() * this.maxLevel) + 1;
         this.onNextGenerated?.();
     }
 }

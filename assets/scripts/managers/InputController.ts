@@ -113,19 +113,66 @@ export class InputController extends Component {
 
     private drawRope(touch: Vec2): void {
         if (!this.rope || !this.warrior) return;
-        const wPos = this.warriorPos();
-        const drag = new Vec2(touch.x - wPos.x, touch.y - wPos.y);
-        const len  = Math.min(drag.length(), MAX_DRAG);
-        const t    = len / MAX_DRAG;
-        const end  = wPos.clone().add(drag.normalize().multiplyScalar(len));
+        const wPos   = this.warriorPos();
+        const dx     = touch.x - wPos.x;
+        const dy     = touch.y - wPos.y;
+        const rawLen = Math.sqrt(dx * dx + dy * dy);
+        const len    = Math.min(rawLen, MAX_DRAG);
+        const t      = len / MAX_DRAG;
+
+        // Normalized drag direction (toward touch); avoid division by zero
+        const nx = rawLen > 0 ? dx / rawLen : 0;
+        const ny = rawLen > 0 ? dy / rawLen : -1;
 
         this.rope.clear();
+        const color = new Color(Math.floor(t * 255), Math.floor((1 - t) * 200), 50, 220);
+
+        // Elastic rope (drag side)
         this.rope.lineWidth = 4;
-        // Color shifts green → red as force increases
-        this.rope.strokeColor = new Color(Math.floor(t * 255), Math.floor((1 - t) * 200), 50, 220);
+        this.rope.strokeColor = color;
         this.rope.moveTo(wPos.x, wPos.y);
-        this.rope.lineTo(end.x, end.y);
+        this.rope.lineTo(wPos.x + nx * len, wPos.y + ny * len);
         this.rope.stroke();
+
+        // Direction arrow (launch side) — only shown above min threshold
+        if (rawLen >= MIN_DRAG) {
+            this.drawDirectionArrow(wPos, new Vec2(-nx, -ny), t, color);
+        }
+    }
+
+    private drawDirectionArrow(wPos: Vec2, launchDir: Vec2, t: number, color: Color): void {
+        if (!this.rope || !this.warrior) return;
+        const g = this.rope;
+        const SHAFT_MAX  = 60;
+        const ARROW_SIZE = 11;
+
+        const offset   = this.warrior.radius + 6;
+        const shaftLen = t * SHAFT_MAX;
+
+        const ox = wPos.x + launchDir.x * offset;
+        const oy = wPos.y + launchDir.y * offset;
+        const bx = ox + launchDir.x * shaftLen;          // base of arrowhead
+        const by = oy + launchDir.y * shaftLen;
+        const tx = bx + launchDir.x * ARROW_SIZE;        // tip of arrowhead
+        const ty = by + launchDir.y * ARROW_SIZE;
+        const px = -launchDir.y;                          // perpendicular
+        const py =  launchDir.x;
+        const half = ARROW_SIZE * 0.5;
+
+        // Shaft
+        g.lineWidth = 2.5;
+        g.strokeColor = new Color(color.r, color.g, color.b, 180);
+        g.moveTo(ox, oy);
+        g.lineTo(bx, by);
+        g.stroke();
+
+        // Filled arrowhead
+        g.fillColor = new Color(color.r, color.g, color.b, 210);
+        g.moveTo(tx, ty);
+        g.lineTo(bx + px * half, by + py * half);
+        g.lineTo(bx - px * half, by - py * half);
+        g.close();
+        g.fill();
     }
 
     private clearRope(): void {

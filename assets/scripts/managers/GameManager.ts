@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, director } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, director, sys } from 'cc';
 import { Warrior, WARRIOR_RADII, COLORS } from '../entities/Warrior';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
@@ -12,6 +12,26 @@ const MAGNET_FORCE       = 8;
 const SETTLE_VELOCITY    = 0.1;    // px/s — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY = 0.8;    // seconds before checking if launched warrior failed to cross
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
+
+// Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
+const ROUND_THRESHOLDS = [0, 10, 25, 45, 70, 100, 135] as const;
+
+function launchTimerForRound(round: number): number {
+    return Math.max(3, 15 - (round - 1) * 2);
+}
+
+function spawnTypesForRound(round: number): number {
+    if (round <= 2) return 3;
+    if (round <= 4) return 4;
+    if (round <= 6) return 5;
+    return 7;
+}
+
+function spawnMaxLevelForRound(round: number): number {
+    if (round <= 2) return 1;
+    if (round <= 6) return 2;
+    return 3;
+}
 
 // HUD positions (world space, canvas 1280×720 centered at origin)
 const HUD_LEFT_X  = -490;
@@ -30,8 +50,11 @@ export class GameManager extends Component {
 
     // game state
     private score = 0;
+    private bestScore = 0;
     private currentRound = 1;
     private totalMerges = 0;
+    private mergesThisLaunch = 0;
+    private roundUpPause = false;
     private timerRemaining = LAUNCH_TIMER;
 
     // hud refs
@@ -55,9 +78,11 @@ export class GameManager extends Component {
         this.spawnMgr.onNextGenerated = ()      => this.updateNextPreview();
 
         this.warriors.push(...this.spawnMgr.prefill());
-        this.activateWarrior(this.createWarrior());
+        const firstWarrior = this.createWarrior();
         this.createHud();
         this.debugLabel = this.createDebugLabel();
+        this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
+        this.showTutorial(() => this.activateWarrior(firstWarrior));
     }
 
     update(dt: number) {
@@ -85,7 +110,8 @@ export class GameManager extends Component {
 
     private activateWarrior(w: Warrior): void {
         this.inputCtrl.setWarrior(w);
-        this.timerRemaining = LAUNCH_TIMER;
+        this.timerRemaining = launchTimerForRound(this.currentRound);
+        this.mergesThisLaunch = 0;
         this.state = GameState.Aiming;
         this.updateTimerLabel();
         console.log('[GameManager] warrior activated — ready to launch');
@@ -103,6 +129,7 @@ export class GameManager extends Component {
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
 
         console.log('[GameManager] all warriors settled');
+        if (this.roundUpPause) return;
         if (this.pendingWarrior?.node?.isValid) {
             const next = this.pendingWarrior;
             this.pendingWarrior = null;
@@ -149,6 +176,12 @@ export class GameManager extends Component {
     }
 
     private penaltyExplode(w: Warrior): void {
+        const malus = 10 * (1 << (w.level - 1)) * this.currentRound;
+        this.score = Math.max(0, this.score - malus);
+        this.updateScoreLabel();
+        console.log(`[GameManager] penalty −${malus} pts`);
+        this.showRedFlash();
+
         this.warriors = this.warriors.filter(x => x !== w);
         this.prevY.delete(w);
         tween(w.node)
@@ -161,6 +194,10 @@ export class GameManager extends Component {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
         console.log('[GameManager] game over');
+        if (this.score > this.bestScore) {
+            this.bestScore = this.score;
+            sys.localStorage.setItem('fw_best_score', String(this.bestScore));
+        }
         this.showGameOverScreen();
     }
 
@@ -190,9 +227,17 @@ export class GameManager extends Component {
         scoreLbl.fontSize = 32;
         scoreLbl.color = new Color(255, 220, 50, 255);
 
+        const bestNode = new Node('BestScore');
+        bestNode.setParent(panel);
+        bestNode.setPosition(0, -50);
+        const bestLbl = bestNode.addComponent(Label);
+        bestLbl.string = `Best: ${this.bestScore}`;
+        bestLbl.fontSize = 22;
+        bestLbl.color = new Color(160, 210, 255, 255);
+
         const retryNode = new Node('Retry');
         retryNode.setParent(panel);
-        retryNode.setPosition(0, -60);
+        retryNode.setPosition(0, -95);
         const retry = retryNode.addComponent(Label);
         retry.string = 'Riprova';
         retry.fontSize = 36;
@@ -220,12 +265,18 @@ export class GameManager extends Component {
         merged.crossedLine = true;
         merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
         this.warriors.push(merged);
-        this.flashMerge(merged);
+        if (newLevel < 5) this.flashMerge(merged);
 
         this.totalMerges++;
-        this.score += 10 * (1 << (newLevel - 1)) * this.currentRound;
+        this.mergesThisLaunch++;
+        this.checkRoundAdvance();
+        const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
+        this.score += points;
+        this.spawnFloatingScore(midX, midY, points);
         this.updateScoreLabel();
         this.updateMergesLabel();
+
+        if (newLevel >= 5) this.triggerSpecialExplosion(merged, newLevel);
     }
 
     // --- HUD ---
@@ -309,6 +360,177 @@ export class GameManager extends Component {
 
     private updateMergesLabel(): void {
         if (this.mergesLabel) this.mergesLabel.string = String(this.totalMerges);
+    }
+
+    private updateRoundLabel(): void {
+        if (this.roundLabel) this.roundLabel.string = String(this.currentRound);
+    }
+
+    // --- round progression ---
+
+    private checkRoundAdvance(): void {
+        const threshold = ROUND_THRESHOLDS[this.currentRound] as number | undefined;
+        if (threshold !== undefined && this.totalMerges >= threshold) {
+            this.advanceRound();
+        }
+    }
+
+    private advanceRound(): void {
+        this.currentRound++;
+        this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
+        this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
+        this.updateRoundLabel();
+        this.roundUpPause = true;
+        this.showRoundUpBanner();
+        this.scheduleOnce(() => { this.roundUpPause = false; }, 1.5);
+        console.log(`[GameManager] round up → round ${this.currentRound}, types=${spawnTypesForRound(this.currentRound)}, timer=${launchTimerForRound(this.currentRound)}s`);
+    }
+
+    private triggerSpecialExplosion(w: Warrior, level: number): void {
+        const BONUSES  = [0, 0, 0, 0, 0, 500, 1000, 2000];
+        const LABELS   = ['', '', '', '', '', 'CAMPIONE!', 'EROE!', 'LEGGENDA!'];
+        const VFX_COLORS = [
+            new Color(0, 0, 0), new Color(0, 0, 0), new Color(0, 0, 0),
+            new Color(0, 0, 0), new Color(0, 0, 0),
+            new Color(255, 200,  50, 255),  // 5 — gold
+            new Color(180, 100, 255, 255),  // 6 — purple
+            new Color(255,  80,  60, 255),  // 7 — red
+        ];
+        const bonus = BONUSES[level] ?? 0;
+        const color = VFX_COLORS[level] ?? new Color(255, 255, 255, 255);
+        const mx = w.node.position.x;
+        const my = w.node.position.y;
+        const r  = w.radius;
+
+        this.warriors = this.warriors.filter(wr => wr !== w);
+        this.prevY.delete(w);
+        w.node.destroy();
+
+        this.score += bonus;
+        this.updateScoreLabel();
+        if (bonus > 0) this.spawnFloatingScore(mx, my + 30, bonus);
+
+        // Two expanding rings
+        for (let i = 0; i < 2; i++) {
+            const vfx = new Node('ExpVFX');
+            vfx.setParent(this.node.parent!);
+            vfx.setPosition(mx, my);
+            const g = vfx.addComponent(Graphics);
+            g.lineWidth = 6 - i * 2;
+            g.strokeColor = color;
+            g.circle(0, 0, r);
+            g.stroke();
+            const op = vfx.addComponent(UIOpacity);
+            op.opacity = 255;
+            const dur = 0.45 + i * 0.12;
+            tween(vfx).to(dur, { scale: new Vec3(3 + i, 3 + i, 1) }).start();
+            tween(op).to(dur, { opacity: 0 })
+                .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
+        }
+
+        // Label
+        const labelNode = new Node('ExpLabel');
+        labelNode.setParent(this.node.parent!);
+        labelNode.setPosition(mx, my + 10);
+        const lbl = labelNode.addComponent(Label);
+        lbl.string = LABELS[level];
+        lbl.fontSize = 40;
+        lbl.isBold = true;
+        lbl.color = color;
+        const labelOp = labelNode.addComponent(UIOpacity);
+        labelOp.opacity = 255;
+        tween(labelNode).by(0.7, { position: new Vec3(0, 55, 0) }).start();
+        tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
+            .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
+
+        console.log(`[GameManager] ${LABELS[level]} explosion — bonus +${bonus}pts`);
+    }
+
+    // --- tutorial ---
+
+    private showTutorial(onDone: () => void): void {
+        if (sys.localStorage.getItem('fw_tutorial_done') === '1') { onDone(); return; }
+
+        const messages = [
+            'Trascina verso il basso',
+            'Rilascia per lanciare',
+            'Unisci due uguali!',
+        ];
+        let idx = 0;
+
+        const showNext = () => {
+            if (idx >= messages.length) {
+                sys.localStorage.setItem('fw_tutorial_done', '1');
+                onDone();
+                return;
+            }
+
+            const overlay = new Node('TutOverlay');
+            overlay.setParent(this.node.parent!);
+            overlay.setPosition(0, 0);
+            const ot = overlay.addComponent(UITransform);
+            ot.setContentSize(1280, 720);
+
+            const popup = new Node('TutPopup');
+            popup.setParent(overlay);
+            popup.setPosition(0, 50);
+
+            const bg = popup.addComponent(Graphics);
+            bg.fillColor = new Color(20, 20, 40, 230);
+            bg.rect(-220, -40, 440, 80);
+            bg.fill();
+            bg.strokeColor = new Color(255, 220, 50, 200);
+            bg.lineWidth = 2;
+            bg.rect(-220, -40, 440, 80);
+            bg.stroke();
+
+            const textNode = new Node('TutText');
+            textNode.setParent(popup);
+            const msgLbl = textNode.addComponent(Label);
+            msgLbl.string = messages[idx];
+            msgLbl.fontSize = 30;
+            msgLbl.isBold = true;
+            msgLbl.color = new Color(255, 255, 255, 255);
+
+            const hintNode = new Node('TutHint');
+            hintNode.setParent(popup);
+            hintNode.setPosition(0, -58);
+            const hintLbl = hintNode.addComponent(Label);
+            hintLbl.string = 'tocca per continuare';
+            hintLbl.fontSize = 16;
+            hintLbl.color = new Color(180, 180, 180, 180);
+
+            idx++;
+            overlay.on(Node.EventType.TOUCH_START, () => { overlay.destroy(); showNext(); }, this);
+        };
+
+        showNext();
+    }
+
+    private showRoundUpBanner(): void {
+        const node = new Node('RoundUpBanner');
+        node.setParent(this.node.parent!);
+        node.setPosition(0, 0);
+        node.setScale(0.4, 0.4, 1);
+
+        const lbl = node.addComponent(Label);
+        lbl.string = `ROUND ${this.currentRound}`;
+        lbl.fontSize = 45;
+        lbl.isBold = true;
+        lbl.color = new Color(255, 220, 50, 255);
+
+        const opacity = node.addComponent(UIOpacity);
+        opacity.opacity = 255;
+
+        tween(node)
+            .to(0.25, { scale: new Vec3(1.1, 1.1, 1) })
+            .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
+            .start();
+        tween(opacity)
+            .delay(1.05)
+            .to(0.4, { opacity: 0 })
+            .call(() => { if (node.isValid) node.destroy(); })
+            .start();
     }
 
     private updateNextPreview(): void {
@@ -395,6 +617,49 @@ export class GameManager extends Component {
         tween(w.node)
             .to(0.08, { scale: new Vec3(1.4, 1.4, 1) })
             .to(0.12, { scale: new Vec3(1.0, 1.0, 1) })
+            .start();
+    }
+
+    private spawnFloatingScore(x: number, y: number, points: number): void {
+        const node = new Node('FloatingScore');
+        node.setParent(this.node.parent!);
+        node.setPosition(x, y);
+
+        const lbl = node.addComponent(Label);
+        lbl.string = `+${points}`;
+        lbl.fontSize = this.mergesThisLaunch > 1 ? 44 : 34;
+        lbl.isBold = true;
+        lbl.color = new Color(255, 220, 50, 255);
+
+        const opacity = node.addComponent(UIOpacity);
+        opacity.opacity = 255;
+
+        tween(node)
+            .by(0.9, { position: new Vec3(0, 90, 0) })
+            .start();
+        tween(opacity)
+            .delay(0.35)
+            .to(0.55, { opacity: 0 })
+            .call(() => { if (node.isValid) node.destroy(); })
+            .start();
+    }
+
+    private showRedFlash(): void {
+        const node = new Node('RedFlash');
+        node.setParent(this.node.parent!);
+        node.setPosition(0, 0);
+
+        const g = node.addComponent(Graphics);
+        g.fillColor = new Color(220, 30, 30, 255);
+        g.rect(-640, -360, 1280, 720);
+        g.fill();
+
+        const opacity = node.addComponent(UIOpacity);
+        opacity.opacity = 110;
+
+        tween(opacity)
+            .to(0.3, { opacity: 0 })
+            .call(() => { if (node.isValid) node.destroy(); })
             .start();
     }
 
