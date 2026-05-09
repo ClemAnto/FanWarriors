@@ -21,13 +21,13 @@ export interface WarriorData {
 // index = level (0 unused, 1–7 valid)
 export const LEVEL_CONFIG: readonly (LevelData | null)[] = [
     null,
-    { name: 'Cucciolo',    radius: 20 },
-    { name: 'Apprendista', radius: 28 },
-    { name: 'Soldato',     radius: 36 },
-    { name: 'Guerriero',   radius: 42 },
-    { name: 'Campione',    radius: 48, explosion: true, bonus:  500, label: 'CAMPIONE!', vfxColor: new Color(255, 200,  50, 255) },
-    { name: 'Eroe',        radius: 54, explosion: true, bonus: 1000, label: 'EROE!',     vfxColor: new Color(180, 100, 255, 255) },
-    { name: 'Leggenda',    radius: 60, explosion: true, bonus: 2000, label: 'LEGGENDA!', vfxColor: new Color(255,  80,  60, 255) },
+    { name: 'Cucciolo',    radius: 16 },
+    { name: 'Apprendista', radius: 22 },
+    { name: 'Soldato',     radius: 29 },
+    { name: 'Guerriero',   radius: 34 },
+    { name: 'Campione',    radius: 38, explosion: true, bonus:  500, label: 'CAMPIONE!', vfxColor: new Color(255, 200,  50, 255) },
+    { name: 'Eroe',        radius: 43, explosion: true, bonus: 1000, label: 'EROE!',     vfxColor: new Color(180, 100, 255, 255) },
+    { name: 'Leggenda',    radius: 48, explosion: true, bonus: 2000, label: 'LEGGENDA!', vfxColor: new Color(255,  80,  60, 255) },
 ];
 
 // index = type (0–6)
