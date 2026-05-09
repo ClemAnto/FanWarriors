@@ -4,35 +4,42 @@
 
 ---
 
-## Parametri fisici calibrati (aggiornati Fase 2)
+## Parametri fisici calibrati
 
 Tutti i valori sono stati tuned in sessione di gioco reale — non modificare senza testare.
 
 ### Warrior (Warrior.ts)
 | Parametro | Valore | Note |
 |-----------|--------|------|
-| `linearDamping` | 0.5 | Scivolata lunga stile curling |
-| `angularDamping` | 1.5 | Rotazione smorzata ma non bloccata |
+| `linearDamping` (in volo) | 0.5 | Scivolata lunga stile curling |
+| `linearDamping` (fermo) | 12 | Impostato da `settle()` dopo `forceStop()` — resiste agli impatti |
+| `angularDamping` (in volo) | 1.5 | Rotazione smorzata ma non bloccata |
+| `angularDamping` (fermo) | 4 | Impostato da `settle()` |
 | `density` | 8.0 | Alta densità = resistenza agli urti |
 | `friction` | 0.05 | Superficie scivolosa (ghiaccio) |
 | `restitution` | 0.04 | Impatti molto smorzanti, quasi anelastici |
 | `MERGE_DELAY` | 0.3s | Tempo contatto prima del merge |
 
+`settle()` viene chiamato automaticamente da `forceStop()` e anche sui warrior di prefill al momento dello spawn — da quel momento reagiscono agli impatti ma non schizzano.
+
 ### Track walls (Track.ts)
 | Parete | Restitution | Friction | Note |
 |--------|-------------|----------|------|
-| Laterali (PolygonCollider2D) | 0.8 | 0.05 | Inclinate 6° — più strette in alto |
-| Fondo (top, BoxCollider2D) | 0.0 | 1.0 | Solo larghezza ridotta del funnel |
-| Bottom invisibile | 0.0 | 0.0 | |
+| Laterali (PolygonCollider2D) | 0.8 | 0.05 | Inclinate 5° — più strette in alto |
+| Top (BoxCollider2D) | 0.0 | 1.0 | Solo larghezza ridotta del funnel |
+| Bottom (BoxCollider2D) | 0.0 | 0.0 | |
 
 ### Track — geometria funnel (Track.ts)
 | Costante | Valore | Note |
 |----------|--------|------|
-| `TRACK_W` | 432px | Larghezza al fondo (punto più largo) |
-| `TRACK_H` | 680px | Altezza totale |
-| `FUNNEL_ANGLE_DEG` | 6° | Inclinazione pareti verso interno |
-| `FUNNEL_OFFSET` | ~45px/lato | tan(6°)×680 — restringimento totale top vs bottom |
-| Larghezza in cima | ~342px | TRACK_W − 2×FUNNEL_OFFSET |
+| `TRACK_W` | 500px | Larghezza al fondo (apertura inferiore) |
+| `TRACK_BOTTOM_Y` | −600 | World Y parete inferiore |
+| `TRACK_TOP_Y` | +450 | World Y parete superiore |
+| `TRACK_H` | 1050px | TRACK_TOP_Y − TRACK_BOTTOM_Y (back-compat) |
+| `GAME_OVER_LINE_Y` | −80 | World Y linea rossa divisoria lancio/gioco |
+| `FUNNEL_ANGLE_DEG` | 5° | Inclinazione pareti verso interno |
+| `FUNNEL_OFFSET` | ≈92px/lato | tan(5°)×1050 |
+| Larghezza in cima | ≈316px | TRACK_W − 2×FUNNEL_OFFSET |
 
 ### InputController (InputController.ts)
 | Parametro | Valore | Note |
@@ -57,14 +64,15 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 
 ## Coordinate e risoluzione
 
-- Design resolution: **1280×720 landscape** (configurato in Project Settings)
-- Origine world space: **centro canvas (0, 0)**
-- `getUILocation()` restituisce coordinate con origine **bottom-left** → conversione: `worldX = uiX - 640`, `worldY = uiY - 360`
-- Linea di game over: **y = 0** (centro verticale)
-- Track: **432×680px** (funnel), centrato in (0,0) — fondo a y=−340, cima a y=+340
-- Larghezza funnel: 432px in fondo, ~342px in cima (±45px per lato)
-- Warrior spawn: y=−220 (sotto la game over line, nella zona di lancio)
-- Prefill positions: (−90, 220), (0, 250), (90, 220)
+- Design resolution: **720×1280 portrait**, policy `FIXED_HEIGHT` (impostato via codice in `GameManager.start()`)
+- Con FIXED_HEIGHT l'altezza è sempre 1280 unità design; la larghezza si adatta all'aspect ratio del dispositivo
+- Origine world space: **centro canvas (0, 0)** → schermo va da −640 a +640 in Y, e ±(visibleWidth/2) in X
+- `getUILocation()` restituisce coordinate con origine **bottom-left** → usare `view.getVisibleSize()` per la conversione corretta (non hardcodare larghezza)
+- **Zona di lancio:** da `TRACK_BOTTOM_Y = −600` a `GAME_OVER_LINE_Y = −80` (520 unità)
+- **Zona di gioco:** da `GAME_OVER_LINE_Y = −80` a `TRACK_TOP_Y = +450` (530 unità)
+- Warrior spawn: `SPAWN_Y = GAME_OVER_LINE_Y + (TRACK_BOTTOM_Y − GAME_OVER_LINE_Y) * 0.6` ≈ −392 (60% della zona di lancio)
+- Prefill positions: `(−90, GAME_OVER_LINE_Y+300)`, `(0, GAME_OVER_LINE_Y+330)`, `(90, GAME_OVER_LINE_Y+300)` ≈ (−90, 220), (0, 250), (90, 220)
+- **Regola:** tutti i posizionamenti devono derivare dalle costanti di Track — nessun valore hardcoded
 
 ---
 
@@ -247,14 +255,73 @@ Se due warrior lv7 si fondono (`newLevel > 7`), entrambi vengono distrutti e nes
 ## Scena e gerarchia
 
 ```
-Canvas (1280×720)
-  ├── Track         ← Track.ts — disegna pista funnel e muri fisici
+Scene root
+  ├── Track         ← Track.ts — disegna pista funnel e muri fisici (nodo statico in scena)
   ├── GameManager   ← GameManager.ts + InputController.ts (addComponent)
-  │     (warrior spawnati come figli di node.parent = Canvas)
-  ├── Rope          ← creato da InputController a runtime
-  ├── HUD           ← creato da GameManager a runtime
-  ├── DebugPanel    ← creato da GameManager a runtime (rimuovere in prod)
-  └── DebugLabel    ← creato da GameManager a runtime (rimuovere in prod)
+  ├── GameLayer     ← creato a runtime — contiene: warriors, Rope, VFX esplosioni/burst
+  └── UILayer       ← creato a runtime — contiene: HUD, timer, NEXT, tutorial, game-over,
+                       punteggi flottanti, RedFlash, DebugPanel, DebugLabel
 ```
 
-I warrior e i loro nodi figli (label livello) sono spawnati tutti come figli diretti di Canvas tramite `this.node.parent!`.
+`GameLayer` e `UILayer` sono creati in `GameManager.start()` come figli di `this.node.parent!` (scene root).  
+La corda (Rope) si aggancia a `GameLayer` tramite `InputController.ropeParent`.  
+**Regola:** non usare mai `this.node.parent!` per spawnare nodi a runtime — usare sempre `this.gameLayer` o `this.uiLayer`.
+
+---
+
+## Testing remoto su mobile
+
+Permette di testare la build su telefono fuori dalla stessa rete WiFi del PC.
+
+### Flusso completo
+
+**1. Build headless (CLI)**
+```bash
+# CRITICO: unset ELECTRON_RUN_AS_NODE altrimenti CocosCreator.exe gira come Node.js
+env -u ELECTRON_RUN_AS_NODE "C:\ProgramData\cocos\editors\Creator\3.8.8\CocosCreator.exe" \
+  --project "d:\Projects\FanWarriors" \
+  --build "platform=web-mobile"
+```
+- Exit code **0** o **36** = successo (36 = successo con warning, normale)
+- Exit code diverso = errore reale
+
+**2. Server statico locale**
+```bash
+npx serve -l 8080 "d:/Projects/FanWarriors/build/web-mobile"
+```
+
+**3. Tunnel pubblico (ngrok)**
+```bash
+npx ngrok http 8080
+# Oppure in background e recupera URL via API:
+npx ngrok http 8080 --log=stdout &
+curl -s http://localhost:4040/api/tunnels | grep -o '"public_url":"[^"]*"'
+```
+L'URL resta fisso per tutta la sessione ngrok (es. `https://macarena-lavender-excavator.ngrok-free.dev`).
+
+**4. Impedire standby PC**
+```bash
+# Disabilita standby AC (prima di uscire)
+powercfg /change standby-timeout-ac 0
+# Ripristina (quando torni)
+powercfg /change standby-timeout-ac 15
+```
+
+### Setup iniziale ngrok (una tantum)
+```bash
+# Registrarsi su ngrok.com e ottenere authtoken dal dashboard
+npx ngrok config add-authtoken <TOKEN>
+```
+
+### CRITICO — kill prima di rebuild
+Serve deve essere spento prima di rilanciare la build, altrimenti CC non riesce a scrivere i file (EPERM — file lock di Windows):
+```bash
+# PowerShell
+Get-Process -Name "node" | Stop-Process -Force
+# poi cancellare la build se ci sono errori di permesso
+cmd /c rd /s /q "d:\Projects\FanWarriors\build"
+```
+
+### Perché ngrok e non localtunnel
+localtunnel è gratuito ma crasha frequentemente (503 Bad Gateway, connessione persa).  
+ngrok richiede account gratuito ma è stabile per sessioni di test lunghe.

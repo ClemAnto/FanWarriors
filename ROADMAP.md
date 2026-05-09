@@ -38,7 +38,7 @@
 - [x] Creare nuovo progetto "FunWarriors"
 - [x] Configurare TypeScript strict mode
 - [x] Setup Git, .gitignore standard Cocos
-- [x] Configurare risoluzione di riferimento (1280x720 landscape)
+- [x] Configurare risoluzione di riferimento (720×1280 portrait, FIXED_HEIGHT — impostato via codice)
 - [x] Importare sprite placeholder (cerchi colorati con numeri)
 
 **Giorno 3-4: Pista e fisica** *(9–10 mag)*
@@ -146,13 +146,18 @@
 - [x] Flag in localStorage per non rimostrare tutorial
 
 **Decisioni di design prese in Fase 2:**
-- Pista a **funnel** (imbuto): pareti inclinate 6°, più strette in cima, con PolygonCollider2D
-- Larghezza pista ridotta di 1/3: TRACK_W 648 → **432px**
+- Pista a **funnel** (imbuto): pareti inclinate 5°, più strette in cima, con PolygonCollider2D
+- Layout pista **asimmetrico**: `TRACK_BOTTOM_Y=−600`, `TRACK_TOP_Y=+450`, `GAME_OVER_LINE_Y=−80`, `TRACK_W=500px`
 - Lancio immediato (`waitForSettling = false`): il warrior successivo si attiva appena quello lanciato supera la linea
 - Rimbalzo oltre la linea → **game over** (non più malus a punteggio)
 - Momentum conservation al merge: 75% velocità media dei due warrior
 - Angolo lancio clamped a ±75° dalla verticale
 - Debug panel con PAUSE/RESUME, round ±, merge ±, SAVE/LOAD/RESET, palette drag-and-drop
+- **Tutti i posizionamenti relativi** alle costanti di Track — nessun valore hardcoded
+- Gerarchia scene: **GameLayer** (warriors, VFX, rope) + **UILayer** (HUD, overlay)
+- Warrior fermi: `settle()` imposta `linearDamping=12` — si muovono ma non schizzano
+- Preview NEXT: **bottom-left**, ancorata a `view.getVisibleSize()`
+- Loading screen HTML/CSS in `build-templates/web-mobile/index.html`, scompare al primo frame CC
 
 **Giorno 26-28: Bilanciamento iniziale** *(1–3 giu)*
 - [ ] Playtest sessioni multiple *(manuale)*
@@ -307,7 +312,8 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-09 — Fase 1 chiusa. Fase 2: logica codice completa, manca il playtest.
+> Aggiornato al 2026-05-09 — Fase 2 avanzata: loop completo, layout e fisica rifiniti, test su mobile attivi via ngrok.
 
-1. **Giorno 26-28**: Playtest manuale + tuning parametri (magnetismo, forza lancio, FUNNEL_ANGLE_DEG, waitForSettling) + fix bug → sblocca Milestone Fase 2
-2. **Fase 3**: decidere se mantenere funnel o tornare a pareti dritte dopo il playtest — impatta la produzione sprite (sfondo e bordi pista)
+1. **Playtest esteso** su mobile: raccogliere feedback su feel del lancio, stabilità warrior, difficoltà round — sblocca Milestone Fase 2
+2. **Tuning post-playtest**: forza magnetismo, soglie round-up, distribuzione spawn, linearDamping settled (attuale 12)
+3. **Fase 3**: decidere stile artistico e avviare produzione sprite — il layout portrait è stabile, non si prevede cambio geometria pista

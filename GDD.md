@@ -23,7 +23,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 - Piattaforma primaria: **Poki / CrazyGames** (portali HTML5 occidentali)
 - Età: **8-14 anni** (sweet spot Poki), gender-neutral
 - Dispositivi: desktop + mobile + tablet
-- Orientamento: **landscape primario**, verticale come fallback
+- Orientamento: **portrait primario** (720×1280), landscape come adattamento
 - Sessioni attese: **2-20 minuti** per partita, "una partita ancora" effect
 
 ## 5. Loop di gioco
@@ -224,9 +224,9 @@ Il timer è **poco visibile quando il tempo è abbondante** e si accende progres
 - **Ingresso pista** (in basso): muro invisibile sotto il punto di lancio, il personaggio non può tornare indietro
 
 #### Stabilità dei personaggi in pista
-- I personaggi fermi sono **molto stabili**: alto damping lineare e angolare (2.5), assorbono gli urti senza essere proiettati via
+- I personaggi fermi sono **molto stabili**: quando si fermano (`forceStop`) il `linearDamping` passa da 0.5 a 12, assorbendo gli urti senza proiettarli via
 - Il personaggio lanciato **trasferisce poca energia cinetica** ai personaggi colpiti — l'impatto è morbido, non una bocciata da biliardo
-- I personaggi si spostano leggermente per colpo ma si fermano rapidamente
+- I personaggi si spostano leggermente per colpo ma si fermano in ~0.3s
 - Un sistema di **settling** rileva quando tutti i personaggi in pista sono fermi (velocità < soglia) e solo allora abilita il lancio successivo — impedisce lanci multipli sovrapposti
 
 ### Magnetismo
@@ -260,11 +260,11 @@ Se un personaggio già in gioco, a seguito di rimbalzi, **riattraversa completam
 ## 11. UI / HUD
 
 ### In partita
-- **Top-left**: punteggio corrente + round
-- **Top-right**: pulsanti settings (audio on/off, info)
-- **Bottom-center**: personaggio in attesa di lancio + freccia di mira
-- **Bottom-right**: anteprima NEXT (prossimo personaggio)
-- **Mid-pista**: nastro rosso (linea game over)
+- **Top-left**: punteggio corrente + MERGES
+- **Top-right**: round + pulsante fullscreen
+- **Bottom-center**: personaggio in attesa di lancio + freccia di mira + timer
+- **Bottom-left**: anteprima NEXT (prossimo personaggio)
+- **Mid-pista**: nastro rosso (linea game over, `GAME_OVER_LINE_Y = −80`)
 
 ### Animazione del round
 Quando il round avanza, il numero del round nel HUD fa un breve effetto per segnalare il cambio: scale-up → bounce → ritorno a dimensione normale, con un flash leggero sul testo. Dura ~0.5s.
