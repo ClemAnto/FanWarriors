@@ -126,7 +126,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!w.node?.isValid) return;
         const pos      = w.node.position.clone();
         const type     = w.type;
-        const newLevel = w.level < 7 ? w.level + 1 : 1;
+        const maxLevel = WARRIORS[type]?.maxLevel ?? 7;
+        const newLevel = w.level < maxLevel ? w.level + 1 : 1;
         this.warriors  = this.warriors.filter(x => x !== w);
         this.prevY.delete(w);
         w.node.destroy();
