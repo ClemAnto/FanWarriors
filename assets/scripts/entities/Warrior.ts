@@ -123,15 +123,15 @@ export class Warrior extends Component {
     private buildPhysics(): void {
         const rb = this.node.addComponent(RigidBody2D);
         rb.type = ERigidBody2DType.Dynamic;
-        rb.linearDamping = 2.5;
-        rb.angularDamping = 2.5;
+        rb.linearDamping  = 0.5;   // low — curling-style long slide
+        rb.angularDamping = 1.5;
         rb.enabledContactListener = true;
 
         const col = this.node.addComponent(CircleCollider2D);
         col.radius = this.radius;
-        col.density = 8.0;
-        col.friction = 0.8;
-        col.restitution = 0.1;
+        col.density     = 8.0;
+        col.friction    = 0.05;  // slippery ice surface
+        col.restitution = 0.04;  // very inelastic: impacts kill momentum
     }
 
     private buildLabel(): void {

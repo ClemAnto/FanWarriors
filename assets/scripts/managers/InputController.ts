@@ -6,7 +6,7 @@ const DESIGN_W = 1280;
 const DESIGN_H = 720;
 const MIN_DRAG = 40;   // px — below this threshold the launch is cancelled
 const MAX_DRAG = 150;  // px — force cap, rope stops stretching visually
-const MAX_IMPULSE = 1600;
+const MAX_IMPULSE = 800;
 
 @ccclass('InputController')
 export class InputController extends Component {
