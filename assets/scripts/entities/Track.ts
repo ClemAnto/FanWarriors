@@ -25,6 +25,11 @@ export class Track extends Component {
         const hh = TRACK_H / 2;
         const fo = FUNNEL_OFFSET;
 
+        // Canvas background
+        g.fillColor = new Color(18, 18, 32, 255);
+        g.rect(-640, -360, 1280, 720);
+        g.fill();
+
         // Funnel fill: trapezoid wider at bottom, narrower at top
         g.fillColor = new Color(100, 100, 110, 255);
         g.moveTo(-hw,      -hh);
