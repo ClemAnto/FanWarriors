@@ -4,6 +4,58 @@
 
 ---
 
+## Stile visivo di riferimento
+
+> Basato sul mockup approvato (screenshot allegato alla sessione 2026-05-09).
+
+### Direzione artistica generale
+- Cartoon 2D con **contorno nero spesso** su ogni elemento — nessun elemento senza outline
+- Stile **kawaii chibi**: forme tondeggianti, teste grandi, espressioni amichevoli
+- Colori **altamente saturi**, palette calda e festiva — nessun tono desaturato o cupo
+- Rendering **flat con accenni di shading** su personaggi (luci/ombre semplici, non realistiche)
+- Atmosfera: torneo medievale allegro, non violento — festa più che battaglia
+
+### Personaggi (warrior)
+- Corpo **chibi tondeggiante**, testa grande ~50% dell'intera figura
+- Ogni personaggio poggia su un **piedistallo circolare in legno** con il numero del livello visibile
+- Il piedistallo ha spessore e leggera prospettiva (vista leggermente dall'alto)
+- Outline nera spessa (~3-4px a risoluzione 128px) su personaggio E piedistallo
+- Shading semplice: una zona di luce in alto, ombra morbida in basso
+- I livelli evolutivi si leggono chiaramente: più equipaggiamento, più "serio" e più grande
+- **Colori specie:** Rana verde brillante, Gatto arancione/grigio, Gallina bianca, Lupo grigio scuro, Aquila marrone, Leone dorato, Drago viola
+
+### Pista
+- Superficie interna: **bianca/ghiaccio**, leggermente lucida, non completamente piatta (lieve texture)
+- Bordi/pareti: **legno marrone** con struttura di assi visibili — come una corsetta da bowling in legno
+- Nastro rosso: **banda rossa orizzontale** con effetto tessuto/raso, tesa tra le due pareti
+- Vista: **lieve prospettiva dall'alto** (angolo ~20-30°) — non completamente top-down
+
+### Background
+- Illustrazione **a piena pagina** dietro la pista — non un semplice colore
+- Elemento centrale: **castello medievale in pietra grigia** con torri, merli, portone ad arco
+- Decorazioni: **bandierine colorate a triangolo** (bunting) che attraversano la scena in più fili
+- Stendardi araldici con simboli (leone rampante, corona, aquila) appesi alle torri
+- Lati: **bancarelle del mercato medievale** con tendoni a strisce colorate
+- Folla: **personaggi stilizzati** che osservano il torneo dai lati, piccoli, non dettagliati
+- Sfondo: **cielo azzurro chiaro**, colline verdi, alberi frondosi ai lati
+- Palette background: caldi (giallo, rosso, verde) con il grigio del castello come ancora neutrale
+- Il background è **ricco di dettagli** ma ha abbastanza contrasto con la pista da non distrarre
+
+### UI / HUD
+- Testo: **bianco con outline nera o ombra scura** — leggibile su qualsiasi sfondo
+- Font: stile **bold arrotondato**, senza grazie
+- Pulsanti: forma **rettangolare con angoli molto arrotondati**, outline scura, colore solido saturo
+- Icone settings/audio: stile flat con outline, fondo quadrato arrotondato
+
+### Checklist per ogni nuovo asset
+- [ ] Ha outline nera visibile?
+- [ ] I colori sono saturi (no pastelli slavati)?
+- [ ] Stile chibi/tondeggiante (no proporzioni realistiche)?
+- [ ] Leggibile a 128×128px?
+- [ ] Coerente con la palette calda del background?
+
+---
+
 ## Parametri fisici calibrati
 
 Tutti i valori sono stati tuned in sessione di gioco reale — non modificare senza testare.
@@ -30,16 +82,23 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 | Bottom (BoxCollider2D) | 0.0 | 0.0 | |
 
 ### Track — geometria funnel (Track.ts)
-| Costante | Valore | Note |
-|----------|--------|------|
-| `TRACK_W` | 500px | Larghezza al fondo (apertura inferiore) |
-| `TRACK_BOTTOM_Y` | −600 | World Y parete inferiore |
-| `TRACK_TOP_Y` | +450 | World Y parete superiore |
-| `TRACK_H` | 1050px | TRACK_TOP_Y − TRACK_BOTTOM_Y (back-compat) |
-| `GAME_OVER_LINE_Y` | −80 | World Y linea rossa divisoria lancio/gioco |
-| `FUNNEL_ANGLE_DEG` | 5° | Inclinazione pareti verso interno |
-| `FUNNEL_OFFSET` | ≈92px/lato | tan(5°)×1050 |
-| Larghezza in cima | ≈316px | TRACK_W − 2×FUNNEL_OFFSET |
+
+Tutte le costanti sono **calcolate da `initLayout()`** — non fisse. Ricalcolate all'avvio e ad ogni relayout.
+
+| Costante | Formula | Esempio a 720×1280 design |
+|----------|---------|--------------------------|
+| `TRACK_H` | `min(vs.height × 0.75, vs.width)` | 720 |
+| `TRACK_W` | `TRACK_H × 500 / 700` | ≈514 |
+| `TRACK_BOTTOM_Y` | `−vs.height / 2` | −640 |
+| `TRACK_TOP_Y` | `TRACK_BOTTOM_Y + TRACK_H` | +80 |
+| `GAME_OVER_LINE_Y` | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` | −280 |
+| `FUNNEL_OFFSET` | `TRACK_W / 6` | ≈86 |
+| `LAYOUT_SCALE` | `TRACK_W / 384` | ≈1.34 |
+| Larghezza in cima | `TRACK_W − 2 × FUNNEL_OFFSET` | ≈342 |
+
+**Aspect ratio pista: 500:700** (≈0.714 — più larga del vecchio 384:960).  
+**Formula altezza**: `min(75% altezza schermo, 100% larghezza schermo)` — replica `height: min(75%, 100vw)` del CSS di riferimento (`layout-demo/index.html`).  
+Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalmente (x = 0).
 
 ### InputController (InputController.ts)
 | Parametro | Valore | Note |
@@ -68,10 +127,11 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 - Con FIXED_HEIGHT l'altezza è sempre 1280 unità design; la larghezza si adatta all'aspect ratio del dispositivo
 - Origine world space: **centro canvas (0, 0)** → schermo va da −640 a +640 in Y, e ±(visibleWidth/2) in X
 - `getUILocation()` restituisce coordinate con origine **bottom-left** → usare `view.getVisibleSize()` per la conversione corretta (non hardcodare larghezza)
-- **Zona di lancio:** da `TRACK_BOTTOM_Y = −600` a `GAME_OVER_LINE_Y = −80` (520 unità)
-- **Zona di gioco:** da `GAME_OVER_LINE_Y = −80` a `TRACK_TOP_Y = +450` (530 unità)
-- Warrior spawn: `SPAWN_Y = GAME_OVER_LINE_Y + (TRACK_BOTTOM_Y − GAME_OVER_LINE_Y) * 0.6` ≈ −392 (60% della zona di lancio)
-- Prefill positions: `(−90, GAME_OVER_LINE_Y+300)`, `(0, GAME_OVER_LINE_Y+330)`, `(90, GAME_OVER_LINE_Y+300)` ≈ (−90, 220), (0, 250), (90, 220)
+- **Zona di lancio:** da `TRACK_BOTTOM_Y` a `GAME_OVER_LINE_Y` — metà inferiore della pista (dinamica)
+- **Zona di gioco:** da `GAME_OVER_LINE_Y` a `TRACK_TOP_Y` — metà superiore della pista (dinamica)
+- Tutte le costanti sono **dinamiche** — derivano da `initLayout()` all'avvio (e al relayout se `LIVE_RESIZE = true`)
+- Warrior spawn: `spawnY = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2` — centro zona di lancio (calcolato nel costruttore di `SpawnManager`)
+- Prefill positions: `GAME_OVER_LINE_Y + 300` (offset hardcoded — da scalare con `LAYOUT_SCALE` in Fase 3 se necessario)
 - **Regola:** tutti i posizionamenti devono derivare dalle costanti di Track — nessun valore hardcoded
 
 ---
@@ -235,6 +295,24 @@ I warrior prefill hanno `crossedLine = true` impostato manualmente — non passa
 ## Merge cap a lv7
 
 Se due warrior lv7 si fondono (`newLevel > 7`), entrambi vengono distrutti e nessun nuovo warrior viene spawnato. È il comportamento corretto — livello 7 è il massimo.
+
+---
+
+## Responsive layout — LIVE_RESIZE
+
+Flag `LIVE_RESIZE` in `GameManager.ts` (riga 13): `true` in sviluppo, `false` in produzione.
+
+- `true` → ascolta `window.resize`; ad ogni resize chiama `track.relayout()` che ricalcola `initLayout()`, ridisegna la pista e ricostruisce i muri fisici; debounce via `requestAnimationFrame` (max 1 relayout/frame)
+- `false` → layout calcolato una sola volta in `start()`
+
+**Cosa si aggiorna al relayout:**
+| Elemento | Aggiornato? | Note |
+|----------|-------------|------|
+| Pista (grafica + muri fisici) | ✓ | `Track.relayout()` |
+| HUD Widget-based | ✓ | automatico Cocos |
+| Timer label (posizione) | ✓ | aggiornato esplicitamente |
+| Warrior già in pista | ✗ | rimangono nel vecchio spazio — accettabile in debug |
+| `SpawnManager.spawnY` | ✗ | calcolato nel costruttore, non aggiornato — irrilevante in debug |
 
 ---
 

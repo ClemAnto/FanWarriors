@@ -1,18 +1,22 @@
 import { _decorator, Component, Input, input, EventTouch, EventMouse, Vec2, Node, Graphics, Color, sys, view } from 'cc';
 import { Warrior } from '../entities/Warrior';
+import { LAYOUT_SCALE } from '../entities/Track';
 const { ccclass } = _decorator;
 
-const MIN_DRAG = 20;   // px — below this threshold the launch is cancelled
-const MAX_DRAG = 80;   // px — force cap, rope stops stretching visually
-const MAX_IMPULSE = 300;
+// Base values at design width 720 — multiplied by LAYOUT_SCALE at runtime
+const MIN_DRAG_BASE    = 20;
+const MAX_DRAG_BASE    = 96;   // 3 × lv-1 diameter
+const MAX_IMPULSE_BASE = 300;
+const SHAFT_MAX_BASE   = 60;
+const ARROW_SIZE       = 11;   // arrowhead, scales with shaft
 
 @ccclass('InputController')
 export class InputController extends Component {
     onLaunch: ((warrior: Warrior, force: number) => void) | null = null;
     ropeParent: Node | null = null;
 
-    aimAngleDeg = 0;   // live angle from vertical, clamped to ±75°
-    aimForcePct = 0;   // live force percentage 0–100
+    aimAngleDeg = 0;
+    aimForcePct = 0;
 
     private warrior: Warrior | null = null;
     private dragging: boolean = false;
@@ -39,12 +43,13 @@ export class InputController extends Component {
         this.dragging = false;
         this.clearRope();
 
-        const wPos = this.warriorPos();
+        const wPos    = this.warriorPos();
+        const minDrag = MIN_DRAG_BASE * LAYOUT_SCALE;
         let dir: Vec2;
 
         if (this.lastTouchPos) {
             const drag = new Vec2(this.lastTouchPos.x - wPos.x, this.lastTouchPos.y - wPos.y);
-            dir = drag.length() >= MIN_DRAG
+            dir = drag.length() >= minDrag
                 ? new Vec2(-drag.x, -drag.y).normalize()
                 : new Vec2(0, 1);
         } else {
@@ -52,11 +57,12 @@ export class InputController extends Component {
         }
 
         dir = this.clampLaunchDir(dir);
-        const launched = this.warrior;
+        const launched   = this.warrior;
+        const halfImpulse = MAX_IMPULSE_BASE * LAYOUT_SCALE * 0.5;
         this.warrior = null;
         this.lastTouchPos = null;
-        launched.applyImpulse(dir.multiplyScalar(MAX_IMPULSE * 0.5));
-        this.onLaunch?.(launched, MAX_IMPULSE * 0.5);
+        launched.applyImpulse(dir.multiplyScalar(halfImpulse));
+        this.onLaunch?.(launched, halfImpulse);
         console.log('[InputController] auto-launch');
     }
 
@@ -65,8 +71,6 @@ export class InputController extends Component {
         ropeNode.setParent(this.ropeParent ?? this.node.parent!);
         this.rope = ropeNode.addComponent(Graphics);
 
-        // Global input: touch (mobile) + mouse (desktop). Guards in the handlers
-        // prevent double-firing on hybrid devices.
         input.on(Input.EventType.TOUCH_START,  this.onTouchStart,  this);
         input.on(Input.EventType.TOUCH_MOVE,   this.onTouchMove,   this);
         input.on(Input.EventType.TOUCH_END,    this.onTouchEnd,    this);
@@ -88,23 +92,17 @@ export class InputController extends Component {
         input.off(Input.EventType.MOUSE_UP,     this.onMouseUp,     this);
     }
 
-    // ── touch → shared logic ──
     private onTouchStart(e: EventTouch): void { this.handleDragStart(this.toWorld(e.getUILocation())); }
     private onTouchMove(e: EventTouch):  void { this.handleDragMove(this.toWorld(e.getUILocation())); }
     private onTouchEnd(e: EventTouch):   void { this.handleDragEnd(this.toWorld(e.getUILocation())); }
 
-    // ── mouse → shared logic ──
     private onMouseDown(e: EventMouse):  void { this.handleDragStart(this.toWorld(e.getUILocation())); }
     private onMouseMove(e: EventMouse):  void { this.handleDragMove(this.toWorld(e.getUILocation())); }
     private onMouseUp(e: EventMouse):    void { this.handleDragEnd(this.toWorld(e.getUILocation())); }
 
-    // ── shared drag logic ──
-
     private handleDragStart(touch: Vec2): void {
         if (!this.warrior || this.dragging) return;
-        const wPos = this.warriorPos();
-        const hitRadius = Math.max(this.warrior.radius, 44);
-        if (Vec2.distance(touch, wPos) <= hitRadius) {
+        if (touch.y < 0) {
             this.dragging = true;
             console.log('[InputController] drag started');
         }
@@ -121,18 +119,20 @@ export class InputController extends Component {
         this.dragging = false;
         this.clearRope();
 
-        const wPos = this.warriorPos();
-        const drag = new Vec2(touch.x - wPos.x, touch.y - wPos.y);
-        const len  = drag.length();
+        const wPos    = this.warriorPos();
+        const drag    = new Vec2(touch.x - wPos.x, touch.y - wPos.y);
+        const len     = drag.length();
+        const minDrag = MIN_DRAG_BASE * LAYOUT_SCALE;
+        const maxDrag = MAX_DRAG_BASE * LAYOUT_SCALE;
 
-        if (len < MIN_DRAG) {
+        if (len < minDrag) {
             console.log(`[InputController] drag too short (${len.toFixed(0)}px), cancelled`);
             return;
         }
 
-        const t       = Math.min(len, MAX_DRAG) / MAX_DRAG;
+        const t       = Math.min(len, maxDrag) / maxDrag;
         const dir     = this.clampLaunchDir(new Vec2(-drag.x, -drag.y).normalize());
-        const impulse = dir.multiplyScalar(t * MAX_IMPULSE);
+        const impulse = dir.multiplyScalar(t * MAX_IMPULSE_BASE * LAYOUT_SCALE);
 
         console.log(`[InputController] launch — drag=${len.toFixed(0)}px t=${t.toFixed(2)} impulse=(${impulse.x.toFixed(0)},${impulse.y.toFixed(0)})`);
         const launched = this.warrior;
@@ -147,8 +147,9 @@ export class InputController extends Component {
         const dx     = touch.x - wPos.x;
         const dy     = touch.y - wPos.y;
         const rawLen = Math.sqrt(dx * dx + dy * dy);
-        const len    = Math.min(rawLen, MAX_DRAG);
-        const t      = len / MAX_DRAG;
+        const maxDrag = MAX_DRAG_BASE * LAYOUT_SCALE;
+        const len    = Math.min(rawLen, maxDrag);
+        const t      = len / maxDrag;
 
         const nx = rawLen > 0 ? dx / rawLen : 0;
         const ny = rawLen > 0 ? dy / rawLen : -1;
@@ -162,7 +163,7 @@ export class InputController extends Component {
         this.rope.lineTo(wPos.x + nx * len, wPos.y + ny * len);
         this.rope.stroke();
 
-        if (rawLen >= MIN_DRAG) {
+        if (rawLen >= MIN_DRAG_BASE * LAYOUT_SCALE) {
             const launchDir = this.clampLaunchDir(new Vec2(-nx, -ny));
             this.aimAngleDeg = Math.round(Math.atan2(launchDir.x, launchDir.y) * 180 / Math.PI);
             this.aimForcePct = Math.round(t * 100);
@@ -172,22 +173,22 @@ export class InputController extends Component {
 
     private drawDirectionArrow(wPos: Vec2, launchDir: Vec2, t: number, color: Color): void {
         if (!this.rope || !this.warrior) return;
-        const g = this.rope;
-        const SHAFT_MAX  = 60;
-        const ARROW_SIZE = 11;
+        const g        = this.rope;
+        const shaftMax = SHAFT_MAX_BASE * LAYOUT_SCALE;
+        const arrowSz  = ARROW_SIZE    * LAYOUT_SCALE;
 
-        const offset   = this.warrior.radius + 6;
-        const shaftLen = t * SHAFT_MAX;
+        const offset   = this.warrior.radius + 6 * LAYOUT_SCALE;
+        const shaftLen = t * shaftMax;
 
         const ox = wPos.x + launchDir.x * offset;
         const oy = wPos.y + launchDir.y * offset;
         const bx = ox + launchDir.x * shaftLen;
         const by = oy + launchDir.y * shaftLen;
-        const tx = bx + launchDir.x * ARROW_SIZE;
-        const ty = by + launchDir.y * ARROW_SIZE;
+        const tx = bx + launchDir.x * arrowSz;
+        const ty = by + launchDir.y * arrowSz;
         const px = -launchDir.y;
         const py =  launchDir.x;
-        const half = ARROW_SIZE * 0.5;
+        const half = arrowSz * 0.5;
 
         g.lineWidth = 2.5;
         g.strokeColor = new Color(color.r, color.g, color.b, 180);
@@ -208,14 +209,12 @@ export class InputController extends Component {
     }
 
     private clampLaunchDir(dir: Vec2): Vec2 {
-        const MAX_ANGLE = 75 * Math.PI / 180;
-        const angle = Math.atan2(dir.x, dir.y);
+        const MAX_ANGLE = 60 * Math.PI / 180;
+        const angle   = Math.atan2(dir.x, dir.y);
         const clamped = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, angle));
         return new Vec2(Math.sin(clamped), Math.cos(clamped));
     }
 
-    // view.getVisibleSize() keeps X correct under FIXED_HEIGHT on wide screens
-    // (visible width > DESIGN_W on desktop, so hardcoding DESIGN_W/2 gives wrong offset)
     private toWorld(ui: Vec2): Vec2 {
         const vs = view.getVisibleSize();
         return new Vec2(ui.x - vs.width / 2, ui.y - vs.height / 2);

@@ -146,8 +146,9 @@
 - [x] Flag in localStorage per non rimostrare tutorial
 
 **Decisioni di design prese in Fase 2:**
-- Pista a **funnel** (imbuto): pareti inclinate 5°, più strette in cima, con PolygonCollider2D
-- Layout pista **asimmetrico**: `TRACK_BOTTOM_Y=−600`, `TRACK_TOP_Y=+450`, `GAME_OVER_LINE_Y=−80`, `TRACK_W=500px`
+- Pista a **funnel** (imbuto): pareti inclinate, più strette in cima, con PolygonCollider2D
+- Layout pista **responsivo**: aspect ratio **500:700**, altezza = `min(75% vs.height, vs.width)` — replica `height: min(75%, 100vw); aspect-ratio: 500/700` del CSS; agganciata in basso, centrata; tutte le costanti derivano da `initLayout()` (Track.ts)
+- Flag **`LIVE_RESIZE`** (GameManager.ts): `true` in sviluppo — ricalcola layout e ricostruisce pista/muri in tempo reale al resize del browser
 - Lancio immediato (`waitForSettling = false`): il warrior successivo si attiva appena quello lanciato supera la linea
 - Rimbalzo oltre la linea → **game over** (non più malus a punteggio)
 - Momentum conservation al merge: 75% velocità media dei due warrior
@@ -312,8 +313,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-09 — Fase 2 avanzata: loop completo, layout e fisica rifiniti, test su mobile attivi via ngrok.
+> Aggiornato al 2026-05-09 — Fase 2 avanzata: layout responsivo stabile (500:700, min(75%h,100%w)), LIVE_RESIZE attivo per debug, loop completo.
 
 1. **Playtest esteso** su mobile: raccogliere feedback su feel del lancio, stabilità warrior, difficoltà round — sblocca Milestone Fase 2
 2. **Tuning post-playtest**: forza magnetismo, soglie round-up, distribuzione spawn, linearDamping settled (attuale 12)
-3. **Fase 3**: decidere stile artistico e avviare produzione sprite — il layout portrait è stabile, non si prevede cambio geometria pista
+3. **Prima di Fase 3**: impostare `LIVE_RESIZE = false` in GameManager.ts; verificare layout su device reali
+4. **Fase 3**: decidere stile artistico e avviare produzione sprite — geometria pista stabile (500:700, responsive), non si prevede ulteriore cambio

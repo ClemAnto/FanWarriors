@@ -1,8 +1,12 @@
 {
   "name": "FunWarriors",
-  "version": "0.1.0",
+  "version": "0.1.16",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
+  },
+  "scripts": {
+    "serve": "node scripts/serve-remote.js",
+    "gen:placeholders": "node scripts/gen-warrior-placeholders.js"
   }
 }

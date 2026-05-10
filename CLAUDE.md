@@ -19,5 +19,12 @@ Progetto Cocos Creator 3.8.8, TypeScript, gioco puzzle-arcade ibrido tra Suika G
 - Decoratori @ccclass con stesso nome della classe
 - Log (console.log/warn/error) sempre in inglese
 
+## Remote control
+Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia automaticamente il remote-control così possiamo continuare la conversazione tramite app
+
+## Versioning
+- La versione è definita in due posti: `package.json` (campo `version`) e `GameManager.ts` (costante `VERSION`) — devono essere sempre allineati.
+- **Ad ogni `npm run serve` incrementa la patch** (`0.1.x → 0.1.x+1`) in entrambi i file prima di buildare.
+
 ## Stato attuale
-Fase 1 — Setup e prototipo greybox in corso.
+Fase 2 — Core gameplay completo, layout responsivo stabile.

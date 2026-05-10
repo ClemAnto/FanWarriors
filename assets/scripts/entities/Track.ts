@@ -1,36 +1,65 @@
-import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2 } from 'cc';
+import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, view } from 'cc';
 const { ccclass } = _decorator;
 
-export const TRACK_W          = 500;   // width at the bottom opening
-export const TRACK_BOTTOM_Y   = -600;  // world Y of the bottom wall
-export const TRACK_TOP_Y      =  450;  // world Y of the top wall
-export const TRACK_H          = TRACK_TOP_Y - TRACK_BOTTOM_Y;  // 1050 — kept for back-compat
-export const GAME_OVER_LINE_Y = -80;   // world Y of the launch/play dividing line
+// ── Layout — recalculated at startup from actual screen size ─────────────────
+export let LAYOUT_SCALE   = 1.0;   // TRACK_W / 384 — proportional scale factor for all game elements
+export let TRACK_W        = 400;   // bottom width, aspect ratio 5:12
+export let TRACK_BOTTOM_Y = -640;  // bottom of visible screen
+export let TRACK_TOP_Y    =  320;  // TRACK_BOTTOM_Y + TRACK_H
+export let TRACK_H        =  960;  // min(75% screen height, 12/5 × 95% screen width)
+export let GAME_OVER_LINE_Y = -160; // midpoint of track height
+export let FUNNEL_OFFSET  =   67;  // TRACK_W / 6
 
-const WALL_T           = 20;
-const FUNNEL_ANGLE_DEG = 5;
-const FUNNEL_OFFSET    = Math.tan(FUNNEL_ANGLE_DEG * Math.PI / 180) * TRACK_H;  // ≈ 92 px/side
+const WALL_T = 20;
+const ASPECT_RATIO = 6/10;
+
+/** Call once before any game objects are created (GameManager.start). */
+export function initLayout(): void {
+    const vs       = view.getVisibleSize();
+    TRACK_BOTTOM_Y = -Math.round(vs.height / 2);
+
+    // Mirrors CSS: height: min(75%, calc(95vw * 12 / 5)); aspect-ratio: 5/12
+    // Anchored to screen bottom, horizontally centred.
+	
+    TRACK_H  = Math.round(Math.min(vs.height * 0.75, (1 / ASPECT_RATIO) * 0.95 * vs.width));
+    TRACK_W  = Math.round(TRACK_H * ASPECT_RATIO);
+
+    TRACK_TOP_Y      = TRACK_BOTTOM_Y + TRACK_H;
+    GAME_OVER_LINE_Y = Math.round((TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2);
+    LAYOUT_SCALE     = TRACK_W / 384;
+    FUNNEL_OFFSET    = Math.round(TRACK_W / 6);
+}
 
 @ccclass('Track')
 export class Track extends Component {
     start() {
         console.log('[Track] start');
+        initLayout();   // safe to call again — idempotent given same visible size
         this.node.setPosition(0, 0, 0);
         this.drawTrack();
         this.buildWalls();
-        console.log(`[Track] ready — bottom=${TRACK_BOTTOM_Y} top=${TRACK_TOP_Y} w=${TRACK_W} angle=${FUNNEL_ANGLE_DEG}° offset=${FUNNEL_OFFSET.toFixed(0)}px`);
+        console.log(`[Track] ready — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H} bottom=${TRACK_BOTTOM_Y} top=${TRACK_TOP_Y} topW=${TRACK_W - 2 * FUNNEL_OFFSET}`);
+    }
+
+    relayout(): void {
+        initLayout();
+        this.drawTrack();
+        this.buildWalls();
+        console.log(`[Track] relayout — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H}`);
     }
 
     private drawTrack(): void {
-        const g   = this.node.addComponent(Graphics);
+        const g   = this.node.getComponent(Graphics) ?? this.node.addComponent(Graphics);
+        g.clear();
         const hw  = TRACK_W / 2;
         const bot = TRACK_BOTTOM_Y;
         const top = TRACK_TOP_Y;
         const fo  = FUNNEL_OFFSET;
+        const vh  = Math.round(view.getVisibleSize().height);
 
         // Full-screen dark background (extra-wide to cover all aspect ratios)
         g.fillColor = new Color(18, 18, 32, 255);
-        g.rect(-2000, -640, 4000, 1280);
+        g.rect(-8000, -vh / 2, 16000, vh);
         g.fill();
 
         // Funnel fill — trapezoid wider at bottom, narrower at top
@@ -60,6 +89,8 @@ export class Track extends Component {
     }
 
     private buildWalls(): void {
+        for (const name of ['WallLeft', 'WallRight', 'WallTop', 'WallBottom'])
+            this.node.getChildByName(name)?.destroy();
         const hw  = TRACK_W / 2;
         const bot = TRACK_BOTTOM_Y;
         const top = TRACK_TOP_Y;

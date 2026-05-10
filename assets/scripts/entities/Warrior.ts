@@ -1,5 +1,8 @@
-import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2 } from 'cc';
+import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2, Sprite, SpriteFrame, UITransform } from 'cc';
 import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
+import { LAYOUT_SCALE } from './Track';
+import { PerspectiveMapper } from './PerspectiveMapper';
+import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 const { ccclass } = _decorator;
 
 const MERGE_DELAY = 0.3;
@@ -11,8 +14,9 @@ export class Warrior extends Component {
     merging: boolean = false;
     launched: boolean = false;
     crossedLine: boolean = false;
+    viewNode!: Node;
 
-    get radius(): number { return LEVEL_CONFIG[this.level]?.radius ?? 30; }
+    get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE; }
     get velocity(): Vec2 { return this.getComponent(RigidBody2D)?.linearVelocity ?? new Vec2(0, 0); }
     set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
@@ -32,9 +36,16 @@ export class Warrior extends Component {
     init(type: number, level: number): void {
         this.type = type;
         this.level = level;
-        this.buildGraphics();
+
+        this.viewNode = new Node('View');
+        this.viewNode.setParent(this.node);
+        this.viewNode.setPosition(0, 0);
+
         this.buildPhysics();
-        this.buildLabel();
+        this.buildGraphics();
+
+        const mapper = this.node.addComponent(PerspectiveMapper);
+        mapper.viewNode = this.viewNode;
     }
 
     start() {
@@ -105,16 +116,101 @@ export class Warrior extends Component {
         }
     }
 
+    // Uses sprite from cache if available, otherwise draws programmatic placeholder
     private buildGraphics(): void {
+        const frame = WarriorSpriteCache.get(WARRIORS[this.type]?.type ?? '', this.level);
+        if (frame) {
+            this.buildSprite(frame);
+        } else {
+            this.buildPlaceholderGraphics();
+            this.buildLabels();
+        }
+    }
+
+    private buildSprite(frame: SpriteFrame): void {
         const r = this.radius;
-        const g = this.node.addComponent(Graphics);
-        g.fillColor = WARRIORS[this.type]?.color ?? new Color(200, 200, 200);
-        g.circle(0, 0, r);
+        this.viewNode.setPosition(0, r * 2 - 10);
+        this.viewNode.addComponent(UITransform).setContentSize(r * 4, r * 4);
+        const sp = this.viewNode.addComponent(Sprite);
+        sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        sp.spriteFrame = frame;
+    }
+
+    private buildPlaceholderGraphics(): void {
+        const r     = this.radius;
+        const color = WARRIORS[this.type]?.color ?? new Color(200, 200, 200);
+        const g     = this.viewNode.addComponent(Graphics);
+        const outlineW = Math.max(2, r * 0.12);
+        const black    = new Color(0, 0, 0, 255);
+
+        // Piedistallo — drawn first so it renders behind body
+        const baseRx = r * 0.85;
+        const baseRy = r * 0.22;
+        const baseY  = -r * 0.88;
+        g.fillColor = new Color(90, 58, 28, 255);
+        g.ellipse(0, baseY, baseRx, baseRy);
         g.fill();
-        g.strokeColor = new Color(255, 255, 255, 180);
-        g.lineWidth = 3;
-        g.circle(0, 0, r);
+        g.strokeColor = black;
+        g.lineWidth   = outlineW * 0.8;
+        g.ellipse(0, baseY, baseRx, baseRy);
         g.stroke();
+
+        // Body
+        const bodyY = -r * 0.08;
+        const bodyR = r * 0.72;
+        g.fillColor   = color;
+        g.circle(0, bodyY, bodyR);
+        g.fill();
+        g.strokeColor = black;
+        g.lineWidth   = outlineW;
+        g.circle(0, bodyY, bodyR);
+        g.stroke();
+
+        // Head — lighter tint of species color
+        const headY = r * 0.52;
+        const headR = r * 0.50;
+        g.fillColor = new Color(
+            Math.min(255, color.r + 50),
+            Math.min(255, color.g + 50),
+            Math.min(255, color.b + 50),
+            255
+        );
+        g.circle(0, headY, headR);
+        g.fill();
+        g.strokeColor = black;
+        g.lineWidth   = outlineW * 0.85;
+        g.circle(0, headY, headR);
+        g.stroke();
+    }
+
+    private buildLabels(): void {
+        const r = this.radius;
+
+        // Level number — centre of body
+        const levelNode = new Node('Level');
+        levelNode.setParent(this.viewNode);
+        levelNode.setPosition(0, -r * 0.08);
+        const levelLbl = levelNode.addComponent(Label);
+        levelLbl.string   = String(this.level);
+        levelLbl.fontSize = Math.round(r * 0.75);
+        levelLbl.isBold   = true;
+        levelLbl.color    = new Color(255, 255, 255, 255);
+        levelLbl.enableOutline = true;
+        levelLbl.outlineColor  = new Color(0, 0, 0, 255);
+        levelLbl.outlineWidth  = 2;
+
+        // Species initials — centre of head
+        const typeNode = new Node('Type');
+        typeNode.setParent(this.viewNode);
+        typeNode.setPosition(0, r * 0.52);
+        const typeLbl = typeNode.addComponent(Label);
+        typeLbl.string   = (WARRIORS[this.type]?.type ?? '?').substring(0, 2).toUpperCase();
+        typeLbl.fontSize = Math.round(r * 0.42);
+        typeLbl.isBold   = true;
+        typeLbl.color    = new Color(255, 255, 255, 230);
+        typeLbl.enableOutline = true;
+        typeLbl.outlineColor  = new Color(0, 0, 0, 200);
+        typeLbl.outlineWidth  = 1;
     }
 
     private buildPhysics(): void {
@@ -122,26 +218,13 @@ export class Warrior extends Component {
         rb.type = ERigidBody2DType.Dynamic;
         rb.linearDamping  = 0.5;   // low — curling-style long slide
         rb.angularDamping = 1.5;
+        rb.fixedRotation  = true;  // billboard sprites — never spin
         rb.enabledContactListener = true;
 
         const col = this.node.addComponent(CircleCollider2D);
-        col.radius = this.radius;
+        col.radius      = this.radius;
         col.density     = 8.0;
         col.friction    = 0.05;  // slippery ice surface
         col.restitution = 0.04;  // very inelastic: impacts kill momentum
-    }
-
-    private buildLabel(): void {
-        const labelNode = new Node('Level');
-        labelNode.setParent(this.node);
-        labelNode.setPosition(0, 0);
-        const label = labelNode.addComponent(Label);
-        label.string = String(this.level);
-        label.fontSize = Math.round(this.radius * 0.9);
-        label.isBold = true;
-        label.color = new Color(255, 255, 255, 255);
-        label.enableOutline = true;
-        label.outlineColor = new Color(0, 0, 0, 255);
-        label.outlineWidth = 2;
     }
 }

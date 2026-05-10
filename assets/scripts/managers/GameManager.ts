@@ -1,18 +1,21 @@
-import { _decorator, Component, PhysicsSystem2D, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, director, sys, view, ResolutionPolicy } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, SpriteFrame } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
+import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
-import { GAME_OVER_LINE_Y, TRACK_W, TRACK_TOP_Y, TRACK_BOTTOM_Y } from '../entities/Track';
+import { GAME_OVER_LINE_Y, TRACK_W, TRACK_TOP_Y, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Track } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.1.8';
+const VERSION            = '0.1.16';
 const DEBUG              = false;  // set true to show debug panel and overlay
+const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
-const MAGNET_GAP         = 30;  // surface-to-surface px at which attraction starts
-const MAGNET_FORCE       = 20;  // base force for a level-1 warrior
+const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
+const MAGNET_FORCE_BASE  = 20;  // base force at design width — scaled by LAYOUT_SCALE
 const SETTLE_VELOCITY    = 0.4;    // Box2D velocity units — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY = 0.8;    // seconds before checking if launched warrior failed to cross
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
@@ -30,9 +33,6 @@ function spawnMaxLevelForRound(round: number): number {
     return 3;
 }
 
-const HUD_LEFT_X  = -(TRACK_W / 2 - 70);
-const HUD_RIGHT_X =  (TRACK_W / 2 - 70);
-const HUD_TOP_Y   =   TRACK_TOP_Y + 125;
 
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManagerDebug {
@@ -58,6 +58,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     private timerPaused = false;
     private waitForSettling = false;
     private sceneName = '';
+    private track: Track | null = null;
+    private resizeRafId = 0;
+    private readonly onBrowserResize = (): void => {
+        cancelAnimationFrame(this.resizeRafId);
+        this.resizeRafId = requestAnimationFrame(() => {
+            this.track?.relayout();
+            if (this.timerLabel) {
+                this.timerLabel.node.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
+            }
+        });
+    };
 
     // hud refs
     private scoreLabel: Label | null = null;
@@ -68,15 +79,24 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     start() {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
+        view.resizeWithBrowserSize(true);
+        initLayout();   // must run before any game object is created
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
         PhysicsSystem2D.instance.enable = true;
         PhysicsSystem2D.instance.gravity = new Vec2(0, 0);
+        PhysicsSystem2D.instance.debugDrawFlags = DEBUG_ENGINE
+            ? EPhysics2DDrawFlags.Shape
+            : EPhysics2DDrawFlags.None;
 
         this.gameLayer = new Node('GameLayer');
         this.gameLayer.setParent(this.node.parent!);
         this.uiLayer = new Node('UILayer');
         this.uiLayer.setParent(this.node.parent!);
+        this.uiLayer.addComponent(UITransform);
+        const uiw = this.uiLayer.addComponent(Widget);
+        uiw.isAlignLeft = uiw.isAlignRight = uiw.isAlignTop = uiw.isAlignBottom = true;
+        uiw.left = uiw.right = uiw.top = uiw.bottom = 0;
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.gameLayer;
@@ -86,18 +106,26 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.updateNextPreview();
 
-        this.warriors.push(...this.spawnMgr.prefill());
-        const firstWarrior = this.createWarrior();
-        this.createHud();
-        this.debugLabel = DEBUG ? this.createDebugLabel() : null;
-        this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
-        this.showTutorial(() => this.activateWarrior(firstWarrior));
+        WarriorSpriteCache.preload(() => {
+            this.warriors.push(...this.spawnMgr.prefill());
+            const firstWarrior = this.createWarrior();
+            this.createHud();
+            this.debugLabel = DEBUG ? this.createDebugLabel() : null;
+            this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
+            this.showTutorial(() => this.activateWarrior(firstWarrior));
 
-        if (DEBUG) {
-            const debugNode = new Node('DebugPanel');
-            debugNode.setParent(this.uiLayer);
-            debugNode.addComponent(DebugPanel).init(this);
-        }
+            if (DEBUG) {
+                const debugNode = new Node('DebugPanel');
+                debugNode.setParent(this.uiLayer);
+                debugNode.addComponent(DebugPanel).init(this);
+            }
+            this.track = this.node.parent!.getChildByName('Track')?.getComponent(Track) ?? null;
+            if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
+        });
+    }
+
+    onDestroy() {
+        if (LIVE_RESIZE && sys.isBrowser) window.removeEventListener('resize', this.onBrowserResize);
     }
 
     // ── IGameManagerDebug ──
@@ -210,6 +238,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this.state === GameState.GameOver) return;
         try {
             this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
+            this.zSortWarriors();
             this.applyMagnetism();
             this.checkLineLogic();
             if (this.state === GameState.Settling) this.checkSettled();
@@ -326,7 +355,8 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         const bg = panel.addComponent(Graphics);
         bg.fillColor = new Color(0, 0, 0, 180);
-        bg.rect(-TRACK_W / 2, TRACK_BOTTOM_Y, TRACK_W, TRACK_TOP_Y - TRACK_BOTTOM_Y);
+        const vs = view.getVisibleSize();
+        bg.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
         bg.fill();
 
         const titleNode = new Node('Title');
@@ -415,52 +445,46 @@ export class GameManager extends Component implements IGameManagerDebug {
         const hud = new Node('HUD');
         hud.setParent(this.uiLayer);
         const vs = view.getVisibleSize();
+        hud.addComponent(UITransform).setContentSize(vs.width, vs.height);
+        const MH = 80;   // horizontal margin (left/right)
+        const MV = 40;   // vertical margin   (top/bottom)
 
-        // Score (left column, primary) — above track
-        this.makeLabel(hud, 'SCORE', HUD_LEFT_X, HUD_TOP_Y, 16, new Color(180, 180, 180, 255));
-        const scoreNode = new Node('ScoreValue');
-        scoreNode.setParent(hud);
-        scoreNode.setPosition(HUD_LEFT_X, HUD_TOP_Y - 38);
-        this.scoreLabel = scoreNode.addComponent(Label);
-        this.scoreLabel.string = '0';
-        this.scoreLabel.fontSize = 46;
+        // ── Top-left: SCORE ───────────────────────────────────────────────
+        const scoreSec = this.makeCornerGroup(hud, 'ScoreSec', true, true, MH, MV);
+        this.makeLabel(scoreSec, 'SCORE', 0, -12, 14, new Color(180, 180, 180, 255));
+        this.scoreLabel = this.makeLabel(scoreSec, '0', 0, -56, 46, new Color(255, 220, 50, 255));
         this.scoreLabel.isBold = true;
-        this.scoreLabel.color = new Color(255, 220, 50, 255);
 
-        // Merges (left column, secondary — smaller and below score)
-        this.makeLabel(hud, 'MERGES', HUD_LEFT_X, HUD_TOP_Y - 100, 13, new Color(150, 150, 150, 255));
-        const mergesNode = new Node('MergesValue');
-        mergesNode.setParent(hud);
-        mergesNode.setPosition(HUD_LEFT_X, HUD_TOP_Y - 130);
-        this.mergesLabel = mergesNode.addComponent(Label);
-        this.mergesLabel.string = '0';
-        this.mergesLabel.fontSize = 32;
-        this.mergesLabel.isBold = true;
-        this.mergesLabel.color = new Color(120, 220, 140, 255);
-
-        // Round (right column) — above track
-        this.makeLabel(hud, 'ROUND', HUD_RIGHT_X, HUD_TOP_Y, 16, new Color(180, 180, 180, 255));
-        const roundNode = new Node('RoundValue');
-        roundNode.setParent(hud);
-        roundNode.setPosition(HUD_RIGHT_X, HUD_TOP_Y - 38);
-        this.roundLabel = roundNode.addComponent(Label);
-        this.roundLabel.string = String(this.currentRound);
-        this.roundLabel.fontSize = 46;
+        // ── Top-right: ROUND ──────────────────────────────────────────────
+        const roundSec = this.makeCornerGroup(hud, 'RoundSec', false, true, MH, MV);
+        this.makeLabel(roundSec, 'ROUND', 0, -12, 14, new Color(180, 180, 180, 255));
+        this.roundLabel = this.makeLabel(roundSec, String(this.currentRound), 0, -56, 46, new Color(100, 200, 255, 255));
         this.roundLabel.isBold = true;
-        this.roundLabel.color = new Color(100, 200, 255, 255);
 
-        // NEXT preview (bottom-left — anchored to visible area)
-        const nxtX = -vs.width / 2 + 80;
-        this.makeLabel(hud, 'NEXT', nxtX, -vs.height / 2 + 130, 13, new Color(180, 180, 180, 255));
+        // ── Bottom-left: NEXT preview ─────────────────────────────────────
+        const nextSec = this.makeCornerGroup(hud, 'NextSec', true, false, MH, MV);
+        this.makeLabel(nextSec, 'NEXT', 0, 88, 13, new Color(180, 180, 180, 255));
         this.nextPreviewNode = new Node('NextPreview');
-        this.nextPreviewNode.setParent(hud);
-        this.nextPreviewNode.setPosition(nxtX, -vs.height / 2 + 88);
+        this.nextPreviewNode.setParent(nextSec);
+        this.nextPreviewNode.setPosition(0, 44);
         this.updateNextPreview();
 
-        // Fullscreen button (top-right corner)
+        // ── Top-right: MERGES (fianco a ROUND) ───────────────────────────
+        const mergesSec = new Node('MergesSec');
+        mergesSec.setParent(hud);
+        mergesSec.addComponent(UITransform).setContentSize(1, 1);
+        const mw = mergesSec.addComponent(Widget);
+        mw.isAlignRight = true; mw.right = MH + 110;
+        mw.isAlignTop   = true; mw.top   = MV;
+        mw.updateAlignment();
+        this.makeLabel(mergesSec, 'MERGES', 0, -12, 13, new Color(150, 150, 150, 255));
+        this.mergesLabel = this.makeLabel(mergesSec, '0', 0, -56, 32, new Color(120, 220, 140, 255));
+        this.mergesLabel.isBold = true;
+
+        // ── Fullscreen button (top-right, inside margin) ──────────────────
         this.createFullscreenButton(hud);
 
-        // Timer (center, inside the launch zone below game-over line)
+        // ── Timer — world position, centre of launch zone ─────────────────
         const timerNode = new Node('TimerValue');
         timerNode.setParent(hud);
         timerNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
@@ -470,15 +494,37 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.timerLabel.string = String(LAUNCH_TIMER);
         this.timerLabel.color = new Color(200, 200, 200, 200);
 
-        // Version (bottom-right corner — anchored to actual visible area)
-        this.makeLabel(hud, `v${VERSION}`, vs.width / 2 - 60, -vs.height / 2 + 22, 22, new Color(120, 120, 120, 140));
+        // ── Version (top-center) ─────────────────────────────────────────
+        const verSec = new Node('VerSec');
+        verSec.setParent(hud);
+        verSec.addComponent(UITransform).setContentSize(1, 1);
+        const vw = verSec.addComponent(Widget);
+        vw.isAlignTop = true; vw.top = MV;
+        vw.updateAlignment();
+        this.makeLabel(verSec, `v${VERSION}`, 0, 0, 18, new Color(120, 120, 120, 140));
+    }
+
+    private makeCornerGroup(parent: Node, name: string, alignLeft: boolean, alignTop: boolean, marginH: number, marginV: number): Node {
+        const node = new Node(name);
+        node.setParent(parent);
+        node.addComponent(UITransform).setContentSize(1, 1);
+        const w = node.addComponent(Widget);
+        if (alignLeft) { w.isAlignLeft   = true; w.left   = marginH; }
+        else           { w.isAlignRight  = true; w.right  = marginH; }
+        if (alignTop)  { w.isAlignTop    = true; w.top    = marginV; }
+        else           { w.isAlignBottom = true; w.bottom = marginV; }
+        w.updateAlignment();
+        return node;
     }
 
     private createFullscreenButton(parent: Node): void {
         const btn = new Node('FullscreenBtn');
         btn.setParent(parent);
-        const fvs = view.getVisibleSize();
-        btn.setPosition(fvs.width / 2 - 45, fvs.height / 2 - 45);
+        btn.addComponent(UITransform).setContentSize(44, 44);
+        const bw = btn.addComponent(Widget);
+        bw.isAlignRight  = true; bw.right  = 80;
+        bw.isAlignBottom = true; bw.bottom = 40;
+        bw.updateAlignment();
 
         const g = btn.addComponent(Graphics);
         g.fillColor = new Color(0, 0, 0, 100);
@@ -493,8 +539,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         g.moveTo(3, 11);   g.lineTo(11, 11);   g.lineTo(11, 3);
         g.stroke();
 
-        const ut = btn.addComponent(UITransform);
-        ut.setContentSize(56, 56);
         btn.on(Node.EventType.TOUCH_START, () => this.toggleFullscreen(), this);
     }
 
@@ -700,34 +744,42 @@ export class GameManager extends Component implements IGameManagerDebug {
     private updateNextPreview(): void {
         if (!this.nextPreviewNode) return;
         const { type, level } = this.spawnMgr.next;
+        const r = (LEVEL_CONFIG[level]?.radius ?? 20) * LAYOUT_SCALE * 0.9;
+        const frame = WarriorSpriteCache.get(WARRIORS[type]?.type ?? '', level);
 
-        let g = this.nextPreviewNode.getComponent(Graphics);
-        if (g) {
-            g.clear();
+        this.nextPreviewNode.destroyAllChildren();
+
+        if (frame) {
+            const sp  = this.nextPreviewNode.getComponent(Sprite)      ?? this.nextPreviewNode.addComponent(Sprite);
+            const uit = this.nextPreviewNode.getComponent(UITransform)  ?? this.nextPreviewNode.addComponent(UITransform);
+            uit.setContentSize(r * 4, r * 4);
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            sp.spriteFrame = frame;
+            const g = this.nextPreviewNode.getComponent(Graphics);
+            if (g) g.clear();
         } else {
-            g = this.nextPreviewNode.addComponent(Graphics);
-        }
+            const sp = this.nextPreviewNode.getComponent(Sprite);
+            if (sp) sp.spriteFrame = null!;
 
-        const r = (LEVEL_CONFIG[level]?.radius ?? 20) * 0.9;
-        g.fillColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
-        g.circle(0, 0, r);
-        g.fill();
-        g.strokeColor = new Color(255, 255, 255, 180);
-        g.lineWidth = 3;
-        g.circle(0, 0, r);
-        g.stroke();
+            let g = this.nextPreviewNode.getComponent(Graphics);
+            if (!g) g = this.nextPreviewNode.addComponent(Graphics);
+            else g.clear();
+            g.fillColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
+            g.circle(0, 0, r);
+            g.fill();
+            g.strokeColor = new Color(255, 255, 255, 180);
+            g.lineWidth = 3;
+            g.circle(0, 0, r);
+            g.stroke();
 
-        let levelLabel = this.nextPreviewNode.getChildByName('Lv');
-        if (!levelLabel) {
-            levelLabel = new Node('Lv');
-            levelLabel.setParent(this.nextPreviewNode);
+            const lvNode = new Node('Lv');
+            lvNode.setParent(this.nextPreviewNode);
+            const lbl = lvNode.addComponent(Label);
+            lbl.string = String(level);
+            lbl.fontSize = Math.round(r * 0.55);
+            lbl.isBold = true;
+            lbl.color = new Color(255, 255, 255, 255);
         }
-        let lbl = levelLabel.getComponent(Label);
-        if (!lbl) lbl = levelLabel.addComponent(Label);
-        lbl.string = String(level);
-        lbl.fontSize = Math.round(r * 0.55);
-        lbl.isBold = true;
-        lbl.color = new Color(255, 255, 255, 255);
     }
 
     private makeLabel(parent: Node, text: string, x: number, y: number, fontSize: number, color: Color): Label {
@@ -743,9 +795,17 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     // --- physics helpers ---
 
+    private zSortWarriors(): void {
+        [...this.warriors]
+            .sort((a, b) => b.node.position.y - a.node.position.y)
+            .forEach((w, i) => w.node.setSiblingIndex(i));
+    }
+
     private applyMagnetism(): void {
-        const r1 = LEVEL_CONFIG[1]?.radius ?? 20;
-        const r1sq = r1 * r1; // level-1 radius² — mass reference
+        const magnetGap   = MAGNET_GAP_BASE   * LAYOUT_SCALE;
+        const magnetForce = MAGNET_FORCE_BASE  * LAYOUT_SCALE;
+        const r1    = (LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE;
+        const r1sq  = r1 * r1;
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
             if (!a.node?.isValid || a.merging) continue;
@@ -762,9 +822,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                     new Vec2(a.node.position.x, a.node.position.y),
                     new Vec2(b.node.position.x, b.node.position.y)
                 );
-                // surface-to-surface gap: independent of warrior size
                 const gap = Math.max(0, dist - a.radius - b.radius);
-                if (gap < MAGNET_GAP && gap < nearestGap) {
+                if (gap < magnetGap && gap < nearestGap) {
                     nearestGap = gap;
                     nearest = b;
                 }
@@ -775,10 +834,9 @@ export class GameManager extends Component implements IGameManagerDebug {
                     nearest.node.position.x - a.node.position.x,
                     nearest.node.position.y - a.node.position.y
                 ).normalize();
-                const t = 1 - (nearestGap / MAGNET_GAP);
-                // scale force by mass (∝ r²) so acceleration is equal for all levels
+                const t = 1 - (nearestGap / magnetGap);
                 const massScale = (a.radius * a.radius) / r1sq;
-                a.applyForce(dir.multiplyScalar(MAGNET_FORCE * (1 + t * t * 8) * massScale));
+                a.applyForce(dir.multiplyScalar(magnetForce * (1 + t * t * 8) * massScale));
             }
         }
     }
@@ -797,7 +855,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const g = vfx.addComponent(Graphics);
         g.lineWidth = 4;
         g.strokeColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
-        g.circle(0, 0, LEVEL_CONFIG[4]?.radius ?? 42);
+        g.circle(0, 0, (LEVEL_CONFIG[4]?.radius ?? 42) * LAYOUT_SCALE);
         g.stroke();
         const op = vfx.addComponent(UIOpacity);
         op.opacity = 200;

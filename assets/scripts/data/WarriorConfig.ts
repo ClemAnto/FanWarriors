@@ -32,13 +32,13 @@ export const LEVEL_CONFIG: readonly (LevelData | null)[] = [
 
 // index = type (0–6)
 export const WARRIORS: readonly WarriorData[] = [
-    { id: 0, type: 'frog',    nome: 'RANA',    maxLevel: 4, color: new Color(231,  76,  60), introRound: 1 },
-    { id: 1, type: 'cat',     nome: 'GATTO',   maxLevel: 4, color: new Color(230, 126,  34), introRound: 1 },
-    { id: 2, type: 'chicken', nome: 'GALLINA', maxLevel: 4, color: new Color(241, 196,  15), introRound: 1 },
-    { id: 3, type: 'wolf',    nome: 'LUPO',    maxLevel: 5, color: new Color( 46, 204, 113), introRound: 3 },
-    { id: 4, type: 'eagle',   nome: 'AQUILA',  maxLevel: 5, color: new Color( 52, 152, 219), introRound: 5 },
-    { id: 5, type: 'lion',    nome: 'LEONE',   maxLevel: 6, color: new Color(155,  89, 182), introRound: 7 },
-    { id: 6, type: 'dragon',  nome: 'DRAGO',   maxLevel: 7, color: new Color( 26, 188, 156), introRound: 9 },
+    { id: 0, type: 'frog',    nome: 'RANA',    maxLevel: 4, color: new Color( 60, 190,  60), introRound: 1 },
+    { id: 1, type: 'cat',     nome: 'GATTO',   maxLevel: 4, color: new Color(220, 130,  50), introRound: 1 },
+    { id: 2, type: 'chicken', nome: 'GALLINA', maxLevel: 4, color: new Color(240, 210,  80), introRound: 1 },
+    { id: 3, type: 'wolf',    nome: 'LUPO',    maxLevel: 5, color: new Color(110, 110, 130), introRound: 3 },
+    { id: 4, type: 'eagle',   nome: 'AQUILA',  maxLevel: 5, color: new Color(140,  90,  40), introRound: 5 },
+    { id: 5, type: 'lion',    nome: 'LEONE',   maxLevel: 6, color: new Color(220, 170,  40), introRound: 7 },
+    { id: 6, type: 'dragon',  nome: 'DRAGO',   maxLevel: 7, color: new Color(130,  50, 180), introRound: 9 },
 ];
 
 export function spawnTypesForRound(round: number): number {

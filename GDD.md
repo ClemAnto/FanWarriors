@@ -24,6 +24,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 - Età: **8-14 anni** (sweet spot Poki), gender-neutral
 - Dispositivi: desktop + mobile + tablet
 - Orientamento: **portrait primario** (720×1280), landscape come adattamento
+- Layout pista: aspect ratio **500:700**, altezza = min(75% altezza schermo, 100% larghezza schermo), agganciata in basso al centro — si adatta a qualsiasi viewport senza bande nere
 - Sessioni attese: **2-20 minuti** per partita, "una partita ancora" effect
 
 ## 5. Loop di gioco

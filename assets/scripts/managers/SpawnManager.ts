@@ -1,10 +1,6 @@
 import { Node } from 'cc';
 import { Warrior } from '../entities/Warrior';
-import { GAME_OVER_LINE_Y, TRACK_BOTTOM_Y } from '../entities/Track';
-
-export const SPAWN_X = 0;
-// 60% down from game-over line into the launch zone
-export const SPAWN_Y = GAME_OVER_LINE_Y + (TRACK_BOTTOM_Y - GAME_OVER_LINE_Y) * 0.6;
+import { GAME_OVER_LINE_Y, TRACK_BOTTOM_Y, TRACK_TOP_Y, TRACK_W } from '../entities/Track';
 
 export class SpawnManager {
     private parent: Node;
@@ -12,6 +8,7 @@ export class SpawnManager {
     private maxLevel = 1;
     private nextType = 0;
     private nextLevel = 1;
+    private readonly spawnY: number;
 
     onMergeReady: ((a: Warrior, b: Warrior) => void) | null = null;
     onNextGenerated: (() => void) | null = null;
@@ -19,6 +16,8 @@ export class SpawnManager {
     constructor(parent: Node, spawnTypes: number) {
         this.parent = parent;
         this.spawnTypes = spawnTypes;
+        // center of lower half — read after initLayout() has been called by GameManager
+        this.spawnY = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2;
         this.generateNext();
     }
 
@@ -27,15 +26,17 @@ export class SpawnManager {
     }
 
     spawnNext(): Warrior {
-        const w = Warrior.spawn(this.parent, this.nextType, this.nextLevel, SPAWN_X, SPAWN_Y);
+        const w = Warrior.spawn(this.parent, this.nextType, this.nextLevel, 0, this.spawnY);
         w.onMergeReady = this.onMergeReady;
         this.generateNext();
         return w;
     }
 
     prefill(): Warrior[] {
-        const py = GAME_OVER_LINE_Y + 300;
-        const positions = [{ x: -90, y: py }, { x: 0, y: py + 30 }, { x: 90, y: py }];
+        const zoneH = TRACK_TOP_Y - GAME_OVER_LINE_Y;
+        const py    = GAME_OVER_LINE_Y + Math.round(zoneH * 0.65);
+        const px    = Math.round(TRACK_W * 0.22);
+        const positions = [{ x: -px, y: py }, { x: 0, y: py + Math.round(zoneH * 0.08) }, { x: px, y: py }];
         return positions.map(({ x, y }, i) => {
             const w = Warrior.spawn(this.parent, i % this.spawnTypes, 1, x, y);
             w.crossedLine = true;
