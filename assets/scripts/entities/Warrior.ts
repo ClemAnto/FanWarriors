@@ -129,7 +129,7 @@ export class Warrior extends Component {
 
     private buildSprite(frame: SpriteFrame): void {
         const r = this.radius;
-        this.viewNode.setPosition(0, r * 2 - 10);
+        this.viewNode.setPosition(0, r * 0.5);
         this.viewNode.addComponent(UITransform).setContentSize(r * 4, r * 4);
         const sp = this.viewNode.addComponent(Sprite);
         sp.sizeMode = Sprite.SizeMode.CUSTOM;

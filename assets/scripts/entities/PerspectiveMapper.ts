@@ -4,7 +4,7 @@ const { ccclass } = _decorator;
 
 const SCALE_BOTTOM  = 0.55;  // bottom of track — farthest from player (narrow end of funnel)
 const SCALE_TOP     = 1.0;   // top of track — closest to player (launch/wide end)
-const VISUAL_SCALE  = 1.65;  // visual size multiplier relative to physics radius
+const VISUAL_SCALE  = 1.1;  // visual size multiplier relative to physics radius
 
 @ccclass('PerspectiveMapper')
 export class PerspectiveMapper extends Component {

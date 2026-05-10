@@ -49,6 +49,14 @@ Tutte le costanti sono **calcolate da `initLayout()`** — non fisse. Ricalcolat
 **Formula altezza**: `min(75% altezza schermo, (10/6) × 95% larghezza schermo)`.  
 Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalmente (x = 0).
 
+### PerspectiveMapper (PerspectiveMapper.ts)
+| Costante | Valore | Note |
+|----------|--------|------|
+| `SCALE_BOTTOM` | 0.55 | Bottom pista (depth=0) — lontano, piccolo |
+| `SCALE_TOP` | 1.0 | Top pista (depth=1) — vicino, grande |
+| `VISUAL_SCALE` | 1.65 | Moltiplicatore globale rispetto al raggio fisico |
+| viewNode Y offset (sprite) | `r * 0.5` | In `Warrior.buildSprite` — alzato leggermente sopra il centro fisico |
+
 ### InputController (InputController.ts)
 | Parametro | Valore | Note |
 |-----------|--------|------|
@@ -232,6 +240,20 @@ All'avvio la pista viene prefillata con 3 warrior (design decision, Fase 1):
 Posizioni aggiornate in Fase 2 per la pista a funnel (TRACK_W=576): a y=220 la semi-larghezza interna è ~216px, quindi x=±90 lascia ampio margine dalla parete.
 
 I warrior prefill hanno `crossedLine = true` impostato manualmente — non passano per il sistema di lancio.
+
+---
+
+## Animazione next preview (animateNextTransition)
+
+`onNextGenerated` viene chiamato **sincrono dentro `spawnNext()`**, prima che `createWarrior()` restituisca il warrior. Quindi al momento in cui `animateNextTransition()` gira, `nextLaunchWarrior` non è ancora impostato — viene settato solo dopo il return di `spawnNext()`. Fix: `scheduleOnce(..., 0)` per rinviare al frame successivo.
+
+**Struttura animazione:**
+1. Zoom-out su `nextPreviewNode` (creatura, 0.12s) — `nextSecNode` (cerchio + label) resta fermo
+2. `.delay(0.18)` — pausa di suspense
+3. `updateNextPreview(true)` → bubble zoom-in su `nextPreviewNode` della nuova creatura
+4. In parallelo: deferred (frame+1) → warrior al launcher parte da scala 0 e fa bounce-in
+
+**Non animare mai `nextSecNode`** per lo zoom-out/in delle creature — altrimenti il cerchio di sfondo sparisce insieme.
 
 ---
 

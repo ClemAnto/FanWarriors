@@ -1,17 +1,17 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, SpriteFrame } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
-import { GAME_OVER_LINE_Y, TRACK_W, TRACK_TOP_Y, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Track } from '../entities/Track';
+import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Track } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.1.29';
+const VERSION            = '0.1.31';
 const DEBUG              = false;  // set true to show debug panel and overlay
-const DEBUG_ENGINE       = true;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
@@ -59,6 +59,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private waitForSettling = false;
     private sceneName = '';
     private track: Track | null = null;
+    private suctionCenter: Vec2 | null = null;
+    private suctionTimeLeft: number = 0;
     private resizeRafId = 0;
     private readonly onBrowserResize = (): void => {
         cancelAnimationFrame(this.resizeRafId);
@@ -67,6 +69,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (this.timerSectionNode) {
                 this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
             }
+            this.positionNextSec();
         });
     };
 
@@ -74,7 +77,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     private scoreLabel: Label | null = null;
     private roundLabel: Label | null = null;
     private mergesLabel: Label | null = null;
+    private nextSecNode: Node | null = null;
     private nextPreviewNode: Node | null = null;
+    private nextLaunchWarrior: Warrior | null = null;
     private timerLabel: Label | null = null;
     private timerSectionNode: Node | null = null;
 
@@ -112,7 +117,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.spawnMgr = new SpawnManager(this.gameLayer, spawnTypesForRound(1));
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
-        this.spawnMgr.onNextGenerated = ()      => this.updateNextPreview();
+        this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
 
         WarriorSpriteCache.preload(() => {
             this.warriors.push(...this.spawnMgr.prefill());
@@ -247,6 +252,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
             this.zSortWarriors();
             this.applyMagnetism();
+            if (this.suctionCenter) this.applyVortexSuction(dt);
             this.checkLineLogic();
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
@@ -262,6 +268,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
         this.warriors.push(w);
+        this.nextLaunchWarrior = w;
         return w;
     }
 
@@ -454,13 +461,16 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.scoreLabel      = existingHud.getChildByName('ScoreSec')  ?.getChildByName('ScoreValue')  ?.getComponent(Label) ?? null;
             this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
             this.mergesLabel     = existingHud.getChildByName('MergesSec') ?.getChildByName('MergesValue') ?.getComponent(Label) ?? null;
-            this.nextPreviewNode = existingHud.getChildByName('NextSec')   ?.getChildByName('NextPreview') ?? null;
+            this.nextSecNode     = existingHud.getChildByName('NextSec') ?? null;
+            this.nextPreviewNode = this.nextSecNode?.getChildByName('NextPreview') ?? null;
             this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
             this.timerSectionNode = existingHud.getChildByName('TimerSec') ?? null;
             const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
             if (versionLabel) versionLabel.string = `v${VERSION}`;
             const existingBtn = existingHud.getChildByName('FullscreenBtn');
             if (existingBtn) this.drawFullscreenIcon(existingBtn);
+            if (this.nextSecNode) this.createNextBg(this.nextSecNode);
+            this.positionNextSec();
             this.updateNextPreview();
             return;
         }
@@ -483,12 +493,20 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.roundLabel = this.makeLabel(roundSec, String(this.currentRound), 0, -56, 46, new Color(100, 200, 255, 255));
         this.roundLabel.isBold = true;
 
-        // ── Bottom-left: NEXT preview ─────────────────────────────────────
-        const nextSec = this.makeCornerGroup(hud, 'NextSec', true, false, MH, MV);
+        // ── Left-center: NEXT preview ────────────────────────────────────
+        const nextSec = new Node('NextSec');
+        nextSec.setParent(hud);
+        nextSec.addComponent(UITransform).setContentSize(1, 1);
+        const nw = nextSec.addComponent(Widget);
+        nw.isAlignVerticalCenter = true; nw.verticalCenter = 0;
+        nw.updateAlignment();
+        this.nextSecNode = nextSec;
         this.makeLabel(nextSec, 'NEXT', 0, 88, 13, new Color(180, 180, 180, 255));
         this.nextPreviewNode = new Node('NextPreview');
         this.nextPreviewNode.setParent(nextSec);
         this.nextPreviewNode.setPosition(0, 44);
+        this.createNextBg(nextSec);
+        this.positionNextSec();
         this.updateNextPreview();
 
         // ── Top-right: MERGES (fianco a ROUND) ───────────────────────────
@@ -524,7 +542,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const vw = verSec.addComponent(Widget);
         vw.isAlignTop = true; vw.top = MV;
         vw.updateAlignment();
-        this.makeLabel(verSec, `v${VERSION}`, 0, 0, 18, new Color(120, 120, 120, 140));
+        this.makeLabel(verSec, `v${VERSION}`, 0, 0, 24, new Color(255, 255, 255, 210));
     }
 
     private makeCornerGroup(parent: Node, name: string, alignLeft: boolean, alignTop: boolean, marginH: number, marginV: number): Node {
@@ -675,7 +693,60 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
             .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
 
+        this.activateSuction(mx, my, color);
         console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
+    }
+
+    // --- vortex suction ---
+
+    private activateSuction(cx: number, cy: number, ringColor: Color): void {
+        const SUCTION_DURATION = 3;
+        this.suctionCenter   = new Vec2(cx, cy);
+        this.suctionTimeLeft = SUCTION_DURATION;
+
+        for (let i = 0; i < 2; i++) {
+            const sring = new Node('SuctionRing');
+            sring.setParent(this.gameLayer);
+            sring.setPosition(cx, cy);
+            const sg = sring.addComponent(Graphics);
+            sg.lineWidth   = 4 - i;
+            sg.strokeColor = new Color(ringColor.r, ringColor.g, ringColor.b, 200 - i * 40);
+            sg.circle(0, 0, 180 + i * 60);
+            sg.stroke();
+            const sop = sring.addComponent(UIOpacity);
+            sop.opacity = 180 - i * 40;
+            const delay = i * 0.15;
+            tween(sring).delay(delay).to(SUCTION_DURATION - delay, { scale: new Vec3(0.01, 0.01, 1) }).start();
+            tween(sop).delay(delay).to(SUCTION_DURATION - delay, { opacity: 0 })
+                .call(() => { if (sring.isValid) sring.destroy(); }).start();
+        }
+    }
+
+    private applyVortexSuction(dt: number): void {
+        const SUCTION_DURATION = 3.0;
+        const PEAK_FORCE       = 240;
+
+        this.suctionTimeLeft -= dt;
+        if (this.suctionTimeLeft <= 0) {
+            this.suctionCenter = null;
+            return;
+        }
+
+        // Curva a campana: 0 → picco a metà → 0, sempre inward
+        const elapsed  = SUCTION_DURATION - this.suctionTimeLeft;
+        const progress = Math.sin(Math.PI * elapsed / SUCTION_DURATION);
+        const force    = PEAK_FORCE * progress;
+
+        const cx = this.suctionCenter!.x;
+        const cy = this.suctionCenter!.y;
+        for (const w of this.warriors) {
+            if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
+            const dx = cx - w.node.position.x;
+            const dy = cy - w.node.position.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 1) continue;
+            w.applyForce(new Vec2((dx / dist) * force, (dy / dist) * force));
+        }
     }
 
     // --- tutorial ---
@@ -765,7 +836,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             .start();
     }
 
-    private updateNextPreview(): void {
+    private updateNextPreview(animate = false): void {
         if (!this.nextPreviewNode) return;
         const { type, level } = this.spawnMgr.next;
         const r = (LEVEL_CONFIG[level]?.radius ?? 20) * LAYOUT_SCALE * 0.9;
@@ -804,6 +875,72 @@ export class GameManager extends Component implements IGameManagerDebug {
             lbl.isBold = true;
             lbl.color = new Color(255, 255, 255, 255);
         }
+
+        if (animate && this.nextPreviewNode?.isValid) {
+            this.nextPreviewNode.setScale(0.05, 0.05, 1);
+            tween(this.nextPreviewNode)
+                .to(0.18, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'quadOut' })
+                .to(0.08, { scale: new Vec3(0.93, 0.93, 1) })
+                .to(0.07, { scale: new Vec3(1.0,  1.0,  1) })
+                .start();
+        }
+    }
+
+    private positionNextSec(): void {
+        if (!this.nextSecNode?.isValid) return;
+        const BG_R = 46;
+        const GAP  = 10;
+        this.nextSecNode.setPosition(-(TRACK_W / 2 + GAP + BG_R), this.nextSecNode.position.y);
+    }
+
+    private createNextBg(nextSec: Node): void {
+        let bg = nextSec.getChildByName('NextBg');
+        if (!bg) {
+            bg = new Node('NextBg');
+            bg.setParent(nextSec);
+            bg.setPosition(0, 44);
+            bg.setSiblingIndex(0);
+        }
+        const g = bg.getComponent(Graphics) ?? bg.addComponent(Graphics);
+        g.clear();
+        g.fillColor = new Color(0, 0, 0, 200);
+        g.circle(0, 0, 46);
+        g.fill();
+        g.strokeColor = new Color(255, 255, 255, 50);
+        g.lineWidth = 2;
+        g.circle(0, 0, 46);
+        g.stroke();
+    }
+
+    private animateNextTransition(): void {
+        if (!this.nextSecNode?.isValid) {
+            this.updateNextPreview();
+            return;
+        }
+
+        // Zoom-out creature only, then after a brief pause bubble-in new one
+        if (this.nextPreviewNode?.isValid) {
+            tween(this.nextPreviewNode)
+                .to(0.12, { scale: new Vec3(0, 0, 1) }, { easing: 'quadIn' })
+                .delay(0.18)
+                .call(() => this.updateNextPreview(true))
+                .start();
+        } else {
+            this.scheduleOnce(() => this.updateNextPreview(true), 0.30);
+        }
+
+        // Zoom-in warrior at launcher position (deferred one frame — nextLaunchWarrior set after spawnNext returns)
+        this.scheduleOnce(() => {
+            const w = this.nextLaunchWarrior;
+            if (!w?.node?.isValid) return;
+            w.node.setScale(0, 0, 1);
+            tween(w.node)
+                .to(0.18, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'quadOut' })
+                .to(0.08, { scale: new Vec3(0.9, 0.9, 1) })
+                .to(0.06, { scale: new Vec3(1.0, 1.0, 1) })
+                .call(() => { this.nextLaunchWarrior = null; })
+                .start();
+        }, 0);
     }
 
     private makeLabel(parent: Node, text: string, x: number, y: number, fontSize: number, color: Color): Label {
@@ -814,6 +951,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         lbl.string = text;
         lbl.fontSize = fontSize;
         lbl.color = color;
+        lbl.enableOutline = true;
+        lbl.outlineColor  = new Color(0, 0, 0, 220);
+        lbl.outlineWidth  = 2;
         return lbl;
     }
 
@@ -873,12 +1013,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private flashBurst(x: number, y: number, type: number): void {
+        const burstColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
         const vfx = new Node('BurstVFX');
         vfx.setParent(this.gameLayer);
         vfx.setPosition(x, y);
         const g = vfx.addComponent(Graphics);
         g.lineWidth = 4;
-        g.strokeColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
+        g.strokeColor = burstColor;
         g.circle(0, 0, (LEVEL_CONFIG[4]?.radius ?? 42) * LAYOUT_SCALE);
         g.stroke();
         const op = vfx.addComponent(UIOpacity);
@@ -886,6 +1027,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(vfx).to(0.3, { scale: new Vec3(2, 2, 1) }).start();
         tween(op).to(0.3, { opacity: 0 })
             .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
+        this.activateSuction(x, y, burstColor);
     }
 
     private spawnFloatingScore(x: number, y: number, points: number): void {

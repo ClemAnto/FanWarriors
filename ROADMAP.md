@@ -313,10 +313,8 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-10 — v0.1.28: GUI HUD responsiva corretta (alignFlags CC3, UITransform size), DEBUG_ENGINE off, fullscreen icon + version label attivi nel path existingHud. Prompt generati per background medievale e wolf spritesheet (wolf_2x3.png).
+> Aggiornato al 2026-05-11 — v0.1.31: HUD rifinito (contorni neri su tutti i testi, label versione visibile, cerchio nero sotto next preview, NextSec centrato verticalmente a sinistra della pista). Animazione next: zoom-out creatura → pausa 0.18s → bubble zoom-in nuova; warrior al launcher appare con zoom-in da scala 0. Vortex suction non coinvolge più il warrior in fase di lancio (`!w.crossedLine`). Scena rinominata in `Game.scene`.
 
-1. **Importare background medievale**: una volta ricevuto il PNG, inserirlo in BgLayer (Sprite fullscreen 720×1280, sotto Track)
-2. **Importare wolf_2x3.png**: sovrascrivere placeholder in `assets/resources/warriors/`, poi `npm run gen:placeholders`
-3. **Playtest esteso** su mobile: raccogliere feedback su feel del lancio, stabilità warrior, difficoltà round — sblocca Milestone Fase 2
-4. **Tuning post-playtest**: forza magnetismo, soglie round-up, distribuzione spawn, linearDamping settled (attuale 12)
-5. **Prima di Fase 3**: impostare `LIVE_RESIZE = false` in GameManager.ts; verificare layout su device reali
+1. **Playtest esteso** su mobile: raccogliere feedback su feel del lancio, posizionamento sprite, difficoltà round — sblocca Milestone Fase 2
+2. **Tuning post-playtest**: forza magnetismo, soglie round-up, distribuzione spawn, `SCALE_BOTTOM`/`SCALE_TOP`/`VISUAL_SCALE` in PerspectiveMapper, viewNode offset (`r * 0.5`)
+3. **Prima di Fase 3**: impostare `LIVE_RESIZE = false` in GameManager.ts; `DEBUG_ENGINE = false`; verificare layout su device reali
