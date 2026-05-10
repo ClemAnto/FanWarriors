@@ -4,57 +4,6 @@
 
 ---
 
-## Stile visivo di riferimento
-
-> Basato sul mockup approvato (screenshot allegato alla sessione 2026-05-09).
-
-### Direzione artistica generale
-- Cartoon 2D con **contorno nero spesso** su ogni elemento — nessun elemento senza outline
-- Stile **kawaii chibi**: forme tondeggianti, teste grandi, espressioni amichevoli
-- Colori **altamente saturi**, palette calda e festiva — nessun tono desaturato o cupo
-- Rendering **flat con accenni di shading** su personaggi (luci/ombre semplici, non realistiche)
-- Atmosfera: torneo medievale allegro, non violento — festa più che battaglia
-
-### Personaggi (warrior)
-- Corpo **chibi tondeggiante**, testa grande ~50% dell'intera figura
-- Ogni personaggio poggia su un **piedistallo circolare in legno** con il numero del livello visibile
-- Il piedistallo ha spessore e leggera prospettiva (vista leggermente dall'alto)
-- Outline nera spessa (~3-4px a risoluzione 128px) su personaggio E piedistallo
-- Shading semplice: una zona di luce in alto, ombra morbida in basso
-- I livelli evolutivi si leggono chiaramente: più equipaggiamento, più "serio" e più grande
-- **Colori specie:** Rana verde brillante, Gatto arancione/grigio, Gallina bianca, Lupo grigio scuro, Aquila marrone, Leone dorato, Drago viola
-
-### Pista
-- Superficie interna: **bianca/ghiaccio**, leggermente lucida, non completamente piatta (lieve texture)
-- Bordi/pareti: **legno marrone** con struttura di assi visibili — come una corsetta da bowling in legno
-- Nastro rosso: **banda rossa orizzontale** con effetto tessuto/raso, tesa tra le due pareti
-- Vista: **lieve prospettiva dall'alto** (angolo ~20-30°) — non completamente top-down
-
-### Background
-- Illustrazione **a piena pagina** dietro la pista — non un semplice colore
-- Elemento centrale: **castello medievale in pietra grigia** con torri, merli, portone ad arco
-- Decorazioni: **bandierine colorate a triangolo** (bunting) che attraversano la scena in più fili
-- Stendardi araldici con simboli (leone rampante, corona, aquila) appesi alle torri
-- Lati: **bancarelle del mercato medievale** con tendoni a strisce colorate
-- Folla: **personaggi stilizzati** che osservano il torneo dai lati, piccoli, non dettagliati
-- Sfondo: **cielo azzurro chiaro**, colline verdi, alberi frondosi ai lati
-- Palette background: caldi (giallo, rosso, verde) con il grigio del castello come ancora neutrale
-- Il background è **ricco di dettagli** ma ha abbastanza contrasto con la pista da non distrarre
-
-### UI / HUD
-- Testo: **bianco con outline nera o ombra scura** — leggibile su qualsiasi sfondo
-- Font: stile **bold arrotondato**, senza grazie
-- Pulsanti: forma **rettangolare con angoli molto arrotondati**, outline scura, colore solido saturo
-- Icone settings/audio: stile flat con outline, fondo quadrato arrotondato
-
-### Checklist per ogni nuovo asset
-- [ ] Ha outline nera visibile?
-- [ ] I colori sono saturi (no pastelli slavati)?
-- [ ] Stile chibi/tondeggiante (no proporzioni realistiche)?
-- [ ] Leggibile a 128×128px?
-- [ ] Coerente con la palette calda del background?
-
----
 
 ## Parametri fisici calibrati
 
@@ -87,17 +36,17 @@ Tutte le costanti sono **calcolate da `initLayout()`** — non fisse. Ricalcolat
 
 | Costante | Formula | Esempio a 720×1280 design |
 |----------|---------|--------------------------|
-| `TRACK_H` | `min(vs.height × 0.75, vs.width)` | 720 |
-| `TRACK_W` | `TRACK_H × 500 / 700` | ≈514 |
+| `TRACK_H` | `min(vs.height × 0.75, (10/6) × 0.95 × vs.width)` | 960 |
+| `TRACK_W` | `TRACK_H × 6 / 10` | 576 |
 | `TRACK_BOTTOM_Y` | `−vs.height / 2` | −640 |
-| `TRACK_TOP_Y` | `TRACK_BOTTOM_Y + TRACK_H` | +80 |
-| `GAME_OVER_LINE_Y` | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` | −280 |
-| `FUNNEL_OFFSET` | `TRACK_W / 6` | ≈86 |
-| `LAYOUT_SCALE` | `TRACK_W / 384` | ≈1.34 |
-| Larghezza in cima | `TRACK_W − 2 × FUNNEL_OFFSET` | ≈342 |
+| `TRACK_TOP_Y` | `TRACK_BOTTOM_Y + TRACK_H` | +320 |
+| `GAME_OVER_LINE_Y` | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` | −160 |
+| `FUNNEL_OFFSET` | `TRACK_W × funnelPct / 200` | 72 (a 25%) |
+| `LAYOUT_SCALE` | `TRACK_W / 384` | 1.5 |
+| Larghezza in cima | `TRACK_W − 2 × FUNNEL_OFFSET` | 432 |
 
-**Aspect ratio pista: 500:700** (≈0.714 — più larga del vecchio 384:960).  
-**Formula altezza**: `min(75% altezza schermo, 100% larghezza schermo)` — replica `height: min(75%, 100vw)` del CSS di riferimento (`layout-demo/index.html`).  
+**Aspect ratio pista: 6:10** (TRACK_W = 0.6 × TRACK_H).  
+**Formula altezza**: `min(75% altezza schermo, (10/6) × 95% larghezza schermo)`.  
 Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalmente (x = 0).
 
 ### InputController (InputController.ts)
@@ -230,6 +179,11 @@ this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.
 ### Tutti i nodi 2D devono essere figli di Canvas
 Nodi creati a runtime con `new Node()` devono avere `setParent(canvasNode)` — il GameManager usa `this.node.parent` assumendo che il suo nodo sia figlio di Canvas. Non spostare il nodo GameManager fuori da Canvas.
 
+### Widget TOP/BOTTOM — UITransform height del nodo figlio conta
+Con Widget ALWAYS e allineamento TOP, il motore calcola la posizione del centro del nodo come:
+`y_center = parent.height/2 - widget_top - nodeHeight * anchorY`
+Se il nodo figlio ha una UITransform height sproporzionata (es. 680 invece di 80), il centro scende di `(680-80)*0.5 = 300px` rispetto al previsto. Controllare sempre la `_contentSize` del nodo ancorabile.
+
 ### `scheduleOnce` / `unschedule` — reference alla callback
 `this.unschedule(cb)` richiede la stessa **reference** alla funzione passata a `scheduleOnce`. Per questo il merge usa `mergeCallbacks: Map<Warrior, () => void>` — la callback viene salvata per poterla annullare in `onEndContact`.
 
@@ -275,7 +229,7 @@ All'avvio la pista viene prefillata con 3 warrior (design decision, Fase 1):
 - Tipo 1 a (0, 250)
 - Tipo 2 a (90, 220)
 
-Posizioni aggiornate in Fase 2 per la pista a funnel (TRACK_W=432): a y=220 la semi-larghezza interna è ~157px, quindi x=±90 lascia ~47px di margine dalla parete.
+Posizioni aggiornate in Fase 2 per la pista a funnel (TRACK_W=576): a y=220 la semi-larghezza interna è ~216px, quindi x=±90 lascia ampio margine dalla parete.
 
 I warrior prefill hanno `crossedLine = true` impostato manualmente — non passano per il sistema di lancio.
 
@@ -330,22 +284,6 @@ Flag `LIVE_RESIZE` in `GameManager.ts` (riga 13): `true` in sviluppo, `false` in
 
 ---
 
-## Scena e gerarchia
-
-```
-Scene root
-  ├── Track         ← Track.ts — disegna pista funnel e muri fisici (nodo statico in scena)
-  ├── GameManager   ← GameManager.ts + InputController.ts (addComponent)
-  ├── GameLayer     ← creato a runtime — contiene: warriors, Rope, VFX esplosioni/burst
-  └── UILayer       ← creato a runtime — contiene: HUD, timer, NEXT, tutorial, game-over,
-                       punteggi flottanti, RedFlash, DebugPanel, DebugLabel
-```
-
-`GameLayer` e `UILayer` sono creati in `GameManager.start()` come figli di `this.node.parent!` (scene root).  
-La corda (Rope) si aggancia a `GameLayer` tramite `InputController.ropeParent`.  
-**Regola:** non usare mai `this.node.parent!` per spawnare nodi a runtime — usare sempre `this.gameLayer` o `this.uiLayer`.
-
----
 
 ## Testing remoto su mobile
 
@@ -353,19 +291,22 @@ Permette di testare la build su telefono fuori dalla stessa rete WiFi del PC.
 
 ### Flusso completo
 
-**1. Build headless (CLI)**
-```bash
-# CRITICO: unset ELECTRON_RUN_AS_NODE altrimenti CocosCreator.exe gira come Node.js
-env -u ELECTRON_RUN_AS_NODE "C:\ProgramData\cocos\editors\Creator\3.8.8\CocosCreator.exe" \
-  --project "d:\Projects\FanWarriors" \
-  --build "platform=web-mobile"
+**1. Build headless (CLI) — PowerShell**
+```powershell
+# CRITICO: rimuovere ELECTRON_RUN_AS_NODE prima di lanciare, altrimenti gira come Node.js
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+$proc = Start-Process -FilePath "C:\ProgramData\cocos\editors\Creator\3.8.8\CocosCreator.exe" `
+  -ArgumentList "--project","D:\Projects\FunWarriors","--build","outputName=web-mobile;platform=web-mobile;debug=false" `
+  -PassThru -Wait
+Write-Output "Exit code: $($proc.ExitCode)"
 ```
 - Exit code **0** o **36** = successo (36 = successo con warning, normale)
 - Exit code diverso = errore reale
+- Usare `-PassThru -Wait` (NON `&`) altrimenti CC gira in background e il comando termina subito
 
-**2. Server statico locale**
-```bash
-npx serve -l 8080 "d:/Projects/FanWarriors/build/web-mobile"
+**2. Serve + tunnel in un comando**
+```powershell
+npm run serve   # scripts/serve-remote.js — avvia Python HTTP server porta 8080 + ngrok
 ```
 
 **3. Tunnel pubblico (ngrok)**
@@ -393,11 +334,10 @@ npx ngrok config add-authtoken <TOKEN>
 
 ### CRITICO — kill prima di rebuild
 Serve deve essere spento prima di rilanciare la build, altrimenti CC non riesce a scrivere i file (EPERM — file lock di Windows):
-```bash
-# PowerShell
+```powershell
 Get-Process -Name "node" | Stop-Process -Force
 # poi cancellare la build se ci sono errori di permesso
-cmd /c rd /s /q "d:\Projects\FanWarriors\build"
+cmd /c rd /s /q "d:\Projects\FunWarriors\build"
 ```
 
 ### Perché ngrok e non localtunnel

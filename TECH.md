@@ -6,6 +6,8 @@
 
 ## Separazione layer fisico / layer visivo
 
+> ⚠️ **Architettura pianificata — non ancora implementata.** Attualmente il gioco usa nodi flat 2D senza prospettiva. Questa sezione descrive l'obiettivo di Fase 3.
+
 **Decisione**: ogni entità di gioco ha due nodi separati — un nodo fisico (invisibile) e un nodo visivo (sprite).
 
 ```

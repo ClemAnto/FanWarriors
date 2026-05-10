@@ -9,9 +9,9 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_TOP_Y, TRACK_BOTTOM_Y, LAYOUT_SCALE, i
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.1.16';
+const VERSION            = '0.1.29';
 const DEBUG              = false;  // set true to show debug panel and overlay
-const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const DEBUG_ENGINE       = true;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
@@ -64,8 +64,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         cancelAnimationFrame(this.resizeRafId);
         this.resizeRafId = requestAnimationFrame(() => {
             this.track?.relayout();
-            if (this.timerLabel) {
-                this.timerLabel.node.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
+            if (this.timerSectionNode) {
+                this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
             }
         });
     };
@@ -76,11 +76,15 @@ export class GameManager extends Component implements IGameManagerDebug {
     private mergesLabel: Label | null = null;
     private nextPreviewNode: Node | null = null;
     private timerLabel: Label | null = null;
+    private timerSectionNode: Node | null = null;
 
     start() {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
-        initLayout();   // must run before any game object is created
+        initLayout();
+        // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
+        this.track = this.node.parent!.getChildByName('Track')?.getComponent(Track) ?? null;
+        this.track?.relayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
         PhysicsSystem2D.instance.enable = true;
@@ -89,14 +93,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? EPhysics2DDrawFlags.Shape
             : EPhysics2DDrawFlags.None;
 
-        this.gameLayer = new Node('GameLayer');
-        this.gameLayer.setParent(this.node.parent!);
-        this.uiLayer = new Node('UILayer');
-        this.uiLayer.setParent(this.node.parent!);
-        this.uiLayer.addComponent(UITransform);
-        const uiw = this.uiLayer.addComponent(Widget);
-        uiw.isAlignLeft = uiw.isAlignRight = uiw.isAlignTop = uiw.isAlignBottom = true;
-        uiw.left = uiw.right = uiw.top = uiw.bottom = 0;
+        this.gameLayer = this.node.parent!.getChildByName('GameLayer')
+            ?? (() => { const n = new Node('GameLayer'); n.setParent(this.node.parent!); return n; })();
+        this.uiLayer = this.node.parent!.getChildByName('UILayer')
+            ?? (() => {
+                const n = new Node('UILayer');
+                n.setParent(this.node.parent!);
+                n.addComponent(UITransform);
+                const uiw = n.addComponent(Widget);
+                uiw.isAlignLeft = uiw.isAlignRight = uiw.isAlignTop = uiw.isAlignBottom = true;
+                uiw.left = uiw.right = uiw.top = uiw.bottom = 0;
+                return n;
+            })();
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.gameLayer;
@@ -119,7 +127,6 @@ export class GameManager extends Component implements IGameManagerDebug {
                 debugNode.setParent(this.uiLayer);
                 debugNode.addComponent(DebugPanel).init(this);
             }
-            this.track = this.node.parent!.getChildByName('Track')?.getComponent(Track) ?? null;
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
         });
     }
@@ -442,6 +449,21 @@ export class GameManager extends Component implements IGameManagerDebug {
     // --- HUD ---
 
     private createHud(): void {
+        const existingHud = this.uiLayer.getChildByName('HUD');
+        if (existingHud) {
+            this.scoreLabel      = existingHud.getChildByName('ScoreSec')  ?.getChildByName('ScoreValue')  ?.getComponent(Label) ?? null;
+            this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
+            this.mergesLabel     = existingHud.getChildByName('MergesSec') ?.getChildByName('MergesValue') ?.getComponent(Label) ?? null;
+            this.nextPreviewNode = existingHud.getChildByName('NextSec')   ?.getChildByName('NextPreview') ?? null;
+            this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
+            this.timerSectionNode = existingHud.getChildByName('TimerSec') ?? null;
+            const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
+            if (versionLabel) versionLabel.string = `v${VERSION}`;
+            const existingBtn = existingHud.getChildByName('FullscreenBtn');
+            if (existingBtn) this.drawFullscreenIcon(existingBtn);
+            this.updateNextPreview();
+            return;
+        }
         const hud = new Node('HUD');
         hud.setParent(this.uiLayer);
         const vs = view.getVisibleSize();
@@ -493,6 +515,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.timerLabel.isBold = true;
         this.timerLabel.string = String(LAUNCH_TIMER);
         this.timerLabel.color = new Color(200, 200, 200, 200);
+        this.timerSectionNode = timerNode;
 
         // ── Version (top-center) ─────────────────────────────────────────
         const verSec = new Node('VerSec');
@@ -525,20 +548,21 @@ export class GameManager extends Component implements IGameManagerDebug {
         bw.isAlignRight  = true; bw.right  = 80;
         bw.isAlignBottom = true; bw.bottom = 40;
         bw.updateAlignment();
+        this.drawFullscreenIcon(btn);
+    }
 
+    private drawFullscreenIcon(btn: Node): void {
         const g = btn.addComponent(Graphics);
         g.fillColor = new Color(0, 0, 0, 100);
         g.rect(-22, -22, 44, 44);
         g.fill();
         g.strokeColor = new Color(255, 255, 255, 180);
         g.lineWidth = 2.5;
-        // 4 corner brackets for the fullscreen icon
         g.moveTo(-11, -3); g.lineTo(-11, -11); g.lineTo(-3, -11);
         g.moveTo(3, -11);  g.lineTo(11, -11);  g.lineTo(11, -3);
         g.moveTo(-11, 3);  g.lineTo(-11, 11);  g.lineTo(-3, 11);
         g.moveTo(3, 11);   g.lineTo(11, 11);   g.lineTo(11, 3);
         g.stroke();
-
         btn.on(Node.EventType.TOUCH_START, () => this.toggleFullscreen(), this);
     }
 
