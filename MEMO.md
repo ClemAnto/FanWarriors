@@ -13,9 +13,9 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 | Parametro | Valore | Note |
 |-----------|--------|------|
 | `linearDamping` (in volo) | 0.5 | Scivolata lunga stile curling |
-| `linearDamping` (fermo) | 12 | Impostato da `settle()` dopo `forceStop()` — resiste agli impatti |
+| `linearDamping` (fermo) | 16 | Impostato da `settle()` — aumentato da 12 per più stabilità (2026-05-11) |
 | `angularDamping` (in volo) | 1.5 | Rotazione smorzata ma non bloccata |
-| `angularDamping` (fermo) | 4 | Impostato da `settle()` |
+| `angularDamping` (fermo) | 5 | Impostato da `settle()` — aumentato da 4 (2026-05-11) |
 | `density` | 8.0 | Alta densità = resistenza agli urti |
 | `friction` | 0.05 | Superficie scivolosa (ghiaccio) |
 | `restitution` | 0.04 | Impatti molto smorzanti, quasi anelastici |
@@ -37,7 +37,7 @@ Tutte le costanti sono **calcolate da `initLayout()`** — non fisse. Ricalcolat
 | Costante | Formula | Esempio a 720×1280 design |
 |----------|---------|--------------------------|
 | `TRACK_H` | `min(vs.height × 0.75, (10/6) × 0.95 × vs.width)` | 960 |
-| `TRACK_W` | `TRACK_H × 6 / 10` | 576 |
+| `TRACK_W` | `TRACK_H × 6/10 × 1.2` (+20% solo in larghezza) | 691 |
 | `TRACK_BOTTOM_Y` | `−vs.height / 2` | −640 |
 | `TRACK_TOP_Y` | `TRACK_BOTTOM_Y + TRACK_H` | +320 |
 | `GAME_OVER_LINE_Y` | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` | −160 |
@@ -45,17 +45,22 @@ Tutte le costanti sono **calcolate da `initLayout()`** — non fisse. Ricalcolat
 | `LAYOUT_SCALE` | `TRACK_W / 384` | 1.5 |
 | Larghezza in cima | `TRACK_W − 2 × FUNNEL_OFFSET` | 432 |
 
-**Aspect ratio pista: 6:10** (TRACK_W = 0.6 × TRACK_H).  
+**Aspect ratio pista: 6:10 × 1.2** (TRACK_W = 0.6 × 1.2 × TRACK_H — allargata del 20% solo in X).  
 **Formula altezza**: `min(75% altezza schermo, (10/6) × 95% larghezza schermo)`.  
+**TrackSprite**: nodo figlio di Track con la texture visiva della pista. `drawTrack()` lo sincronizza automaticamente a `TRACK_W × TRACK_H` — non impostare la UITransform a mano nella scena.  
 Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalmente (x = 0).
 
 ### PerspectiveMapper (PerspectiveMapper.ts)
 | Costante | Valore | Note |
 |----------|--------|------|
-| `SCALE_BOTTOM` | 0.55 | Bottom pista (depth=0) — lontano, piccolo |
-| `SCALE_TOP` | 1.0 | Top pista (depth=1) — vicino, grande |
-| `VISUAL_SCALE` | 1.65 | Moltiplicatore globale rispetto al raggio fisico |
-| viewNode Y offset (sprite) | `r * 0.5` | In `Warrior.buildSprite` — alzato leggermente sopra il centro fisico |
+| `SCALE_BOTTOM` | 1.2 | Bottom pista (depth=0) — i warrior in fondo appaiono più grandi (funnel più largo) |
+| `SCALE_TOP` | 0.9 | Top pista (depth=1) — i warrior in cima appaiono più piccoli (funnel più stretto) |
+| `VISUAL_SCALE` | 1.1 | Moltiplicatore globale rispetto al raggio fisico |
+| `viewNode` Y offset | `r × Warrior.viewYOffset` | Impostato in `Warrior.init()` — vale per sprite E placeholder; costante `WARRIOR_VIEW_Y_OFFSET` in GameManager.ts |
+
+**CRITICO — coordinate:** usare `node.position.y` (posizione locale rispetto a GameLayer), **non** `worldPosition.y`. Il nodo Canvas è a worldPosition (640, 360) → `worldPosition.y` ha un offset di +360 rispetto alle coordinate Canvas-local, quindi il confronto con `TRACK_TOP_Y`/`TRACK_BOTTOM_Y` (che sono coordinate Canvas-local) risulta sbagliato.
+
+**CRITICO — live values da Track:** le `export let` primitive importate possono essere snapshot al momento dell'import nei bundle CC3. Usare l'oggetto `trackLayout` (esportato da Track.ts, aggiornato da `initLayout()`) — le proprietà di un oggetto sono sempre live in qualsiasi module system.
 
 ### InputController (InputController.ts)
 | Parametro | Valore | Note |
@@ -162,6 +167,17 @@ Errore correlato: **"Can not find class 'XXXXXX'"** al reload della scena — si
 
 ## Gotcha Cocos Creator 3.8
 
+### `node.color` non esiste in CC3 — usare `Sprite.color`
+
+In CC3 i nodi 2D non hanno una proprietà `.color` accessibile via TypeScript. Per tintare uno sprite usare direttamente la proprietà `.color` del component `Sprite`:
+```typescript
+const sp = this.viewNode.addComponent(Sprite);
+sp.color = new Color(255, gb, gb, 255);  // moltiplicatore RGB applicato alla texture
+```
+`node.color` funziona come moltiplicatore per `Sprite` (via shader), ma **non ha effetto su `Graphics`** — i comandi di disegno hanno colori pre-baked. Per fare un overlay su Graphics serve un nodo figlio separato.
+
+---
+
 ### `enabledContactListener = true` — CRITICO
 **Obbligatorio** su ogni `RigidBody2D` che deve ricevere callback di contatto. Senza, `Contact2DType.BEGIN_CONTACT` non viene mai chiamato. Va impostato in codice prima che il nodo entri in scena.
 ```typescript
@@ -183,6 +199,16 @@ Dopo `node.destroy()`, l'accesso a `component.node` ritorna `null` nel tick succ
 ```typescript
 this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
 ```
+
+### `worldPosition.y` ≠ coordinate Canvas-local
+
+Il nodo Canvas è a `worldPosition = (640, 360)`. I child di Canvas (GameLayer, Track, warriors) hanno:
+- `node.position.y` = posizione in coordinate Canvas-local ← **usa questo per confronti con TRACK constants**
+- `node.worldPosition.y` = position.y + 360 (offset canvas) ← **SBAGLIATO per confronti con TRACK**
+
+`TRACK_BOTTOM_Y` e `TRACK_TOP_Y` sono in coordinate Canvas-local. Qualsiasi calcolo di profondità/posizione rispetto alla pista deve usare `node.position.y`.
+
+---
 
 ### Tutti i nodi 2D devono essere figli di Canvas
 Nodi creati a runtime con `new Node()` devono avere `setParent(canvasNode)` — il GameManager usa `this.node.parent` assumendo che il suo nodo sia figlio di Canvas. Non spostare il nodo GameManager fuori da Canvas.
@@ -268,6 +294,68 @@ I warrior prefill hanno `crossedLine = true` impostato manualmente — non passa
 
 ---
 
+## HUD — struttura corrente (v0.3.6)
+
+| Sezione | Posizione | Font caption / valore |
+|---------|-----------|----------------------|
+| ScoreSec | top-left | 28 / 46 |
+| RoundSec | top-right | 28 / 46 — include ring progress e label `N/M` |
+| NextSec | left, centrata verticalmente | 13 |
+| TimerSec | centro zona di lancio | 44 |
+
+**MERGES rimossa dalla HUD** in v0.3.6 — il tracciamento dei merge è ora implicito nel ring del round.  
+**Ring progress round**: `R=35`, `LW=10` (spessore raddoppiato rispetto a v0.3.4). Sfondo `(60,60,70,220)`, arco `(120,220,255,255)`.
+
+---
+
+## Danger tint — formula piecewise
+
+Il warrior in pericolo (crossedLine = true) viene tintato di rosso in base alla posizione del suo **bordo inferiore** rispetto a `GAME_OVER_LINE_Y`. `h = 2 × radius` (diametro).
+
+| Posizione bordo inferiore | factor | Colore (R=255, G=B=gb) |
+|---------------------------|--------|------------------------|
+| > `GAME_OVER_LINE_Y + h` | 0 | nessun tint |
+| = `GAME_OVER_LINE_Y + h` | 0.1 | appena rosato |
+| = `GAME_OVER_LINE_Y` | 0.8 | rosso netto |
+| = `GAME_OVER_LINE_Y − h` | 1.1 | rosso intenso (max) |
+
+Implementazione in `checkLineLogic` (GameManager.ts):
+```typescript
+const bottom = y - w.radius;
+const h = w.radius * 2;
+let factor = 0;
+if (bottom <= GAME_OVER_LINE_Y + h) {
+    factor = bottom >= GAME_OVER_LINE_Y
+        ? 0.1 + 0.7 * (1 - (bottom - GAME_OVER_LINE_Y) / h)
+        : 0.8 + 0.3 * Math.min(1, (GAME_OVER_LINE_Y - bottom) / h);
+}
+```
+Mappatura colore in `Warrior.setDangerTint`: `gb = Math.max(0, Math.round(255 - factor * 170))`.
+
+**CRITICO — `settled` flag**: la tint si applica **solo** se `w.settled === true`. `settled` diventa `true` la prima volta che `settle()` è chiamato (via `forceStop()` al primo stop, o direttamente sui prefill). Il warrior in volo (appena lanciato, prima di fermarsi nel mucchio) non riceve mai la tint rossa.
+
+La condizione di game-over usa i **centri** (non i bordi): `prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y` — più robusta per warrior che galleggiano vicino alla linea.
+
+---
+
+## resetPhysics() — ripristino parametri fisici
+
+Dopo `penaliseAndReturn`, il warrior torna al launcher con `linearDamping=16` (settato da `settle()`). Chiamare `w.resetPhysics()` nel callback del tween prima di `activateWarrior(w)` per ripristinare i valori di volo:
+- `linearDamping = 0.5`, `angularDamping = 1.5`
+- `density = 8.0`, `friction = Warrior.friction`, `restitution = 0.04`
+
+---
+
+## hitOtherWarrior — game over vs malus al fallito lancio
+
+Se il warrior lanciato non supera la linea, il destino dipende da se ha toccato altri warrior in gioco:
+- **Ha toccato warrior `crossedLine=true`** → game over immediato
+- **Non ha toccato nessuno** → malus punteggio + riposizionamento
+
+Il flag `Warrior.hitOtherWarrior` viene settato in `onBeginContact` quando `this.launched && !this.crossedLine && otherW.crossedLine`, e resettato a ogni `applyImpulse`.
+
+---
+
 ## Merge cap a lv7
 
 Se due warrior lv7 si fondono (`newLevel > 7`), entrambi vengono distrutti e nessun nuovo warrior viene spawnato. È il comportamento corretto — livello 7 è il massimo.
@@ -313,18 +401,22 @@ Permette di testare la build su telefono fuori dalla stessa rete WiFi del PC.
 
 ### Flusso completo
 
-**1. Build headless (CLI) — PowerShell**
+**1. Build headless (CLI)**
 ```powershell
-# CRITICO: rimuovere ELECTRON_RUN_AS_NODE prima di lanciare, altrimenti gira come Node.js
+npm run build   # scripts/build.js — wrappa CocosCreator.exe, gestisce ELECTRON_RUN_AS_NODE
+```
+- Exit code **0** o **36** = successo (36 = successo con warning, normale)
+- Il script cancella `ELECTRON_RUN_AS_NODE` prima di lanciare (CRITICO: altrimenti CC gira come Node.js)
+- CocosCreator.exe: `C:\ProgramData\cocos\editors\Creator\3.8.8\CocosCreator.exe`
+
+In alternativa, manualmente in PowerShell:
+```powershell
 Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 $proc = Start-Process -FilePath "C:\ProgramData\cocos\editors\Creator\3.8.8\CocosCreator.exe" `
   -ArgumentList "--project","D:\Projects\FunWarriors","--build","outputName=web-mobile;platform=web-mobile;debug=false" `
   -PassThru -Wait
 Write-Output "Exit code: $($proc.ExitCode)"
 ```
-- Exit code **0** o **36** = successo (36 = successo con warning, normale)
-- Exit code diverso = errore reale
-- Usare `-PassThru -Wait` (NON `&`) altrimenti CC gira in background e il comando termina subito
 
 **2. Serve + tunnel in un comando**
 ```powershell

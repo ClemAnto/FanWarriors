@@ -9,15 +9,19 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Tr
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.1.31';
+const VERSION            = '0.3.6';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
 const MAGNET_FORCE_BASE  = 20;  // base force at design width — scaled by LAYOUT_SCALE
-const SETTLE_VELOCITY    = 0.4;    // Box2D velocity units — warrior is "stopped" below this
-const LAUNCH_CHECK_DELAY = 0.8;    // seconds before checking if launched warrior failed to cross
+const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
+const WARRIOR_FRICTION   = 0.5; // Box2D friction on warrior collider (0 = frictionless, 1 = rough)
+const WARRIOR_VIEW_Y_OFFSET = 1.5; // viewNode lift above physics center, in units of radius
+const SETTLE_VELOCITY      = 0.4;   // Box2D velocity units — warrior is "stopped" below this
+const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warrior failed to cross
+const FAILED_LAUNCH_MALUS  = 50;    // score penalty when launched warrior fails to cross the line
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
@@ -29,7 +33,7 @@ function launchTimerForRound(round: number): number {
 
 function spawnMaxLevelForRound(round: number): number {
     if (round <= 2) return 1;
-    if (round <= 6) return 2;
+    if (round <= 5) return 2;
     return 3;
 }
 
@@ -61,6 +65,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private track: Track | null = null;
     private suctionCenter: Vec2 | null = null;
     private suctionTimeLeft: number = 0;
+    private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
     private readonly onBrowserResize = (): void => {
         cancelAnimationFrame(this.resizeRafId);
@@ -76,7 +81,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     // hud refs
     private scoreLabel: Label | null = null;
     private roundLabel: Label | null = null;
-    private mergesLabel: Label | null = null;
+    private roundProgressGfx: Graphics | null = null;
+    private roundProgressLabel: Label | null = null;
     private nextSecNode: Node | null = null;
     private nextPreviewNode: Node | null = null;
     private nextLaunchWarrior: Warrior | null = null;
@@ -92,6 +98,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.track?.relayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
+        Warrior.friction    = WARRIOR_FRICTION;
+        Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
         PhysicsSystem2D.instance.enable = true;
         PhysicsSystem2D.instance.gravity = new Vec2(0, 0);
         PhysicsSystem2D.instance.debugDrawFlags = DEBUG_ENGINE
@@ -114,6 +122,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.gameLayer;
         this.inputCtrl.onLaunch = (w) => this.onWarriorLaunched(w);
+        this.inputCtrl.onTap    = (w) => this.cycleLauncherLevel(w);
 
         this.spawnMgr = new SpawnManager(this.gameLayer, spawnTypesForRound(1));
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
@@ -132,6 +141,16 @@ export class GameManager extends Component implements IGameManagerDebug {
                 debugNode.setParent(this.uiLayer);
                 debugNode.addComponent(DebugPanel).init(this);
             }
+            if (DEBUG_ENGINE) {
+                const lineNode = new Node('GameOverLine');
+                lineNode.setParent(this.gameLayer);
+                const g = lineNode.addComponent(Graphics);
+                g.lineWidth = 2;
+                g.strokeColor = new Color(255, 0, 0, 200);
+                g.moveTo(-TRACK_W / 2, GAME_OVER_LINE_Y);
+                g.lineTo(TRACK_W / 2, GAME_OVER_LINE_Y);
+                g.stroke();
+            }
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
         });
     }
@@ -143,7 +162,20 @@ export class GameManager extends Component implements IGameManagerDebug {
     // ── IGameManagerDebug ──
 
     isTimerPaused(): boolean { return this.timerPaused; }
-    setTimerPaused(v: boolean): void { this.timerPaused = v; }
+
+    setTimerPaused(v: boolean): void {
+        this.timerPaused = v;
+        this.inputCtrl.launchEnabled = !v;
+        // Sospendi/ripristina merge logic su tutti i warrior in pista
+        for (const w of this.warriors) {
+            if (!w.crossedLine || !w.node?.isValid) continue;
+            w.onMergeReady = v ? null : (a, b) => this.mergeWarriors(a, b);
+        }
+        console.log(`[GameManager] debug: pause=${v}`);
+    }
+
+    pauseGrabWarrior(w: Warrior): void { w.setDragMode(true); }
+    pauseDropWarrior(w: Warrior): void { w.setDragMode(false); }
 
     getCurrentRound(): number { return this.currentRound; }
 
@@ -160,7 +192,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     setTotalMerges(n: number): void {
         this.totalMerges = Math.max(0, n);
-        this.updateMergesLabel();
+        this.updateRoundProgress();
         console.log(`[GameManager] debug: totalMerges → ${this.totalMerges}`);
     }
 
@@ -169,7 +201,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     addDebugWarrior(type: number, level: number, x: number, y: number): void {
         const w = Warrior.spawn(this.gameLayer, type, level, x, y);
         w.crossedLine = true;
-        w.onMergeReady = (a, b) => this.mergeWarriors(a, b);
+        w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
         console.log(`[GameManager] debug: placed type=${type} lv=${level} at (${x.toFixed(0)},${y.toFixed(0)})`);
     }
@@ -185,7 +217,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         w.node.destroy();
         const nw = Warrior.spawn(this.gameLayer, type, newLevel, pos.x, pos.y);
         nw.crossedLine  = true;
-        nw.onMergeReady = (a, b) => this.mergeWarriors(a, b);
+        nw.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(nw);
         console.log(`[GameManager] debug: cycled type=${type} → lv${newLevel}`);
     }
@@ -221,7 +253,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.updateRoundLabel();
-        this.updateMergesLabel();
+        this.updateRoundProgress();
         console.log(`[GameManager] debug: state loaded (${state.warriors.length} warriors, round ${this.currentRound})`);
     }
 
@@ -241,7 +273,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(1));
         this.timerRemaining = launchTimerForRound(1);
         this.updateRoundLabel();
-        this.updateMergesLabel();
+        this.updateRoundProgress();
         this.updateScoreLabel();
         console.log('[GameManager] debug: state reset');
     }
@@ -251,15 +283,18 @@ export class GameManager extends Component implements IGameManagerDebug {
         try {
             this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
             this.zSortWarriors();
-            this.applyMagnetism();
+            if (!this.timerPaused) {
+                this.applyMagnetism();
+                this.applyUpwardDrift();
+            }
+            if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
             if (this.suctionCenter) this.applyVortexSuction(dt);
             this.checkLineLogic();
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
             this.updateDebugLabel();
         } catch (e) {
-            console.error('[GameManager] fatal error — update loop stopped:', e);
-            this.enabled = false;
+            console.error('[GameManager] update error (skipping frame):', e);
         }
     }
 
@@ -305,13 +340,39 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private checkLaunchResult(w: Warrior): void {
         if (!w.node?.isValid || w.crossedLine || this.state === GameState.GameOver) return;
-        if (w.node.position.y >= GAME_OVER_LINE_Y) return; // above line — checkLineLogic handles crossing
+        if (w.node.position.y >= GAME_OVER_LINE_Y) return;
         if (w.velocity.length() < SETTLE_VELOCITY) {
-            console.log('[GameManager] launched warrior settled below line — game over');
-            this.triggerGameOver();
+            if (w.hitOtherWarrior) {
+                console.log('[GameManager] launched warrior hit established warriors and fell back — game over');
+                this.triggerGameOver();
+            } else {
+                console.log('[GameManager] launched warrior settled below line — returning with malus');
+                this.penaliseAndReturn(w);
+            }
         } else {
             this.scheduleOnce(() => this.checkLaunchResult(w), 0.3);
         }
+    }
+
+    private penaliseAndReturn(w: Warrior): void {
+        this.score = Math.max(0, this.score - FAILED_LAUNCH_MALUS);
+        this.spawnFloatingScore(w.node.position.x, w.node.position.y, -FAILED_LAUNCH_MALUS);
+        this.updateScoreLabel();
+
+        w.launched = false;
+        w.forceStop();
+        w.setDragMode(true);
+
+        const spawnY = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2;
+        tween(w.node)
+            .to(0.55, { position: new Vec3(0, spawnY, 0) }, { easing: 'quadOut' })
+            .call(() => {
+                if (!w.node?.isValid) return;
+                w.setDragMode(false);
+                w.resetPhysics();
+                this.activateWarrior(w);
+            })
+            .start();
     }
 
     private checkLineLogic(): void {
@@ -334,8 +395,17 @@ export class GameManager extends Component implements IGameManagerDebug {
                         }
                     }
                 }
-            } else if (w.crossedLine) {
-                if (prev + w.radius > GAME_OVER_LINE_Y && y + w.radius <= GAME_OVER_LINE_Y) {
+            } else if (w.crossedLine && w.settled) {
+                const bottom = y - w.radius;
+                const h      = w.radius * 2;
+                let factor   = 0;
+                if (bottom <= GAME_OVER_LINE_Y + h) {
+                    factor = bottom >= GAME_OVER_LINE_Y
+                        ? 0.1 + 0.7 * (1 - (bottom - GAME_OVER_LINE_Y) / h)
+                        : 0.8 + 0.3 * Math.min(1, (GAME_OVER_LINE_Y - bottom) / h);
+                }
+                w.setDangerTint(factor);
+                if (prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y) {
                     console.log('[GameManager] warrior fully below game-over line — penalty');
                     this.penaltyExplode(w);
                 }
@@ -346,9 +416,22 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private penaltyExplode(_w: Warrior): void {
+        if (this.timerPaused) return;
         console.log(`[GameManager] warrior fell below line — game over`);
-        this.showRedFlash();
         this.triggerGameOver();
+    }
+
+    private cycleLauncherLevel(w: Warrior): void {
+        const maxLevel = Object.keys(LEVEL_CONFIG).length;
+        const newLevel = (w.level % maxLevel) + 1;
+        const pos = w.node.position;
+        this.warriors = this.warriors.filter(x => x !== w);
+        this.prevY.delete(w);
+        w.node.destroy();
+        const nw = Warrior.spawn(this.gameLayer, w.type, newLevel, pos.x, pos.y);
+        this.warriors.push(nw);
+        this.inputCtrl.setWarrior(nw);
+        console.log(`[GameManager] debug: launcher lv${w.level} → lv${newLevel}`);
     }
 
     private triggerGameOver(): void {
@@ -360,7 +443,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.bestScore = this.score;
             sys.localStorage.setItem('fw_best_score', String(this.bestScore));
         }
-        this.showGameOverScreen();
+        this.scheduleOnce(() => this.showGameOverScreen(), 0);
     }
 
     private showGameOverScreen(): void {
@@ -412,6 +495,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     // --- merge ---
 
     private mergeWarriors(a: Warrior, b: Warrior): void {
+        if (this.timerPaused) { a.merging = false; b.merging = false; return; }
         const midX = (a.node.position.x + b.node.position.x) / 2;
         const midY = (a.node.position.y + b.node.position.y) / 2;
         const newLevel = a.level + 1;
@@ -432,7 +516,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.score += points;
         this.spawnFloatingScore(midX, midY, points);
         this.updateScoreLabel();
-        this.updateMergesLabel();
+        this.updateRoundProgress();
 
         if (newLevel > maxLevel) {
             // Both at max level — consume both, free space, no new warrior spawned
@@ -460,7 +544,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (existingHud) {
             this.scoreLabel      = existingHud.getChildByName('ScoreSec')  ?.getChildByName('ScoreValue')  ?.getComponent(Label) ?? null;
             this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
-            this.mergesLabel     = existingHud.getChildByName('MergesSec') ?.getChildByName('MergesValue') ?.getComponent(Label) ?? null;
             this.nextSecNode     = existingHud.getChildByName('NextSec') ?? null;
             this.nextPreviewNode = this.nextSecNode?.getChildByName('NextPreview') ?? null;
             this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
@@ -472,6 +555,28 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (this.nextSecNode) this.createNextBg(this.nextSecNode);
             this.positionNextSec();
             this.updateNextPreview();
+            // Create ring nodes programmatically on existing HUD
+            const roundSec = existingHud.getChildByName('RoundSec');
+            if (roundSec) {
+                const ringNode = roundSec.getChildByName('RoundRing') ?? new Node('RoundRing');
+                if (!ringNode.parent) {
+                    ringNode.setParent(roundSec);
+                    ringNode.setPosition(0, -56);
+                    ringNode.addComponent(UITransform).setContentSize(80, 80);
+                }
+                this.roundProgressGfx = ringNode.getComponent(Graphics) ?? ringNode.addComponent(Graphics);
+                const plNode = roundSec.getChildByName('RoundProgress') ?? new Node('RoundProgress');
+                if (!plNode.parent) {
+                    plNode.setParent(roundSec);
+                    plNode.setPosition(0, -105);
+                    const lbl = plNode.addComponent(Label);
+                    lbl.fontSize = 13;
+                    lbl.color = new Color(160, 220, 255, 200);
+                    this.roundProgressLabel = lbl;
+                } else {
+                    this.roundProgressLabel = plNode.getComponent(Label);
+                }
+            }
             return;
         }
         const hud = new Node('HUD');
@@ -483,23 +588,35 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // ── Top-left: SCORE ───────────────────────────────────────────────
         const scoreSec = this.makeCornerGroup(hud, 'ScoreSec', true, true, MH, MV);
-        this.makeLabel(scoreSec, 'SCORE', 0, -12, 14, new Color(180, 180, 180, 255));
+        this.makeLabel(scoreSec, 'SCORE', 0, -12, 28, new Color(180, 180, 180, 255));
         this.scoreLabel = this.makeLabel(scoreSec, '0', 0, -56, 46, new Color(255, 220, 50, 255));
         this.scoreLabel.isBold = true;
 
         // ── Top-right: ROUND ──────────────────────────────────────────────
         const roundSec = this.makeCornerGroup(hud, 'RoundSec', false, true, MH, MV);
-        this.makeLabel(roundSec, 'ROUND', 0, -12, 14, new Color(180, 180, 180, 255));
+        this.makeLabel(roundSec, 'ROUND', 0, -12, 28, new Color(180, 180, 180, 255));
         this.roundLabel = this.makeLabel(roundSec, String(this.currentRound), 0, -56, 46, new Color(100, 200, 255, 255));
         this.roundLabel.isBold = true;
+
+        // Ring progress around round number
+        const ringNode = new Node('RoundRing');
+        ringNode.setParent(roundSec);
+        ringNode.setPosition(0, -56);
+        ringNode.addComponent(UITransform).setContentSize(80, 80);
+        this.roundProgressGfx = ringNode.addComponent(Graphics);
+
+        // Merges done / needed label below round number
+        const progressLabelNode = new Node('RoundProgress');
+        progressLabelNode.setParent(roundSec);
+        progressLabelNode.setPosition(0, -105);
+        this.roundProgressLabel = progressLabelNode.addComponent(Label);
+        this.roundProgressLabel.fontSize = 13;
+        this.roundProgressLabel.color = new Color(160, 220, 255, 200);
 
         // ── Left-center: NEXT preview ────────────────────────────────────
         const nextSec = new Node('NextSec');
         nextSec.setParent(hud);
         nextSec.addComponent(UITransform).setContentSize(1, 1);
-        const nw = nextSec.addComponent(Widget);
-        nw.isAlignVerticalCenter = true; nw.verticalCenter = 0;
-        nw.updateAlignment();
         this.nextSecNode = nextSec;
         this.makeLabel(nextSec, 'NEXT', 0, 88, 13, new Color(180, 180, 180, 255));
         this.nextPreviewNode = new Node('NextPreview');
@@ -508,18 +625,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.createNextBg(nextSec);
         this.positionNextSec();
         this.updateNextPreview();
-
-        // ── Top-right: MERGES (fianco a ROUND) ───────────────────────────
-        const mergesSec = new Node('MergesSec');
-        mergesSec.setParent(hud);
-        mergesSec.addComponent(UITransform).setContentSize(1, 1);
-        const mw = mergesSec.addComponent(Widget);
-        mw.isAlignRight = true; mw.right = MH + 110;
-        mw.isAlignTop   = true; mw.top   = MV;
-        mw.updateAlignment();
-        this.makeLabel(mergesSec, 'MERGES', 0, -12, 13, new Color(150, 150, 150, 255));
-        this.mergesLabel = this.makeLabel(mergesSec, '0', 0, -56, 32, new Color(120, 220, 140, 255));
-        this.mergesLabel.isBold = true;
 
         // ── Fullscreen button (top-right, inside margin) ──────────────────
         this.createFullscreenButton(hud);
@@ -570,7 +675,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private drawFullscreenIcon(btn: Node): void {
-        const g = btn.addComponent(Graphics);
+        const g = btn.getComponent(Graphics) ?? btn.addComponent(Graphics);
         g.fillColor = new Color(0, 0, 0, 100);
         g.rect(-22, -22, 44, 44);
         g.fill();
@@ -616,12 +721,58 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this.scoreLabel) this.scoreLabel.string = String(this.score);
     }
 
-    private updateMergesLabel(): void {
-        if (this.mergesLabel) this.mergesLabel.string = String(this.totalMerges);
-    }
-
     private updateRoundLabel(): void {
         if (this.roundLabel) this.roundLabel.string = String(this.currentRound);
+        this.updateRoundProgress();
+    }
+
+    private updateRoundProgress(): void {
+        const R  = 35;
+        const LW = 10;
+        const cur = this.currentRound;
+
+        // Progress label text
+        if (this.roundProgressLabel) {
+            if (cur >= MAX_ROUND) {
+                this.roundProgressLabel.string = 'MAX';
+            } else {
+                const prev  = ROUND_THRESHOLDS[cur - 1] as number;
+                const next  = ROUND_THRESHOLDS[cur]     as number;
+                const done  = Math.min(this.totalMerges - prev, next - prev);
+                const total = next - prev;
+                this.roundProgressLabel.string = `${done}/${total}`;
+            }
+        }
+
+        // Arc
+        if (!this.roundProgressGfx) return;
+        const g = this.roundProgressGfx;
+        g.clear();
+
+        // Background track
+        g.lineWidth   = LW;
+        g.strokeColor = new Color(60, 60, 70, 220);
+        g.arc(0, 0, R, 0, Math.PI * 2, false);
+        g.stroke();
+
+        // Filled arc
+        let factor = 0;
+        if (cur >= MAX_ROUND) {
+            factor = 1;
+        } else {
+            const prev  = ROUND_THRESHOLDS[cur - 1] as number;
+            const next  = ROUND_THRESHOLDS[cur]     as number;
+            factor = Math.max(0, Math.min(1, (this.totalMerges - prev) / (next - prev)));
+        }
+
+        if (factor > 0) {
+            const startAngle = -Math.PI / 2;
+            const endAngle   = startAngle + factor * Math.PI * 2;
+            g.lineWidth   = LW;
+            g.strokeColor = new Color(120, 220, 255, 255);
+            g.arc(0, 0, R, startAngle, endAngle, false);
+            g.stroke();
+        }
     }
 
     // --- round progression ---
@@ -693,7 +844,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
             .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
 
-        this.activateSuction(mx, my, color);
+        const suctionY = my + 80 * LAYOUT_SCALE;
+        this.activateSuction(mx, suctionY, color);
         console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
     }
 
@@ -701,8 +853,9 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private activateSuction(cx: number, cy: number, ringColor: Color): void {
         const SUCTION_DURATION = 3;
-        this.suctionCenter   = new Vec2(cx, cy);
-        this.suctionTimeLeft = SUCTION_DURATION;
+        this.suctionCenter    = new Vec2(cx, cy);
+        this.suctionTimeLeft  = SUCTION_DURATION;
+        this.cohesionTimeLeft = SUCTION_DURATION + 2;
 
         for (let i = 0; i < 2; i++) {
             const sring = new Node('SuctionRing');
@@ -740,12 +893,44 @@ export class GameManager extends Component implements IGameManagerDebug {
         const cx = this.suctionCenter!.x;
         const cy = this.suctionCenter!.y;
         for (const w of this.warriors) {
-            if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
+            if (!w.node?.isValid || w.merging || !w.crossedLine || w === this.pendingWarrior) continue;
+            // Only pull warriors that are below the suction center — they all get pulled upward
+            if (w.node.position.y >= cy) continue;
             const dx = cx - w.node.position.x;
             const dy = cy - w.node.position.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist < 1) continue;
-            w.applyForce(new Vec2((dx / dist) * force, (dy / dist) * force));
+            const nx = dx / dist;
+            const ny = dy / dist;
+            w.applyForce(new Vec2(nx * force, ny * force));
+        }
+    }
+
+    private applyCohesion(): void {
+        const COHESION_RANGE  = 120 * LAYOUT_SCALE;
+        const COHESION_FORCE  = 12  * LAYOUT_SCALE;
+        const r1sq = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
+
+        for (let i = 0; i < this.warriors.length; i++) {
+            const a = this.warriors[i];
+            if (!a.node?.isValid || a.merging || !a.crossedLine || a === this.pendingWarrior) continue;
+            for (let j = i + 1; j < this.warriors.length; j++) {
+                const b = this.warriors[j];
+                if (!b.node?.isValid || b.merging || !b.crossedLine || b === this.pendingWarrior) continue;
+                const dx   = b.node.position.x - a.node.position.x;
+                const dy   = b.node.position.y - a.node.position.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const gap  = Math.max(0, dist - a.radius - b.radius);
+                if (gap <= 0 || gap > COHESION_RANGE) continue;
+                const t    = 1 - gap / COHESION_RANGE;
+                const f    = COHESION_FORCE * t;
+                const nx   = dx / dist;
+                const ny   = dy / dist;
+                const msA  = (a.radius * a.radius) / r1sq;
+                const msB  = (b.radius * b.radius) / r1sq;
+                a.applyForce(new Vec2( nx * f * msA,  ny * f * msA));
+                b.applyForce(new Vec2(-nx * f * msB, -ny * f * msB));
+            }
         }
     }
 
@@ -888,9 +1073,16 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private positionNextSec(): void {
         if (!this.nextSecNode?.isValid) return;
-        const BG_R = 46;
-        const GAP  = 10;
-        this.nextSecNode.setPosition(-(TRACK_W / 2 + GAP + BG_R), this.nextSecNode.position.y);
+        const BG_R        = 46;
+        const circleLocalY = 44;
+
+        // Destroy Widget so setPosition is never overridden by layout passes
+        this.nextSecNode.getComponent(Widget)?.destroy();
+
+        const screenLeft = -(view.getVisibleSize().width / 2);
+        const x = Math.max(screenLeft + BG_R, -(TRACK_W / 2));
+
+        this.nextSecNode.setPosition(x, GAME_OVER_LINE_Y - circleLocalY);
     }
 
     private createNextBg(nextSec: Node): void {
@@ -965,6 +1157,16 @@ export class GameManager extends Component implements IGameManagerDebug {
             .forEach((w, i) => w.node.setSiblingIndex(i));
     }
 
+    private applyUpwardDrift(): void {
+        const force = UPWARD_DRIFT_BASE * LAYOUT_SCALE;
+        const r1sq  = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
+        for (const w of this.warriors) {
+            if (!w.node?.isValid || w.merging || !w.crossedLine || w === this.pendingWarrior) continue;
+            const massScale = (w.radius * w.radius) / r1sq;
+            w.applyForce(new Vec2(0, force * massScale));
+        }
+    }
+
     private applyMagnetism(): void {
         const magnetGap   = MAGNET_GAP_BASE   * LAYOUT_SCALE;
         const magnetForce = MAGNET_FORCE_BASE  * LAYOUT_SCALE;
@@ -1036,10 +1238,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         node.setPosition(x, y);
 
         const lbl = node.addComponent(Label);
-        lbl.string = `+${points}`;
-        lbl.fontSize = this.mergesThisLaunch > 1 ? 44 : 34;
-        lbl.isBold = true;
-        lbl.color = new Color(255, 220, 50, 255);
+        lbl.string   = points >= 0 ? `+${points}` : `${points}`;
+        lbl.fontSize  = points >= 0 && this.mergesThisLaunch > 1 ? 44 : 34;
+        lbl.isBold    = true;
+        lbl.color     = points >= 0 ? new Color(255, 220, 50, 255) : new Color(255, 80, 80, 255);
 
         const opacity = node.addComponent(UIOpacity);
         opacity.opacity = 255;
@@ -1050,25 +1252,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(opacity)
             .delay(0.35)
             .to(0.55, { opacity: 0 })
-            .call(() => { if (node.isValid) node.destroy(); })
-            .start();
-    }
-
-    private showRedFlash(): void {
-        const node = new Node('RedFlash');
-        node.setParent(this.uiLayer);
-        node.setPosition(0, 0);
-
-        const g = node.addComponent(Graphics);
-        g.fillColor = new Color(220, 30, 30, 255);
-        g.rect(-2000, -640, 4000, 1280);
-        g.fill();
-
-        const opacity = node.addComponent(UIOpacity);
-        opacity.opacity = 110;
-
-        tween(opacity)
-            .to(0.3, { opacity: 0 })
             .call(() => { if (node.isValid) node.destroy(); })
             .start();
     }

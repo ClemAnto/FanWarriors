@@ -24,6 +24,23 @@ Le scene sono JSON con un array piatto di oggetti. Ogni oggetto ha un indice imp
 - I nodi figli sono elencati con `_children: [{ "__id__": N }, ...]`
 - I componenti di un nodo sono elencati con `_components: [{ "__id__": N }, ...]`
 
+**CRITICO — eliminazione di nodi dalla scena:**  
+Quando si rimuove un blocco di K oggetti che inizia all'indice S dall'array, **tutti i riferimenti `__id__` con valore ≥ S+K devono essere decrementati di K** — altrimenti CC3 va in crash con `TypeError: Cannot read properties of undefined (reading '__type__')`.
+
+Checklist per rimozione sicura:
+1. Rimuovere il riferimento `{"__id__": S}` dal `_children` del nodo padre
+2. Rimuovere fisicamente i K oggetti dall'array (con PowerShell o script — non a mano)
+3. Eseguire un regex replace su `"__id__": N` → `"__id__": N-K` per tutti N ≥ S+K
+4. Verificare che i `"_id"` stringa degli oggetti eliminati non compaiano più nel file
+
+```powershell
+# Fix __id__ refs dopo eliminazione di K oggetti a partire da indice S
+$content = [regex]::Replace($content, '"__id__": (\d+)', {
+    param($m); $n = [int]$m.Groups[1].Value
+    if ($n -ge ($S + $K)) { '"__id__": ' + ($n - $K) } else { $m.Value }
+})
+```
+
 ---
 
 ## Tipo componente per script custom
@@ -109,7 +126,6 @@ Canvas  (UITransform 720×1280, Widget alignFlags=45 ALWAYS)
        └─ HUD  (Widget alignFlags=45 fullscreen ALWAYS)
             ├─ ScoreSec     Widget alignFlags=9  (LEFT+TOP)    left=80  top=40
             ├─ RoundSec     Widget alignFlags=33 (RIGHT+TOP)   right=80 top=40
-            ├─ MergesSec    Widget alignFlags=33 (RIGHT+TOP)   right=190 top=40
             ├─ NextSec      Widget alignFlags=12 (LEFT+BOTTOM) left=80  bottom=40
             ├─ VersionSec   Widget alignFlags=17 (TOP+HCENTER) top=40
             └─ FullscreenBtn Widget alignFlags=36 (RIGHT+BOTTOM) right=80 bottom=40
@@ -173,7 +189,7 @@ Canvas
 
 | Costante | Valore design | Formula |
 |---|---|---|
-| `TRACK_W` | 576 | `TRACK_H × 6/10` |
+| `TRACK_W` | 691 | `TRACK_H × 6/10 × 1.2` (+20% larghezza) |
 | `TRACK_H` | 960 | `min(75% altezza, (10/6) × 95% larghezza)` |
 | `TRACK_BOTTOM_Y` | -640 | `-height / 2` |
 | `TRACK_TOP_Y` | 320 | `TRACK_BOTTOM_Y + TRACK_H` |

@@ -1,12 +1,17 @@
 {
   "name": "FunWarriors",
-  "version": "0.1.31",
+  "version": "0.3.6",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
   },
   "scripts": {
+    "build": "node scripts/build.js",
     "serve": "node scripts/serve-remote.js",
+    "deploy": "node scripts/deploy.js",
     "gen:placeholders": "node scripts/gen-warrior-placeholders.js"
+  },
+  "devDependencies": {
+    "netlify-cli": "^26.0.1"
   }
 }

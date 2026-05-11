@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, view, CCFloat } from 'cc';
+import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, view, CCFloat, UITransform } from 'cc';
 const { ccclass, property } = _decorator;
 
 // ── Layout — recalculated at startup from actual screen size ─────────────────
@@ -9,6 +9,9 @@ export let TRACK_TOP_Y    =  320;  // TRACK_BOTTOM_Y + TRACK_H
 export let TRACK_H        =  960;  // min(75% screen height, 12/5 × 95% screen width)
 export let GAME_OVER_LINE_Y = -160; // midpoint of track height
 export let FUNNEL_OFFSET  =   48;  // TRACK_W * funnelPercentage / 200
+
+/** Always-live reference to track vertical bounds — safe to import in any module. */
+export const trackLayout = { bottomY: -640, topY: 320 };
 
 const WALL_T = 20;
 const ASPECT_RATIO = 6/10;
@@ -22,11 +25,13 @@ export function initLayout(funnelPct?: number): void {
     TRACK_BOTTOM_Y = -Math.round(vs.height / 2);
 
     TRACK_H  = Math.round(Math.min(vs.height * 0.75, (1 / ASPECT_RATIO) * 0.95 * vs.width));
-    TRACK_W  = Math.round(TRACK_H * ASPECT_RATIO);
+    TRACK_W  = Math.round(TRACK_H * ASPECT_RATIO * 1.2);
 
     TRACK_TOP_Y      = TRACK_BOTTOM_Y + TRACK_H;
     GAME_OVER_LINE_Y = Math.round((TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2);
     LAYOUT_SCALE     = TRACK_W / 384;
+    trackLayout.bottomY = TRACK_BOTTOM_Y;
+    trackLayout.topY    = TRACK_TOP_Y;
     // topW = TRACK_W * (1 - funnelPct/100)  →  FO = TRACK_W * funnelPct / 200
     FUNNEL_OFFSET    = Math.round(TRACK_W * _funnelPct / 200);
 }
@@ -86,6 +91,13 @@ export class Track extends Component {
         g.moveTo(-lineHalfW, GAME_OVER_LINE_Y);
         g.lineTo( lineHalfW, GAME_OVER_LINE_Y);
         g.stroke();
+
+        // Sync TrackSprite texture size to match current TRACK_W × TRACK_H
+        const spriteNode = this.node.getChildByName('TrackSprite');
+        if (spriteNode) {
+            spriteNode.getComponent(UITransform)?.setContentSize(TRACK_W, TRACK_H);
+            spriteNode.setPosition(0, GAME_OVER_LINE_Y);
+        }
     }
 
     private buildWalls(): void {

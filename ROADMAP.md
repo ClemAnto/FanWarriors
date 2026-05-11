@@ -103,7 +103,7 @@
 
 ---
 
-## FASE 2 — Core gameplay completo *(21 mag–3 giu 2026)* ← **sei qui**
+## FASE 2 — Core gameplay completo *(21 mag–3 giu 2026)* ✅ chiusa 2026-05-11
 
 **Obiettivo**: tutto il loop di gioco giocabile in greybox — punteggio formula completa, round, game over, malus, esplosioni livelli speciali.
 
@@ -125,7 +125,7 @@
 - [x] Notifica visiva "ROUND UP" con tween scala + pausa `roundUpPause`
 
 **Giorno 20-21: Game over e restart** *(26–27 mag)*
-- [x] Verifica frame-by-frame attraversamento linea (direzione + completezza) — usa bordo superiore (`y + radius`)
+- [x] Verifica frame-by-frame attraversamento linea — condizione game-over su centri (`prev >= LINE && y < LINE`), non sui bordi
 - [x] Rimbalzo oltre linea → **game over immediato** (decisione design: rimosso malus a punteggio)
 - [x] Flash rosso prima del game over
 - [x] Restart con `director.loadScene(sceneName)` — sceneName catturato in `start()`
@@ -161,31 +161,31 @@
 - Loading screen HTML/CSS in `build-templates/web-mobile/index.html`, scompare al primo frame CC
 
 **Giorno 26-28: Bilanciamento iniziale** *(1–3 giu)*
-- [ ] Playtest sessioni multiple *(manuale)*
-- [ ] Tuning: forza magnetismo, attrito, tempi merge, soglie min/max fionda *(post-playtest)*
-- [ ] Tuning: curva soglie punteggio per round-up *(post-playtest)*
-- [ ] Fix bug evidenti *(post-playtest)*
-- [ ] **Milestone Fase 2** *(3 giu)*: loop completo e giocabile anche se visivamente greybox
+- [x] Playtest sessioni multiple *(anticipato)*
+- [x] Tuning: forza magnetismo, attrito, tempi merge, soglie min/max fionda
+- [x] Tuning: curva soglie punteggio per round-up
+- [x] Fix bug evidenti
+- [x] **Milestone Fase 2** *(chiusa 2026-05-11)*: loop completo e giocabile, sprite reali, background medievale
 
 ---
 
-## FASE 3 — Asset definitivi e UI *(4–24 giu 2026)*
+## FASE 3 — Asset definitivi e UI *(4–24 giu 2026)* ← **sei qui**
 
 **Obiettivo**: il gioco assomiglia al prodotto finale.
 
 ### Settimana 5: Sprite personaggi + ambiente *(4–10 giu)*
 
-- [ ] Decisione finale stile artistico (rivalutare con prototipo)
-- [ ] Produrre/commissionare **28 sprite base** (7 specie × 4 livelli: Cucciolo, Apprendista, Soldato, Guerriero)
-  - Opzioni: AI generation + rifinitura, illustratore freelance, asset pack
-  - Budget stimato se commissionato: 600–2.000€ per i 28 base
-- [ ] Produrre **~8–9 sprite livelli speciali**: Campione (~4–5 specie), Eroe (~2–3 specie), Leggenda (1 specie)
+- [x] Decisione finale stile artistico — medievale pixel art
+- [x] Produrre **sprite base**: 7 specie × livelli — sprite reali integrati (commit e16c782)
+- [ ] Completare la serie **~8–9 sprite livelli speciali**: Campione (~4–5 specie), Eroe (~2–3 specie), Leggenda (1 specie)
 - [ ] Esportare a 128×128 base + 256×256 retina, importare come Atlas
-- [ ] Sostituire placeholder con sprite definitivi
-- [ ] Sprite pista (texture ghiaccio/legno laccato), nastro rosso animato, background fisso
+- [x] Sostituire placeholder con sprite definitivi
+- [x] Background medievale fisso — integrato con prospettiva warriors (PerspectiveMapper)
 
 ### Settimana 6: Animazioni + VFX *(11–17 giu)*
 
+- [x] Animazione warrior al launcher: bounce-in (zoom-in da scala 0) — commit 62df635
+- [x] Animazione next preview: zoom-out creatura corrente → pausa → zoom-in nuova — commit 62df635
 - [ ] Animazioni per ogni sprite: idle (respiro), squash on landing, pop on merge
 - [ ] Animazioni esplosione bonus (3 varianti): Campione, Eroe, Leggenda
 - [ ] Animazione esplosione malus
@@ -313,8 +313,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-11 — v0.1.31: HUD rifinito (contorni neri su tutti i testi, label versione visibile, cerchio nero sotto next preview, NextSec centrato verticalmente a sinistra della pista). Animazione next: zoom-out creatura → pausa 0.18s → bubble zoom-in nuova; warrior al launcher appare con zoom-in da scala 0. Vortex suction non coinvolge più il warrior in fase di lancio (`!w.crossedLine`). Scena rinominata in `Game.scene`.
+> Aggiornato al 2026-05-12 — v0.3.6: pista allargata +20% X, HUD refactor (MERGES rimossa, label SCORE/ROUND raddoppiate, ring progress più spessa), danger tint protetta da flag `settled`, TrackSprite sincronizzato dinamicamente in drawTrack().
 
-1. **Playtest esteso** su mobile: raccogliere feedback su feel del lancio, posizionamento sprite, difficoltà round — sblocca Milestone Fase 2
-2. **Tuning post-playtest**: forza magnetismo, soglie round-up, distribuzione spawn, `SCALE_BOTTOM`/`SCALE_TOP`/`VISUAL_SCALE` in PerspectiveMapper, viewNode offset (`r * 0.5`)
-3. **Prima di Fase 3**: impostare `LIVE_RESIZE = false` in GameManager.ts; `DEBUG_ENGINE = false`; verificare layout su device reali
+1. **Completare sprite livelli speciali** (Campione / Eroe / Leggenda) e sprite pista
+2. **Animazioni rimanenti**: idle (respiro), squash on landing, pop on merge, esplosioni 3 tier
+3. **Impostare `LIVE_RESIZE = false` e `DEBUG = false`** in GameManager.ts per build di produzione
+4. **UI Fase 3**: HUD definitivo (contachilometri punteggio, round animato, timer 4 stati), schermata game over, pausa, tutorial definitivi

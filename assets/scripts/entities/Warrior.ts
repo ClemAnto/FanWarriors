@@ -9,11 +9,15 @@ const MERGE_DELAY = 0.3;
 
 @ccclass('Warrior')
 export class Warrior extends Component {
+    static friction    = 0.05;
+    static viewYOffset = 0.8;
     type: number = 0;
     level: number = 1;
     merging: boolean = false;
     launched: boolean = false;
     crossedLine: boolean = false;
+    settled: boolean = false;
+    hitOtherWarrior: boolean = false;
     viewNode!: Node;
 
     get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE; }
@@ -23,6 +27,7 @@ export class Warrior extends Component {
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
 
     private mergeCallbacks = new Map<Warrior, () => void>();
+    private dangerSprite: Sprite | null = null;
 
     static spawn(parent: Node, type: number, level: number, x: number, y: number): Warrior {
         const node = new Node('Warrior');
@@ -43,6 +48,7 @@ export class Warrior extends Component {
 
         this.buildPhysics();
         this.buildGraphics();
+        this.viewNode.setPosition(0, this.radius * Warrior.viewYOffset);
 
         const mapper = this.node.addComponent(PerspectiveMapper);
         mapper.viewNode = this.viewNode;
@@ -56,6 +62,7 @@ export class Warrior extends Component {
 
     applyImpulse(impulse: Vec2): void {
         this.launched = true;
+        this.hitOtherWarrior = false;
         this.getComponent(RigidBody2D)?.applyLinearImpulseToCenter(impulse, true);
     }
 
@@ -63,11 +70,32 @@ export class Warrior extends Component {
         this.getComponent(RigidBody2D)?.applyForceToCenter(force, true);
     }
 
+    setDangerTint(factor: number): void {
+        if (!this.dangerSprite) return;
+        const gb = Math.max(0, Math.round(255 - factor * 170));
+        this.dangerSprite.color = new Color(255, gb, gb, 255);
+    }
+
     settle(): void {
         const rb = this.getComponent(RigidBody2D);
         if (!rb) return;
-        rb.linearDamping  = 12;
-        rb.angularDamping = 4;
+        rb.linearDamping  = 16;
+        rb.angularDamping = 5;
+        this.settled = true;
+    }
+
+    resetPhysics(): void {
+        const rb = this.getComponent(RigidBody2D);
+        if (rb) {
+            rb.linearDamping  = 0.5;
+            rb.angularDamping = 1.5;
+        }
+        const col = this.getComponent(CircleCollider2D);
+        if (col) {
+            col.density     = 8.0;
+            col.friction    = Warrior.friction;
+            col.restitution = 0.04;
+        }
     }
 
     forceStop(): void {
@@ -78,9 +106,21 @@ export class Warrior extends Component {
         this.settle();
     }
 
+    setDragMode(on: boolean): void {
+        const rb = this.getComponent(RigidBody2D);
+        if (!rb) return;
+        rb.type            = on ? ERigidBody2DType.Static : ERigidBody2DType.Dynamic;
+        rb.linearVelocity  = new Vec2(0, 0);
+        rb.angularVelocity = 0;
+    }
+
     private onBeginContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
-        if (!otherW || otherW.type !== this.type || otherW.level !== this.level) return;
+        if (!otherW) return;
+
+        if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;
+
+        if (otherW.type !== this.type || otherW.level !== this.level) return;
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
 
         // Snap: equalize velocities so they don't bounce apart
@@ -96,10 +136,11 @@ export class Warrior extends Component {
         const cb = () => {
             if (!this.node.isValid || !otherW.node.isValid) return;
             if (this.merging || otherW.merging) return;
+            if (!this.onMergeReady) return; // merge suspended (e.g. debug pause)
             this.merging = true;
             otherW.merging = true;
             console.log(`[Warrior] merge triggered — type=${this.type} lv${this.level}`);
-            this.onMergeReady?.(this, otherW);
+            this.onMergeReady(this, otherW);
         };
         this.mergeCallbacks.set(otherW, cb);
         this.scheduleOnce(cb, MERGE_DELAY);
@@ -129,11 +170,11 @@ export class Warrior extends Component {
 
     private buildSprite(frame: SpriteFrame): void {
         const r = this.radius;
-        this.viewNode.setPosition(0, r * 0.5);
         this.viewNode.addComponent(UITransform).setContentSize(r * 4, r * 4);
         const sp = this.viewNode.addComponent(Sprite);
         sp.sizeMode = Sprite.SizeMode.CUSTOM;
         sp.spriteFrame = frame;
+        this.dangerSprite = sp;
     }
 
     private buildPlaceholderGraphics(): void {
@@ -224,7 +265,7 @@ export class Warrior extends Component {
         const col = this.node.addComponent(CircleCollider2D);
         col.radius      = this.radius;
         col.density     = 8.0;
-        col.friction    = 0.05;  // slippery ice surface
+        col.friction    = Warrior.friction;
         col.restitution = 0.04;  // very inelastic: impacts kill momentum
     }
 }
