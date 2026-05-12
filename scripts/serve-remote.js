@@ -27,6 +27,16 @@ function findBuildDir() {
 const buildDir = findBuildDir();
 console.log(`Serving: ${buildDir}`);
 
+// Inject version into loading screen
+(function injectVersion() {
+    const pkg     = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    const version = pkg.version ?? '?';
+    const indexPath = path.join(buildDir, 'index.html');
+    const html = fs.readFileSync(indexPath, 'utf8');
+    const patched = html.replace(/__VERSION__/g, version);
+    if (patched !== html) fs.writeFileSync(indexPath, patched, 'utf8');
+})();
+
 const procs = [];
 
 function start(cmd, args, opts = {}) {

@@ -1,0 +1,31 @@
+[build]
+  publish = "build/web-mobile"
+
+# Default: cache static assets for 7 days (images, audio, fonts)
+# Must come FIRST — more specific rules below override it (last match wins in Netlify)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+# No-cache for all code files — Cocos doesn't hash filenames,
+# so the browser cannot detect content changes without this.
+[[headers]]
+  for = "/**/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/**/*.css"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/**/*.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/**/*.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"

@@ -1,10 +1,10 @@
 import { _decorator, Component, Node } from 'cc';
-import { TRACK_BOTTOM_Y, TRACK_TOP_Y } from './Track';
+import { trackLayout } from './Track';
 const { ccclass } = _decorator;
 
-const SCALE_BOTTOM  = 0.55;  // bottom of track — farthest from player (narrow end of funnel)
-const SCALE_TOP     = 1.0;   // top of track — closest to player (launch/wide end)
-const VISUAL_SCALE  = 1.1;  // visual size multiplier relative to physics radius
+const SCALE_BOTTOM  = 1.2;
+const SCALE_TOP     = 1.0;
+const VISUAL_SCALE  = 1.1;
 
 @ccclass('PerspectiveMapper')
 export class PerspectiveMapper extends Component {
@@ -12,10 +12,10 @@ export class PerspectiveMapper extends Component {
 
     lateUpdate(): void {
         if (!this.viewNode) return;
-        const y    = this.node.worldPosition.y;
-        const span = TRACK_TOP_Y - TRACK_BOTTOM_Y;
+        const y    = this.node.position.y;
+        const span = trackLayout.topY - trackLayout.bottomY;
         const depth = span > 0
-            ? Math.max(0, Math.min(1, (y - TRACK_BOTTOM_Y) / span))
+            ? Math.max(0, Math.min(1, (y - trackLayout.bottomY) / span))
             : 0;
         const scale = (SCALE_BOTTOM + (SCALE_TOP - SCALE_BOTTOM) * depth) * VISUAL_SCALE;
         this.viewNode.setScale(scale, scale, 1);

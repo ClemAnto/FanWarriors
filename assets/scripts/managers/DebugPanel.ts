@@ -4,6 +4,8 @@ import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 import { GAME_OVER_LINE_Y, TRACK_W } from '../entities/Track';
 const { ccclass } = _decorator;
 
+const PANEL_SCALE = 1.5;  // visual scale applied to the whole panel node
+
 // ── Panel geometry (world space, canvas 720×1280 centred at origin) ──
 const CX         = 230;   // centre x — right side of track, portrait-visible (X:±360)
 const PANEL_TOP  =  68;   // below HUD NEXT preview (which sits at y≈90)
@@ -56,6 +58,8 @@ const MAX_ROUND = 7;
 export interface IGameManagerDebug {
     isTimerPaused(): boolean;
     setTimerPaused(v: boolean): void;
+    pauseGrabWarrior(w: Warrior): void;
+    pauseDropWarrior(w: Warrior): void;
     getCurrentRound(): number;
     setDebugRound(r: number): void;
     getTotalMerges(): number;
@@ -79,10 +83,15 @@ export class DebugPanel extends Component {
     private loadLbl!: Label;
     private resetLbl!: Label;
     private pressedAction: 'save' | 'load' | 'reset' | null = null;
+    private pauseFlash = false;
     private ghost: Node | null = null;
     private dragType = -1;
+    private dragWarrior: Warrior | null = null;
+    private pauseTouchWarrior: Warrior | null = null;
+    private pauseTouchStart: Vec2 | null = null;
     private tapWarrior: Warrior | null = null;
     private tapStart: Vec2 | null = null;
+    private inputCooldown = false;
 
     init(gm: IGameManagerDebug): void {
         this.gm = gm;
@@ -104,19 +113,22 @@ export class DebugPanel extends Component {
         input.off(Input.EventType.MOUSE_DOWN,   this.onMouseDown,  this);
         input.off(Input.EventType.MOUSE_MOVE,   this.onMouseMove,  this);
         input.off(Input.EventType.MOUSE_UP,     this.onMouseUp,    this);
+        if (this.dragWarrior) { this.gm.pauseDropWarrior(this.dragWarrior); this.dragWarrior = null; }
+        this.pauseTouchWarrior = null; this.pauseTouchStart = null;
         if (this.ghost?.isValid) this.ghost.destroy();
     }
 
     // ── static UI build ──
 
     private build(): void {
+        this.node.setScale(PANEL_SCALE, PANEL_SCALE, 1);
         this.bg = this.node.addComponent(Graphics);
         this.drawPanel();
 
         this.lbl('─ DEBUG ─', CX, PANEL_TOP - 14, 12, new Color(110, 110, 130, 200));
 
         // Pause / Resume
-        this.pauseLbl = this.lbl(this.pauseText(), CX, BTN_PAUSE_Y, 14, new Color(255, 255, 255, 255));
+        this.pauseLbl = this.lbl(this.pauseText(), CX, BTN_PAUSE_Y, 14, this.pauseLblColor());
 
         // Round
         this.lbl('ROUND', CX, ROUND_LBL_Y, 11, new Color(150, 150, 170, 200));
@@ -166,13 +178,23 @@ export class DebugPanel extends Component {
             g.stroke();
         }
 
-        // Pause / Resume button
+        // Pause / Resume button — amber+gold when active, dark when idle
         const paused = this.gm?.isTimerPaused() ?? false;
-        g.fillColor = paused ? new Color(35, 110, 35, 240) : new Color(110, 35, 35, 240);
+        if (this.pauseFlash) {
+            g.fillColor   = new Color(255, 255, 255, 255);
+            g.strokeColor = new Color(255, 255, 255, 255);
+            g.lineWidth   = 2;
+        } else if (paused) {
+            g.fillColor   = new Color(200, 115, 0, 255);
+            g.strokeColor = new Color(255, 200, 40, 255);
+            g.lineWidth   = 2.5;
+        } else {
+            g.fillColor   = new Color(40, 40, 62, 230);
+            g.strokeColor = new Color(88, 88, 118, 180);
+            g.lineWidth   = 1;
+        }
         g.rect(CX - BTN_PAUSE_W / 2, BTN_PAUSE_Y - BTN_PAUSE_H / 2, BTN_PAUSE_W, BTN_PAUSE_H);
         g.fill();
-        g.strokeColor = paused ? new Color(80, 200, 80, 200) : new Color(200, 80, 80, 200);
-        g.lineWidth = 1.5;
         g.rect(CX - BTN_PAUSE_W / 2, BTN_PAUSE_Y - BTN_PAUSE_H / 2, BTN_PAUSE_W, BTN_PAUSE_H);
         g.stroke();
 
@@ -236,12 +258,19 @@ export class DebugPanel extends Component {
     refresh(): void {
         this.drawPanel();
         this.pauseLbl.string  = this.pauseText();
+        this.pauseLbl.color   = this.pauseLblColor();
         this.roundLbl.string  = String(this.gm.getCurrentRound());
         this.mergesLbl.string = String(this.gm.getTotalMerges());
     }
 
     private pauseText(): string {
         return this.gm?.isTimerPaused() ? '▶  RESUME' : '||  PAUSE';
+    }
+
+    private pauseLblColor(): Color {
+        return this.gm?.isTimerPaused()
+            ? new Color(255, 220, 50, 255)
+            : new Color(165, 165, 190, 255);
     }
 
     private lbl(text: string, x: number, y: number, size: number, color: Color): Label {
@@ -257,24 +286,37 @@ export class DebugPanel extends Component {
 
     // ── input handling (touch + mouse) ──
 
+    private toLocal(ui: Vec2): Vec2 {
+        const vs = view.getVisibleSize();
+        return new Vec2((ui.x - vs.width / 2) / PANEL_SCALE, (ui.y - vs.height / 2) / PANEL_SCALE);
+    }
+
+    // World coords (unscaled) — used for drop-into-track placement
     private toWorld(ui: Vec2): Vec2 {
         const vs = view.getVisibleSize();
         return new Vec2(ui.x - vs.width / 2, ui.y - vs.height / 2);
     }
 
-    private onTouchStart(e: EventTouch): void { this.handleStart(this.toWorld(e.getUILocation())); }
-    private onTouchMove(e: EventTouch):  void { this.handleMove(this.toWorld(e.getUILocation())); }
-    private onTouchEnd(e: EventTouch):   void { this.handleEnd(this.toWorld(e.getUILocation())); }
-    private onMouseDown(e: EventMouse):  void { this.handleStart(this.toWorld(e.getUILocation())); }
-    private onMouseMove(e: EventMouse):  void { this.handleMove(this.toWorld(e.getUILocation())); }
-    private onMouseUp(e: EventMouse):    void { this.handleEnd(this.toWorld(e.getUILocation())); }
+    private onTouchStart(e: EventTouch): void { this.handleStart(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
+    private onTouchMove(e: EventTouch):  void { this.handleMove(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
+    private onTouchEnd(e: EventTouch):   void { this.handleEnd(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
+    private onMouseDown(e: EventMouse):  void { this.handleStart(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
+    private onMouseMove(e: EventMouse):  void { this.handleMove(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
+    private onMouseUp(e: EventMouse):    void { this.handleEnd(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
 
-    private handleStart(p: Vec2): void {
+    private handleStart(p: Vec2, world: Vec2): void {
+        if (this.inputCooldown) return;
+        this.inputCooldown = true;
+        this.scheduleOnce(() => { this.inputCooldown = false; }, 0.08);
 
         // Pause / Resume
         if (this.inRect(p, CX - BTN_PAUSE_W / 2, BTN_PAUSE_Y - BTN_PAUSE_H / 2, BTN_PAUSE_W, BTN_PAUSE_H)) {
             this.gm.setTimerPaused(!this.gm.isTimerPaused());
-            this.refresh();
+            this.pauseFlash = true;
+            this.drawPanel();
+            this.pauseLbl.string = this.pauseText();
+            this.pauseLbl.color  = this.pauseLblColor();
+            this.scheduleOnce(() => { this.pauseFlash = false; this.drawPanel(); }, 0.18);
             return;
         }
 
@@ -320,12 +362,25 @@ export class DebugPanel extends Component {
             return;
         }
 
-        // Palette icon — start drag
+        // Paused: record warrior touch — drag activates on move, tap cycles level on release
+        if (this.gm.isTimerPaused()) {
+            for (const w of this.gm.getWarriors()) {
+                if (!w.crossedLine || !w.node?.isValid) continue;
+                const wp = w.node.position;
+                if (Vec2.distance(world, new Vec2(wp.x, wp.y)) <= w.radius + 8) {
+                    this.pauseTouchWarrior = w;
+                    this.pauseTouchStart   = world.clone();
+                    return;
+                }
+            }
+        }
+
+        // Palette icon — start drag (always allowed, even when paused)
         for (let t = 0; t < 7; t++) {
             const iy = PAL_START_Y - t * ICON_SPACING;
             if (Vec2.distance(p, new Vec2(CX, iy)) <= ICON_R + 8) {
                 this.dragType = t;
-                this.spawnGhost(t, p);
+                this.spawnGhost(t, world);
                 return;
             }
         }
@@ -334,25 +389,54 @@ export class DebugPanel extends Component {
         for (const w of this.gm.getWarriors()) {
             if (!w.crossedLine || !w.node?.isValid) continue;
             const wp = w.node.position;
-            if (Vec2.distance(p, new Vec2(wp.x, wp.y)) <= w.radius + 6) {
+            if (Vec2.distance(world, new Vec2(wp.x, wp.y)) <= w.radius + 6) {
                 this.tapWarrior = w;
-                this.tapStart   = p.clone();
+                this.tapStart   = world.clone();
                 return;
             }
         }
     }
 
-    private handleMove(p: Vec2): void {
+    private handleMove(p: Vec2, world: Vec2): void {
+        // Activate drag once movement exceeds threshold
+        if (this.pauseTouchWarrior && !this.dragWarrior) {
+            if (this.pauseTouchStart && Vec2.distance(world, this.pauseTouchStart) >= 12) {
+                this.dragWarrior = this.pauseTouchWarrior;
+                this.gm.pauseGrabWarrior(this.dragWarrior);
+                this.pauseTouchWarrior = null;
+                this.pauseTouchStart   = null;
+            }
+        }
+        if (this.dragWarrior?.node?.isValid) {
+            this.dragWarrior.node.setPosition(world.x, world.y);
+            return;
+        }
         if (this.dragType < 0) return;
-        if (this.ghost?.isValid) this.ghost.setPosition(p.x, p.y);
+        if (this.ghost?.isValid) this.ghost.setPosition(world.x, world.y);
     }
 
-    private handleEnd(p: Vec2): void {
+    private handleEnd(p: Vec2, world: Vec2): void {
+        // Paused warrior drag: release physics
+        if (this.dragWarrior) {
+            this.gm.pauseDropWarrior(this.dragWarrior);
+            this.dragWarrior = null;
+            return;
+        }
+
+        // Paused warrior tap (no drag): cycle level
+        if (this.pauseTouchWarrior) {
+            if (this.pauseTouchWarrior.node?.isValid)
+                this.gm.cycleDebugWarriorLevel(this.pauseTouchWarrior);
+            this.pauseTouchWarrior = null;
+            this.pauseTouchStart   = null;
+            return;
+        }
+
         // Palette drag: place warrior on drop inside track
         if (this.dragType >= 0) {
             if (this.ghost?.isValid) { this.ghost.destroy(); this.ghost = null; }
-            if (Math.abs(p.x) <= TRACK_W / 2 && p.y > GAME_OVER_LINE_Y + 20) {
-                this.gm.addDebugWarrior(this.dragType, 1, p.x, p.y);
+            if (Math.abs(world.x) <= TRACK_W / 2 && world.y > GAME_OVER_LINE_Y + 20) {
+                this.gm.addDebugWarrior(this.dragType, 1, world.x, world.y);
             }
             this.dragType = -1;
             return;
@@ -360,7 +444,7 @@ export class DebugPanel extends Component {
 
         // Short tap on warrior → cycle level
         if (this.tapWarrior && this.tapStart) {
-            if (Vec2.distance(p, this.tapStart) < 15 && this.tapWarrior.node?.isValid) {
+            if (Vec2.distance(world, this.tapStart) < 15 && this.tapWarrior.node?.isValid) {
                 this.gm.cycleDebugWarriorLevel(this.tapWarrior);
             }
         }

@@ -37,7 +37,10 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 6. Personaggi dello stesso tipo+livello che si trovano vicini si **attraggono magneticamente** (raggio corto)
 7. Dopo qualche centinaio di millisecondi di contatto, **due personaggi uguali si fondono** al centro nella loro evoluzione successiva
 8. Il giocatore continua a lanciare, accumulando punti per ogni merge
-9. **Game over**: se il personaggio lanciato non supera la linea del nastro rosso (a metà pista) — anche un solo personaggio oltre la linea è fine partita
+9. **Game over** — tre casi distinti:
+   - Il warrior lanciato **colpisce altri warrior già in gioco** e non supera la linea → game over immediato
+   - Il warrior lanciato **non colpisce nessuno** e non supera la linea → malus punteggio + warrior riportato al launcher con fisica resettata
+   - Un warrior già in gioco (crossedLine) il cui **centro scende sotto la linea** → game over immediato
 
 ## 6. Sistema di evoluzione
 

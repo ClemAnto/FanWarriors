@@ -9,7 +9,7 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Tr
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.3.6';
+const VERSION            = '0.3.8';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -48,6 +48,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private pendingWarrior: Warrior | null = null;
     private debugLabel: Label | null = null;
 
+    private worldNode!: Node;
     private gameLayer!: Node;
     private uiLayer!: Node;
 
@@ -93,9 +94,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
         initLayout();
-        // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
-        this.track = this.node.parent!.getChildByName('Track')?.getComponent(Track) ?? null;
-        this.track?.relayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
         Warrior.friction    = WARRIOR_FRICTION;
@@ -106,18 +104,29 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? EPhysics2DDrawFlags.Shape
             : EPhysics2DDrawFlags.None;
 
-        this.gameLayer = this.node.parent!.getChildByName('GameLayer')
-            ?? (() => { const n = new Node('GameLayer'); n.setParent(this.node.parent!); return n; })();
-        this.uiLayer = this.node.parent!.getChildByName('UILayer')
+        const canvas = this.node.parent!;
+
+        // World — single parent for all in-game nodes; apply transforms here to affect everything
+        this.worldNode = canvas.getChildByName('World')
+            ?? (() => { const n = new Node('World'); n.setParent(canvas); return n; })();
+
+        this.gameLayer = this.worldNode.getChildByName('GameLayer')
+            ?? (() => { const n = new Node('GameLayer'); n.setParent(this.worldNode); return n; })();
+
+        this.uiLayer = canvas.getChildByName('UILayer')
             ?? (() => {
                 const n = new Node('UILayer');
-                n.setParent(this.node.parent!);
+                n.setParent(canvas);
                 n.addComponent(UITransform);
                 const uiw = n.addComponent(Widget);
                 uiw.isAlignLeft = uiw.isAlignRight = uiw.isAlignTop = uiw.isAlignBottom = true;
                 uiw.left = uiw.right = uiw.top = uiw.bottom = 0;
                 return n;
             })();
+
+        // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
+        this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
+        this.track?.relayout();
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.gameLayer;
@@ -496,6 +505,12 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private mergeWarriors(a: Warrior, b: Warrior): void {
         if (this.timerPaused) { a.merging = false; b.merging = false; return; }
+
+        // If the currently-inflight warrior (launched, not yet crossed) merges before reaching the
+        // game-over line, checkLineLogic will never fire for it — we must activate the next warrior here.
+        const inflightMerged = this.state === GameState.Inflight &&
+            ((a.launched && !a.crossedLine) || (b.launched && !b.crossedLine));
+
         const midX = (a.node.position.x + b.node.position.x) / 2;
         const midY = (a.node.position.y + b.node.position.y) / 2;
         const newLevel = a.level + 1;
@@ -521,6 +536,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (newLevel > maxLevel) {
             // Both at max level — consume both, free space, no new warrior spawned
             this.flashBurst(midX, midY, a.type);
+            if (inflightMerged) this.activateAfterInflightMerge();
             return;
         }
 
@@ -534,6 +550,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.triggerSpecialExplosion(merged, newLevel);
         } else {
             this.flashMerge(merged);
+        }
+
+        if (inflightMerged) this.activateAfterInflightMerge();
+    }
+
+    private activateAfterInflightMerge(): void {
+        console.log('[GameManager] inflight warrior merged before crossing line — activating next');
+        if (this.waitForSettling) {
+            this.state = GameState.Settling;
+            if (!this.pendingWarrior) this.pendingWarrior = this.createWarrior();
+        } else {
+            this.activateWarrior(this.createWarrior());
         }
     }
 

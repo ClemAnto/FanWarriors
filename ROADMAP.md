@@ -186,7 +186,7 @@
 
 - [x] Animazione warrior al launcher: bounce-in (zoom-in da scala 0) — commit 62df635
 - [x] Animazione next preview: zoom-out creatura corrente → pausa → zoom-in nuova — commit 62df635
-- [ ] Animazioni per ogni sprite: idle (respiro), squash on landing, pop on merge
+- [x] ~~Animazioni frame-by-frame per ogni sprite~~ — eliminato (idle/squash/pop gestiti via tween programmatici)
 - [ ] Animazioni esplosione bonus (3 varianti): Campione, Eroe, Leggenda
 - [ ] Animazione esplosione malus
 - [ ] **3 asset particellari** riutilizzati con parametri variabili per tier:
@@ -204,7 +204,7 @@
   - Round con animazione **scale-up + bounce** al cambio
   - Timer con 4 stati visivi (quasi invisibile → pulse rosso) + ticchettio audio ultimi 5s
 - [ ] **6 stili floating score** (testo, colore, dimensione per ogni tier v1)
-- [ ] Corda elastica della fionda (Graphics procedurali)
+- [x] **Balestra** al posto della fionda: nodo rotante (punta UP a 0°) + bowstring a V + traiettoria puntini stile Puzzle Bubble (max 1 rimbalzo, stop alla game over line) — artwork da integrare
 - [ ] Anteprima NEXT definitiva
 - [ ] Schermata game over, pausa, tutorial popup definitivi
 - [ ] Pulsanti settings (audio on/off)
@@ -313,7 +313,7 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-12 — v0.3.6: pista allargata +20% X, HUD refactor (MERGES rimossa, label SCORE/ROUND raddoppiate, ring progress più spessa), danger tint protetta da flag `settled`, TrackSprite sincronizzato dinamicamente in drawTrack().
+> Aggiornato al 2026-05-12 — v0.3.8: cache-busting headers netlify.toml fixati (ordine regole corretto + aggiunto CSS/JSON), deploy migrato da Netlify (quota esaurita) a GitHub Pages via `npm run deploy` → https://clemanto.github.io/FanWarriors/
 
 1. **Completare sprite livelli speciali** (Campione / Eroe / Leggenda) e sprite pista
 2. **Animazioni rimanenti**: idle (respiro), squash on landing, pop on merge, esplosioni 3 tier

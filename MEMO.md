@@ -391,9 +391,49 @@ Flag `LIVE_RESIZE` in `GameManager.ts` (riga 13): `true` in sviluppo, `false` in
 | Loop infinito dopo un merge | Accesso a nodo distrutto nel loop `update()` | Filtrare warriors con `node.isValid` |
 | Settling non si completa mai | Guard `if (inPlay.length === 0) return` | Rimuovere il guard — `[].every()` è `true` |
 | pendingWarrior non attivato | Creato troppo tardi dopo merge veloce | Creare in `checkLineLogic`, non in `onWarriorLaunched` |
+| **Launcher bloccato in fase avanzata** | Warrior in volo fonde con warrior esistente prima di superare la linea → `state` resta `Inflight`, `checkLineLogic` non trova warrior da attivare | `inflightMerged` flag in `mergeWarriors` + `activateAfterInflightMerge()` — fixato in v0.3.6 |
+
+### Bug — warrior inflight che fonde prima di superare la linea (RISOLTO v0.3.6)
+
+**Scenario**: warrior lanciato (A, `launched=true`, `crossedLine=false`) tocca un warrior esistente (B, stesso tipo/livello, `crossedLine=true`) nella zona di lancio sotto la game-over line. Merge schedula in 0.3s; entrambi vengono distrutti; il merged warrior nasce con `crossedLine=true`. `checkLineLogic` non trova più nessun warrior con `!crossedLine && launched` → `activateWarrior` non viene mai chiamato → `state` rimane `Inflight` per sempre.
+
+`checkLaunchResult` (schedulato a +0.8s) trova `!w.node.isValid` → early return senza attivare nulla.
+
+**Fix**: all'inizio di `mergeWarriors`, calcolare `inflightMerged = state === Inflight && (a.launched && !a.crossedLine || b.launched && !b.crossedLine)`. Alla fine (e dopo il `return` early per max-level), chiamare `activateAfterInflightMerge()` se il flag è `true`.
 
 ---
 
+
+## Deploy su GitHub Pages
+
+Il deploy Netlify è sospeso (quota esaurita). Deploy attivo su **GitHub Pages**:
+
+```powershell
+npm run deploy   # scripts/deploy.js — inietta versione + pusha su branch gh-pages
+```
+
+URL live: **https://clemanto.github.io/FanWarriors/**
+
+### Come funziona il deploy script
+
+`scripts/deploy.js` usa un repo git temporaneo in `os.tmpdir()` per aggirare il `.gitignore` root che esclude `native/` e `build/`. Senza questo workaround, i file in `assets/main/native/` (PNG degli asset Cocos) non venivano pushati e il gioco crashava con errore 4930.
+
+Flusso:
+1. Iniezione versione in `index.html` (`__VERSION__` → `pkg.version`)
+2. Crea `.nojekyll` nella build dir (impedisce a GitHub Pages di girare Jekyll)
+3. Copia `build/web-mobile` in una dir temp
+4. Init git fresh + commit + `git push -f FanWarriors HEAD:gh-pages`
+5. Cleanup dir temp
+
+### `netlify.toml` — fix ordine header (2026-05-12)
+
+In Netlify l'ultima regola che fa match vince. La regola `/*` deve essere **prima**, le regole specifiche dopo. Ordine corretto nel file:
+1. `/*` — catch-all, cache 7 giorni (immagini, audio, font)
+2. `/**/*.html` / `/**/*.css` / `/**/*.js` / `/**/*.json` — `no-cache, no-store, must-revalidate`
+
+Cocos non hasha i nomi dei file JS/CSS, quindi senza `no-cache` il browser serve versioni vecchie dopo ogni deploy.
+
+---
 
 ## Testing remoto su mobile
 

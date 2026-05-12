@@ -1,6 +1,6 @@
 {
   "name": "FunWarriors",
-  "version": "0.3.6",
+  "version": "0.3.8",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
@@ -12,6 +12,7 @@
     "gen:placeholders": "node scripts/gen-warrior-placeholders.js"
   },
   "devDependencies": {
+    "gh-pages": "^6.3.0",
     "netlify-cli": "^26.0.1"
   }
 }
