@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, view, CCFloat, UITransform } from 'cc';
+import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, view, CCFloat, UITransform, Widget } from 'cc';
 const { ccclass, property } = _decorator;
 
 // ── Layout — recalculated at startup from actual screen size ─────────────────
@@ -92,11 +92,21 @@ export class Track extends Component {
         g.lineTo( lineHalfW, GAME_OVER_LINE_Y);
         g.stroke();
 
-        // Sync TrackSprite texture size to match current TRACK_W × TRACK_H
+        // Give Track node a UITransform so TrackSprite's Widget can stretch to fill it
+        const trackUit = this.node.getComponent(UITransform) ?? this.node.addComponent(UITransform);
+        trackUit.setContentSize(TRACK_W, TRACK_H);
+        trackUit.anchorX = 0.5;
+        trackUit.anchorY = 0;  // anchor at bottom so node at TRACK_BOTTOM_Y aligns correctly
+        this.node.setPosition(0, TRACK_BOTTOM_Y, 0);
+
         const spriteNode = this.node.getChildByName('TrackSprite');
         if (spriteNode) {
-            spriteNode.getComponent(UITransform)?.setContentSize(TRACK_W, TRACK_H);
-            spriteNode.setPosition(0, GAME_OVER_LINE_Y);
+            // Ensure Widget stretch is set (idempotent)
+            const w = spriteNode.getComponent(Widget) ?? spriteNode.addComponent(Widget);
+            w.isAlignLeft = w.isAlignRight = w.isAlignTop = w.isAlignBottom = true;
+            w.left = w.right = w.top = w.bottom = 0;
+            w.updateAlignment();
+            spriteNode.setPosition(0, 0, 0);
         }
     }
 

@@ -40,6 +40,11 @@ export class InputController extends Component {
         la: Vec2; ra: Vec2; ctrl: Vec2; startAngle: number;
     } | null = null;
 
+    relayout(): void {
+        if (this.crossbowNode) this.crossbowNode.setScale(LAYOUT_SCALE, LAYOUT_SCALE, 1);
+        if (this.launchEnabled) this.showCrossbowDefault();
+    }
+
     setWarrior(w: Warrior): void {
         this.snapAnim = null;
         this.warrior = w;
@@ -57,11 +62,12 @@ export class InputController extends Component {
         this.warrior = null;
         this.dragging = false;
         this.clearRope();
-        const spawnY   = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2;
-        const lv1r     = (LEVEL_CONFIG[1]?.radius ?? 18) * LAYOUT_SCALE;
-        const displayY = spawnY + lv1r * Warrior.viewYOffset;
-        if (this.launcherNode) { this.launcherNode.setPosition(0, displayY, 0); this.launcherNode.angle = 0; }
-        if (this.baseNode)     { this.baseNode.setPosition(0, displayY, 0); }
+        // Crossbow children are in design space (Crossbow.scale = LAYOUT_SCALE)
+        const spawnWorldY  = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2;
+        const lv1r         = LEVEL_CONFIG[1]?.radius ?? 18;  // design radius
+        const displayLocalY = spawnWorldY / LAYOUT_SCALE + lv1r * Warrior.viewYOffset;
+        if (this.launcherNode) { this.launcherNode.setPosition(0, displayLocalY, 0); this.launcherNode.angle = 0; }
+        if (this.baseNode)     { this.baseNode.setPosition(0, displayLocalY, 0); }
     }
 
     autoLaunch(): void {
@@ -102,13 +108,14 @@ export class InputController extends Component {
             return n;
         })();
         this.crossbowNode = cbNode;
-        cbNode.setPosition(0, 0, 0); // anchor at world origin so child local coords === world coords
+        cbNode.setPosition(0, 0, 0);
+        // Scale Crossbow by LAYOUT_SCALE once — children use design-space values from editor
+        cbNode.setScale(LAYOUT_SCALE, LAYOUT_SCALE, 1);
 
         // CrossbowBase: static child of Crossbow (no rotation, moves with container)
         this.baseNode = cbNode.getChildByName('CrossbowBase');
 
         // CrossbowLauncher: rotating child — rope and bowstring attach here
-        const lv1r = LEVEL_CONFIG[1]?.radius ?? 18;
         const launcherNode = cbNode.getChildByName('CrossbowLauncher') ?? (() => {
             const n = new Node('CrossbowLauncher');
             n.setParent(cbNode);
@@ -120,22 +127,14 @@ export class InputController extends Component {
                     return;
                 }
                 const sp = n.addComponent(Sprite); sp.spriteFrame = sf;
-                const bowW = lv1r * 8 * LAYOUT_SCALE;
-                n.getComponent(UITransform)!.setContentSize(bowW, bowW * (1023 / 1228));
+                // No setContentSize — editor value (design px) is used; Crossbow.scale handles LAYOUT_SCALE
             });
             return n;
         })();
         this.launcherNode = launcherNode;
+        // No runtime setContentSize needed — Crossbow.scale(LAYOUT_SCALE) sizes all children
 
-        // Ensure both scene-loaded nodes are sized for the current LAYOUT_SCALE
-        const bowW = lv1r * 8 * LAYOUT_SCALE;
-        launcherNode.getComponent(UITransform)?.setContentSize(bowW, bowW * (1023 / 1228));
-        if (this.baseNode) {
-            const lv1d = lv1r * 2 * LAYOUT_SCALE;
-            this.baseNode.getComponent(UITransform)?.setContentSize(lv1d, lv1d * (659 / 960));
-        }
-
-        // Rope is a child of Crossbow (cbNode stays at origin → Graphics draws in world coords)
+        // Rope is a child of Crossbow. With Crossbow scaled, Graphics draws in design space.
         // Last child → renders after CrossbowLauncher inside the container
         const ropeNode = new Node('Rope');
         ropeNode.setParent(cbNode);
@@ -243,16 +242,16 @@ export class InputController extends Component {
         const dir     = this.clampLaunchDir(new Vec2(-drag.x, -drag.y).normalize());
         const impulse = dir.multiplyScalar(t * this.maxImpulse());
 
-        // Capture snap animation: string releases from bent position back to straight
-        const s      = LAYOUT_SCALE;
+        // Snap capture — all coords in design space (Crossbow.scale = LAYOUT_SCALE)
+        const LS     = LAYOUT_SCALE;
         const uit    = this.launcherNode?.getComponent(UITransform);
-        const armHW  = uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W * s;
+        const armHW  = uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W;  // design, no LS
         const perp   = new Vec2(-dir.y, dir.x);
-        const la     = new Vec2(wPos.x + perp.x * armHW, wPos.y + perp.y * armHW);
-        const ra     = new Vec2(wPos.x - perp.x * armHW, wPos.y - perp.y * armHW);
+        const la     = new Vec2(wPos.x / LS + perp.x * armHW, wPos.y / LS + perp.y * armHW);
+        const ra     = new Vec2(wPos.x / LS - perp.x * armHW, wPos.y / LS - perp.y * armHW);
         const rawNx  = len > 0 ? drag.x / len : 0;
         const rawNy  = len > 0 ? drag.y / len : -1;
-        const ctrl   = new Vec2(wPos.x + rawNx * Math.min(len, maxDrag), wPos.y + rawNy * Math.min(len, maxDrag));
+        const ctrl   = new Vec2(wPos.x / LS + rawNx * Math.min(len, maxDrag) / LS, wPos.y / LS + rawNy * Math.min(len, maxDrag) / LS);
         this.snapAnim = { elapsed: 0, duration: 0.12, la, ra, ctrl, startAngle: this.launcherNode?.angle ?? 0 };
 
         console.log(`[InputController] launch — drag=${len.toFixed(0)}px t=${t.toFixed(2)} impulse=(${impulse.x.toFixed(0)},${impulse.y.toFixed(0)})`);
@@ -264,12 +263,13 @@ export class InputController extends Component {
 
     private drawRope(touch: Vec2): void {
         if (!this.rope || !this.warrior) return;
-        const wPos    = this.warriorPos();
+        const LS      = LAYOUT_SCALE;
+        const wPos    = this.warriorPos();          // world coords
         const dx      = touch.x - wPos.x;
         const dy      = touch.y - wPos.y;
         const rawLen  = Math.sqrt(dx * dx + dy * dy);
-        const maxDrag = MAX_DRAG_BASE * LAYOUT_SCALE;
-        const len     = Math.min(rawLen, maxDrag);
+        const maxDrag = MAX_DRAG_BASE * LS;         // world
+        const len     = Math.min(rawLen, maxDrag);  // world
         const t       = len / maxDrag;
         const nx      = rawLen > 0 ? dx / rawLen : 0;
         const ny      = rawLen > 0 ? dy / rawLen : -1;
@@ -278,23 +278,22 @@ export class InputController extends Component {
         this.aimAngleDeg = Math.round(Math.atan2(launchDir.x, launchDir.y) * 180 / Math.PI);
         this.aimForcePct = Math.round(t * 100);
 
-        // Crossbow container stays at world origin; position children individually
+        // Children are in Crossbow design space (Crossbow.scale = LS) → divide world coords by LS
         if (this.launcherNode) {
-            this.launcherNode.setPosition(wPos.x, wPos.y, 0);
+            this.launcherNode.setPosition(wPos.x / LS, wPos.y / LS, 0);
             this.launcherNode.angle = -Math.atan2(launchDir.x, launchDir.y) * 180 / Math.PI;
         }
         if (this.baseNode) {
-            this.baseNode.setPosition(wPos.x, wPos.y, 0);
+            this.baseNode.setPosition(wPos.x / LS, wPos.y / LS, 0);
         }
 
-        // Bowstring — bezier U-curve: la → (dragPt as control) → ra
-        const s      = LAYOUT_SCALE;
-        const uit    = this.launcherNode?.getComponent(UITransform);
-        const armHW  = uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W * s;
-        const perp   = new Vec2(-launchDir.y, launchDir.x);
-        const la     = new Vec2(wPos.x + perp.x * armHW, wPos.y + perp.y * armHW);
-        const ra     = new Vec2(wPos.x - perp.x * armHW, wPos.y - perp.y * armHW);
-        const dragPt = new Vec2(wPos.x + nx * len,        wPos.y + ny * len);
+        // Rope draws in Crossbow design space — all coords in design px
+        const uit   = this.launcherNode?.getComponent(UITransform);
+        const armHW = uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W;  // design, no LS
+        const perp  = new Vec2(-launchDir.y, launchDir.x);
+        const la    = new Vec2(wPos.x / LS + perp.x * armHW, wPos.y / LS + perp.y * armHW);
+        const ra    = new Vec2(wPos.x / LS - perp.x * armHW, wPos.y / LS - perp.y * armHW);
+        const dragPt = new Vec2(wPos.x / LS + nx * len / LS, wPos.y / LS + ny * len / LS);
 
         this.rope.clear();
         this.rope.lineJoin = Graphics.LineJoin.ROUND;
@@ -308,30 +307,29 @@ export class InputController extends Component {
             this.rope!.stroke();
         };
 
-        const w = Math.max(4, 4 * s);
-        drawString(w,        new Color( 55,  28,   8, 245));  // base scura
-        drawString(w * 0.4,  new Color(185, 135,  65, 210));  // highlight centrale
+        drawString(4,       new Color( 55,  28,   8, 245));
+        drawString(4 * 0.4, new Color(185, 135,  65, 210));
 
-        // Knots at bowstring endpoints
-        const knobR = Math.max(3, 3.5 * s);
         this.rope!.fillColor = new Color(55, 28, 8, 245);
-        this.rope!.circle(la.x, la.y, knobR); this.rope!.fill();
-        this.rope!.circle(ra.x, ra.y, knobR); this.rope!.fill();
+        this.rope!.circle(la.x, la.y, 3.5); this.rope!.fill();
+        this.rope!.circle(ra.x, ra.y, 3.5); this.rope!.fill();
 
-        if (rawLen >= MIN_DRAG_BASE * LAYOUT_SCALE) {
-            this.drawTrajectory(wPos, launchDir);
+        if (rawLen >= MIN_DRAG_BASE * LS) {
+            this.drawTrajectory(new Vec2(wPos.x / LS, wPos.y / LS), launchDir);
         }
     }
 
     private drawTrajectory(start: Vec2, dir: Vec2): void {
+        // All coords in design space (Crossbow.scale handles LAYOUT_SCALE)
         const g     = this.rope!;
-        const hw    = TRACK_W / 2;
-        const bot   = TRACK_BOTTOM_Y;
-        const top   = TRACK_TOP_Y;
-        const fo    = FUNNEL_OFFSET;
-        const stopY = GAME_OVER_LINE_Y;
-        const step  = TRAJ_DOT_STEP * LAYOUT_SCALE;
-        const dotR  = TRAJ_DOT_R    * LAYOUT_SCALE;
+        const LS    = LAYOUT_SCALE;
+        const hw    = TRACK_W / 2 / LS;
+        const bot   = TRACK_BOTTOM_Y / LS;
+        const top   = TRACK_TOP_Y / LS;
+        const fo    = FUNNEL_OFFSET / LS;
+        const stopY = GAME_OVER_LINE_Y / LS;
+        const step  = TRAJ_DOT_STEP;
+        const dotR  = TRAJ_DOT_R;
 
         const lwA = new Vec2(-hw, bot); const lwB = new Vec2(-hw + fo, top);
         const rwA = new Vec2( hw, bot); const rwB = new Vec2( hw - fo, top);
@@ -398,37 +396,35 @@ export class InputController extends Component {
         }
     }
 
-    // Placeholder drawn only when sprite loading fails.
+    // Placeholder drawn only when sprite loading fails. Draws in design space (Crossbow.scale handles LS).
     private drawCrossbowPlaceholder(): void {
         if (!this.crossbowGfx) return;
         const g    = this.crossbowGfx;
-        const s    = LAYOUT_SCALE;
-        const armW = CROSSBOW_ARM_W * s;
+        const armW = CROSSBOW_ARM_W;  // design px, no LAYOUT_SCALE
         g.clear();
-        g.lineWidth   = Math.max(2, 3 * s);
+        g.lineWidth   = 3;
         g.strokeColor = new Color(139, 90, 43, 230);
-        g.moveTo(0, -12 * s); g.lineTo(0, 20 * s); g.stroke();
-        g.moveTo(-armW, 4 * s); g.lineTo(armW, 4 * s); g.stroke();
+        g.moveTo(0, -12); g.lineTo(0, 20); g.stroke();
+        g.moveTo(-armW, 4); g.lineTo(armW, 4); g.stroke();
         g.strokeColor = new Color(180, 130, 60, 200);
-        g.moveTo(-armW, 4 * s); g.lineTo(-armW - 4 * s,  8 * s); g.stroke();
-        g.moveTo( armW, 4 * s); g.lineTo( armW + 4 * s,  8 * s); g.stroke();
+        g.moveTo(-armW, 4); g.lineTo(-armW - 4,  8); g.stroke();
+        g.moveTo( armW, 4); g.lineTo( armW + 4,  8); g.stroke();
     }
 
     private showCrossbowDefault(): void {
         if (!this.warrior) return;
-        const pos = this.warriorPos();
-        if (this.launcherNode) { this.launcherNode.setPosition(pos.x, pos.y, 0); this.launcherNode.angle = 0; }
-        if (this.baseNode)     { this.baseNode.setPosition(pos.x, pos.y, 0); }
+        const pos = this.warriorPos();  // world coords
+        const LS  = LAYOUT_SCALE;
+        if (this.launcherNode) { this.launcherNode.setPosition(pos.x / LS, pos.y / LS, 0); this.launcherNode.angle = 0; }
+        if (this.baseNode)     { this.baseNode.setPosition(pos.x / LS, pos.y / LS, 0); }
     }
 
     private drawRopeDefault(): void {
         if (!this.rope || !this.launcherNode) return;
-        const s     = LAYOUT_SCALE;
         const uit   = this.launcherNode.getComponent(UITransform);
-        const armHW = uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W * s;
-        const lp    = this.launcherNode.position;
+        const armHW = uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W;  // design, no LS
+        const lp    = this.launcherNode.position;  // already in design space (local)
         const a     = (this.launcherNode.angle * Math.PI) / 180;
-        // perp = (-launchDir.y, launchDir.x) where launchDir = (-sin a, cos a)
         const px    = -Math.cos(a);
         const py    = -Math.sin(a);
         const la    = new Vec2(lp.x + px * armHW, lp.y + py * armHW);
@@ -438,44 +434,38 @@ export class InputController extends Component {
 
     private drawRopeSnap(progress: number): void {
         if (!this.rope || !this.snapAnim) return;
-        const { la, ra, ctrl, startAngle } = this.snapAnim;
-        const eased = 1 - (1 - progress) * (1 - progress);  // ease-out quad
+        const { la, ra, ctrl, startAngle } = this.snapAnim;  // all in design space
+        const eased = 1 - (1 - progress) * (1 - progress);
         const mid   = new Vec2((la.x + ra.x) * 0.5, (la.y + ra.y) * 0.5);
         const cx    = ctrl.x + (mid.x - ctrl.x) * eased;
         const cy    = ctrl.y + (mid.y - ctrl.y) * eased;
 
         if (this.launcherNode) this.launcherNode.angle = startAngle * (1 - eased);
 
-        const s = LAYOUT_SCALE;
-        const w = Math.max(4, 4 * s);
         this.rope.clear();
         this.rope.lineJoin = Graphics.LineJoin.ROUND;
         this.rope.lineCap  = Graphics.LineCap.ROUND;
-        this.rope.lineWidth   = w;       this.rope.strokeColor = new Color(55, 28, 8, 245);
-        this.rope.moveTo(la.x, la.y);    this.rope.quadraticCurveTo(cx, cy, ra.x, ra.y);    this.rope.stroke();
-        this.rope.lineWidth   = w * 0.4; this.rope.strokeColor = new Color(185, 135, 65, 210);
-        this.rope.moveTo(la.x, la.y);    this.rope.quadraticCurveTo(cx, cy, ra.x, ra.y);    this.rope.stroke();
-        const knobR = Math.max(3, 3.5 * s);
+        this.rope.lineWidth   = 4;   this.rope.strokeColor = new Color(55, 28, 8, 245);
+        this.rope.moveTo(la.x, la.y); this.rope.quadraticCurveTo(cx, cy, ra.x, ra.y); this.rope.stroke();
+        this.rope.lineWidth   = 1.6; this.rope.strokeColor = new Color(185, 135, 65, 210);
+        this.rope.moveTo(la.x, la.y); this.rope.quadraticCurveTo(cx, cy, ra.x, ra.y); this.rope.stroke();
         this.rope.fillColor = new Color(55, 28, 8, 245);
-        this.rope.circle(la.x, la.y, knobR); this.rope.fill();
-        this.rope.circle(ra.x, ra.y, knobR); this.rope.fill();
+        this.rope.circle(la.x, la.y, 3.5); this.rope.fill();
+        this.rope.circle(ra.x, ra.y, 3.5); this.rope.fill();
     }
 
     private drawStringLine(la: Vec2, ra: Vec2): void {
         if (!this.rope) return;
-        const s = LAYOUT_SCALE;
-        const w = Math.max(4, 4 * s);
         this.rope.clear();
         this.rope.lineJoin = Graphics.LineJoin.ROUND;
         this.rope.lineCap  = Graphics.LineCap.ROUND;
-        this.rope.lineWidth   = w;       this.rope.strokeColor = new Color(55, 28, 8, 245);
-        this.rope.moveTo(la.x, la.y);    this.rope.lineTo(ra.x, ra.y);    this.rope.stroke();
-        this.rope.lineWidth   = w * 0.4; this.rope.strokeColor = new Color(185, 135, 65, 210);
-        this.rope.moveTo(la.x, la.y);    this.rope.lineTo(ra.x, ra.y);    this.rope.stroke();
-        const knobR = Math.max(3, 3.5 * s);
+        this.rope.lineWidth   = 4;   this.rope.strokeColor = new Color(55, 28, 8, 245);
+        this.rope.moveTo(la.x, la.y); this.rope.lineTo(ra.x, ra.y); this.rope.stroke();
+        this.rope.lineWidth   = 1.6; this.rope.strokeColor = new Color(185, 135, 65, 210);
+        this.rope.moveTo(la.x, la.y); this.rope.lineTo(ra.x, ra.y); this.rope.stroke();
         this.rope.fillColor = new Color(55, 28, 8, 245);
-        this.rope.circle(la.x, la.y, knobR); this.rope.fill();
-        this.rope.circle(ra.x, ra.y, knobR); this.rope.fill();
+        this.rope.circle(la.x, la.y, 3.5); this.rope.fill();
+        this.rope.circle(ra.x, ra.y, 3.5); this.rope.fill();
     }
 
     private ropeToTop(): void {

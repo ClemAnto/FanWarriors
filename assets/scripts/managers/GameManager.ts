@@ -72,6 +72,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         cancelAnimationFrame(this.resizeRafId);
         this.resizeRafId = requestAnimationFrame(() => {
             this.track?.relayout();
+            this.inputCtrl?.relayout();
             if (this.timerSectionNode) {
                 this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
             }
