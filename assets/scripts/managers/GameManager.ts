@@ -52,6 +52,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private worldNode!: Node;
     private gameLayer!: Node;
+    private box2dLayer!: Node;
     private warriorsLayer!: Node;
     private uiLayer!: Node;
 
@@ -122,9 +123,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.gameLayer = this.worldNode.getChildByName('GameLayer')
             ?? (() => { const n = new Node('GameLayer'); n.setParent(this.worldNode); return n; })();
 
+        this.box2dLayer = this.worldNode.getChildByName('2DBox')
+            ?? (() => { const n = new Node('2DBox'); n.setParent(this.worldNode); return n; })();
+
         if (DEBUG_ENGINE) {
             const overlayNode = new Node('DebugOverlay');
-            overlayNode.setParent(this.gameLayer);
+            overlayNode.setParent(this.box2dLayer);
             this.debugOverlay = overlayNode.addComponent(Graphics);
         }
 
@@ -155,7 +159,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.initialScale = LAYOUT_SCALE;
         this.syncInputBounds();
 
-        this.spawnMgr = new SpawnManager(this.gameLayer, this.warriorsLayer, spawnTypesForRound(1));
+        this.spawnMgr = new SpawnManager(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1));
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
 
@@ -220,7 +224,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     getWarriors(): readonly Warrior[] { return this.warriors; }
 
     addDebugWarrior(type: number, level: number, x: number, y: number): void {
-        const w = Warrior.spawn(this.gameLayer, this.warriorsLayer, type, level, x, y);
+        const w = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, level, x, y);
         w.crossedLine = true;
         w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
@@ -236,7 +240,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.warriors  = this.warriors.filter(x => x !== w);
         this.prevY.delete(w);
         w.node.destroy();
-        const nw = Warrior.spawn(this.gameLayer, this.warriorsLayer, type, newLevel, pos.x, pos.y);
+        const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, newLevel, pos.x, pos.y);
         nw.crossedLine  = true;
         nw.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(nw);
@@ -464,7 +468,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.warriors = this.warriors.filter(x => x !== w);
         this.prevY.delete(w);
         w.node.destroy();
-        const nw = Warrior.spawn(this.gameLayer, this.warriorsLayer, w.type, newLevel, pos.x, pos.y);
+        const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, w.type, newLevel, pos.x, pos.y);
         this.warriors.push(nw);
         this.inputCtrl.setWarrior(nw);
         console.log(`[GameManager] debug: launcher lv${w.level} → lv${newLevel}`);
@@ -567,7 +571,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             return;
         }
 
-        const merged = Warrior.spawn(this.gameLayer, this.warriorsLayer, a.type, newLevel, midX, midY);
+        const merged = Warrior.spawn(this.box2dLayer, this.warriorsLayer, a.type, newLevel, midX, midY);
         merged.crossedLine = true;
         merged.settle();
         merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
