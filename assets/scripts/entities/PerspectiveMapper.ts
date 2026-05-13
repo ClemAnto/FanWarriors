@@ -1,5 +1,5 @@
 import { _decorator, Component, Node } from 'cc';
-import { trackLayout } from './Track';
+import { TRACK_TOP_Y, TRACK_BOTTOM_Y } from './Track';
 const { ccclass } = _decorator;
 
 const SCALE_BOTTOM  = 1.2;
@@ -13,9 +13,9 @@ export class PerspectiveMapper extends Component {
     lateUpdate(): void {
         if (!this.viewNode) return;
         const y    = this.node.position.y;
-        const span = trackLayout.topY - trackLayout.bottomY;
+        const span = TRACK_TOP_Y - TRACK_BOTTOM_Y;
         const depth = span > 0
-            ? Math.max(0, Math.min(1, (y - trackLayout.bottomY) / span))
+            ? Math.max(0, Math.min(1, (y - TRACK_BOTTOM_Y) / span))
             : 0;
         const scale = (SCALE_BOTTOM + (SCALE_TOP - SCALE_BOTTOM) * depth) * VISUAL_SCALE;
         this.viewNode.setScale(scale, scale, 1);

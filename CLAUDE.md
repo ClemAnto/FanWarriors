@@ -18,6 +18,10 @@ Progetto Cocos Creator 3.8.8, TypeScript, gioco puzzle-arcade ibrido tra Suika G
 - Box2D (fisica 2D)
 - Build target: HTML5
 
+## Nodi della scena
+- **Non modificare via codice** la posizione né la scala di nodi già impostati nell'editor, salvo eccezioni esplicitamente indicate. I valori dell'editor sono autoritativi per layout e proporzioni.
+- Le conversioni world → local devono usare la trasformata reale del nodo (`worldPosition` / `worldScale`), non costanti hardcoded.
+
 ## Convenzioni di codice
 - Component classes in PascalCase
 - File scripts: PascalCase.ts (es. GameManager.ts)
