@@ -5,11 +5,11 @@ import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
-import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Track } from '../entities/Track';
+import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.3.8';
+const VERSION            = '0.4.0';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -46,6 +46,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private prevY = new Map<Warrior, number>();
     private state = GameState.Idle;
     private pendingWarrior: Warrior | null = null;
+    private inflightWarrior: Warrior | null = null;
     private debugLabel: Label | null = null;
 
     private worldNode!: Node;
@@ -68,11 +69,16 @@ export class GameManager extends Component implements IGameManagerDebug {
     private suctionTimeLeft: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
+    private syncInputBounds(): void {
+        this.inputCtrl.setTrackBounds(WALL_LB, WALL_LT, WALL_RB, WALL_RT);
+    }
+
     private readonly onBrowserResize = (): void => {
         cancelAnimationFrame(this.resizeRafId);
         this.resizeRafId = requestAnimationFrame(() => {
             this.track?.relayout();
-            this.inputCtrl?.relayout();
+            this.inputCtrl?.relayout(LAYOUT_SCALE);
+            this.syncInputBounds();
             if (this.timerSectionNode) {
                 this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
             }
@@ -130,9 +136,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.track?.relayout();
 
         this.inputCtrl = this.node.addComponent(InputController);
-        this.inputCtrl.ropeParent = this.gameLayer;
-        this.inputCtrl.onLaunch = (w) => this.onWarriorLaunched(w);
-        this.inputCtrl.onTap    = (w) => this.cycleLauncherLevel(w);
+        this.inputCtrl.ropeParent = this.worldNode;
+        this.inputCtrl.onLaunch     = (w) => this.onWarriorLaunched(w);
+        this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
+        this.inputCtrl.getWarriors  = () => this.warriors;
+        this.inputCtrl.showBounds   = DEBUG_ENGINE;
+        this.inputCtrl.initialScale = LAYOUT_SCALE;
+        this.syncInputBounds();
 
         this.spawnMgr = new SpawnManager(this.gameLayer, spawnTypesForRound(1));
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
@@ -150,16 +160,6 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const debugNode = new Node('DebugPanel');
                 debugNode.setParent(this.uiLayer);
                 debugNode.addComponent(DebugPanel).init(this);
-            }
-            if (DEBUG_ENGINE) {
-                const lineNode = new Node('GameOverLine');
-                lineNode.setParent(this.gameLayer);
-                const g = lineNode.addComponent(Graphics);
-                g.lineWidth = 2;
-                g.strokeColor = new Color(255, 0, 0, 200);
-                g.moveTo(-TRACK_W / 2, GAME_OVER_LINE_Y);
-                g.lineTo(TRACK_W / 2, GAME_OVER_LINE_Y);
-                g.stroke();
             }
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
         });
@@ -328,6 +328,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private onWarriorLaunched(w: Warrior): void {
         this.state = GameState.Inflight;
+        this.inflightWarrior = w;
         console.log('[GameManager] warrior launched');
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
     }
@@ -386,6 +387,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private checkLineLogic(): void {
+        let anyDanger = false;
         for (const w of this.warriors) {
             if (!w.node?.isValid) continue;
             const y    = w.node.position.y;
@@ -394,6 +396,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (!w.crossedLine && w.launched) {
                 if (y >= GAME_OVER_LINE_Y) {
                     w.crossedLine = true;
+                    w.settled = true;
                     console.log('[GameManager] warrior crossed line — in play');
                     if (this.state === GameState.Inflight) {
                         if (this.waitForSettling) {
@@ -409,10 +412,13 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const bottom = y - w.radius;
                 const h      = w.radius * 2;
                 let factor   = 0;
-                if (bottom <= GAME_OVER_LINE_Y + h) {
-                    factor = bottom >= GAME_OVER_LINE_Y
-                        ? 0.1 + 0.7 * (1 - (bottom - GAME_OVER_LINE_Y) / h)
-                        : 0.8 + 0.3 * Math.min(1, (GAME_OVER_LINE_Y - bottom) / h);
+                if (w !== this.inflightWarrior) {
+                    if (bottom <= GAME_OVER_LINE_Y + h) {
+                        factor = bottom >= GAME_OVER_LINE_Y
+                            ? 0.1 + 0.7 * (1 - (bottom - GAME_OVER_LINE_Y) / h)
+                            : 0.8 + 0.3 * Math.min(1, (GAME_OVER_LINE_Y - bottom) / h);
+                    }
+                    if (bottom <= GAME_OVER_LINE_Y) anyDanger = true;
                 }
                 w.setDangerTint(factor);
                 if (prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y) {
@@ -423,6 +429,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             this.prevY.set(w, y);
         }
+        this.track?.setLinePulse(anyDanger);
     }
 
     private penaltyExplode(_w: Warrior): void {
@@ -543,6 +550,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         const merged = Warrior.spawn(this.gameLayer, a.type, newLevel, midX, midY);
         merged.crossedLine = true;
+        merged.settle();
         merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
         merged.velocity = new Vec2(vx, vy);
         this.warriors.push(merged);
