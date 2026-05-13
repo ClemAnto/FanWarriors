@@ -4,6 +4,7 @@ import { GAME_OVER_LINE_Y, TRACK_BOTTOM_Y, TRACK_TOP_Y, TRACK_W } from '../entit
 
 export class SpawnManager {
     private parent: Node;
+    private visualParent: Node;
     private spawnTypes: number;
     private maxLevel = 1;
     private nextType = 0;
@@ -13,8 +14,9 @@ export class SpawnManager {
     onMergeReady: ((a: Warrior, b: Warrior) => void) | null = null;
     onNextGenerated: (() => void) | null = null;
 
-    constructor(parent: Node, spawnTypes: number) {
+    constructor(parent: Node, visualParent: Node, spawnTypes: number) {
         this.parent = parent;
+        this.visualParent = visualParent;
         this.spawnTypes = spawnTypes;
         // center of lower half — read after initLayout() has been called by GameManager
         this.spawnY = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2;
@@ -26,7 +28,7 @@ export class SpawnManager {
     }
 
     spawnNext(): Warrior {
-        const w = Warrior.spawn(this.parent, this.nextType, this.nextLevel, 0, this.spawnY);
+        const w = Warrior.spawn(this.parent, this.visualParent, this.nextType, this.nextLevel, 0, this.spawnY);
         w.onMergeReady = this.onMergeReady;
         this.generateNext();
         return w;
@@ -34,11 +36,11 @@ export class SpawnManager {
 
     prefill(): Warrior[] {
         const zoneH = TRACK_TOP_Y - GAME_OVER_LINE_Y;
-        const py    = GAME_OVER_LINE_Y + Math.round(zoneH * 0.65);
+        const py    = Math.round(this.spawnY + (TRACK_TOP_Y - this.spawnY) * 0.92);
         const px    = Math.round(TRACK_W * 0.22);
         const positions = [{ x: -px, y: py }, { x: 0, y: py + Math.round(zoneH * 0.08) }, { x: px, y: py }];
         return positions.map(({ x, y }, i) => {
-            const w = Warrior.spawn(this.parent, i % this.spawnTypes, 1, x, y);
+            const w = Warrior.spawn(this.parent, this.visualParent, i % this.spawnTypes, 1, x, y);
             w.crossedLine = true;
             w.onMergeReady = this.onMergeReady;
             w.settle();
