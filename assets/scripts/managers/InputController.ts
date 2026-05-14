@@ -6,9 +6,9 @@ const { ccclass } = _decorator;
 // Base values at design width 720 — multiplied by _scale at runtime
 const MIN_DRAG_BASE    = 20;
 const MAX_DRAG_BASE    = 96;   // 3 × lv-1 diameter
-const MAX_IMPULSE_BASE = 300;
+const MAX_IMPULSE_BASE = 1000;
 const CROSSBOW_ARM_W   = 72;   // design-px half-width of bow arms (= lv1r*4 = bowW/2)
-const TRAJ_MAX_DIST    = 400; // design-px total trajectory length before cutoff
+const TRAJ_MAX_DIST    = 500; // design-px total trajectory length before cutoff
 const TRAJ_DOT_STEP    = 16;   // design-px between trajectory dots
 const TRAJ_DOT_R       = 10;  // design-px dot radius
 const TRAJ_DOT_COLOR   = new Color(60, 180, 255);
@@ -68,7 +68,7 @@ export class InputController extends Component {
         this.aimForcePct = 0;
         if (this.crossbowNode) {
             const wp = this.crossbowNode.worldPosition;
-            w.node.setWorldPosition(wp.x, wp.y, 0);
+            w.node.setWorldPosition(wp.x, wp.y * 2, 0);
         }
         this.ropeToTop();
         this.clearRope();
@@ -290,14 +290,13 @@ export class InputController extends Component {
         }
 
         if (rawLen >= MIN_DRAG_BASE * this._scale) {
-            this.drawTrajectory(new Vec2(wPos.x, wPos.y - this.warrior!.radius * 2), launchDir, t);
+            const startCp = this.crossbowNode?.position ?? this.warrior!.node.position;
+            this.drawTrajectory(new Vec2(startCp.x, startCp.y), launchDir, t);
         }
     }
 
     private worldToLocal(world: Vec2): Vec2 {
         if (!this.crossbowNode) return new Vec2(world.x, world.y);
-        // Use local position/scale (relative to World node = canvas-centered),
-        // matching the coordinate system produced by toWorld() from touch events.
         const cp = this.crossbowNode.position;
         const cs = this.crossbowNode.scale;
         return new Vec2((world.x - cp.x) / cs.x, (world.y - cp.y) / cs.y);
@@ -494,8 +493,13 @@ export class InputController extends Component {
     }
 
     private warriorPos(): Vec2 {
+        // Use crossbow canvas-centered position — independent of 2DBox transform
+        if (this.crossbowNode) {
+            const cp = this.crossbowNode.position;
+            return new Vec2(cp.x, cp.y);
+        }
         const p = this.warrior!.node.position;
-        return new Vec2(p.x, p.y + this.warrior!.radius * Warrior.viewYOffset);
+        return new Vec2(p.x, p.y);
     }
 }
 

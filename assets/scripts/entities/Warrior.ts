@@ -9,7 +9,8 @@ const MERGE_DELAY = 0.3;
 
 @ccclass('Warrior')
 export class Warrior extends Component {
-    static friction        = 0.05;
+    static contactFriction = 0.3;
+    static linearDamping   = 0.5;
     static settledDamping  = 16;
     static viewYOffset     = 0.8;
     type: number = 0;
@@ -86,13 +87,13 @@ export class Warrior extends Component {
     resetPhysics(): void {
         const rb = this.getComponent(RigidBody2D);
         if (rb) {
-            rb.linearDamping  = 0.5;
+            rb.linearDamping  = Warrior.linearDamping;
             rb.angularDamping = 1.5;
         }
         const col = this.getComponent(CircleCollider2D);
         if (col) {
             col.density     = 8.0;
-            col.friction    = Warrior.friction;
+            col.friction    = Warrior.contactFriction;
             col.restitution = 0.04;
         }
     }
@@ -250,7 +251,7 @@ export class Warrior extends Component {
     private buildPhysics(): void {
         const rb = this.node.addComponent(RigidBody2D);
         rb.type = ERigidBody2DType.Dynamic;
-        rb.linearDamping  = 0.5;
+        rb.linearDamping  = Warrior.linearDamping;
         rb.angularDamping = 1.5;
         rb.fixedRotation  = false;
         rb.enabledContactListener = true;
@@ -258,7 +259,7 @@ export class Warrior extends Component {
         const col = this.node.addComponent(CircleCollider2D);
         col.radius      = this.radius;
         col.density     = 8.0;
-        col.friction    = Warrior.friction;
+        col.friction    = Warrior.contactFriction;
         col.restitution = 0.04;
     }
 }

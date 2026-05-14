@@ -8,6 +8,7 @@ export let TRACK_BOTTOM_Y = -640;  // bottom of visible screen
 export let TRACK_TOP_Y    =  320;  // TRACK_BOTTOM_Y + TRACK_H
 export let TRACK_H        =  960;  // min(75% screen height, 12/5 × 95% screen width)
 export let GAME_OVER_LINE_Y = -160; // midpoint of track height
+export let GAME_OVER_AREA   =  0.5; // normalized [0..1] fraction of track height from bottom
 export let FUNNEL_OFFSET  =   48;  // TRACK_W * funnelPercentage / 200
 // Inner edges of the funnel walls — set by buildWalls(), match Box2D collider geometry exactly
 export let WALL_LB = new Vec2(-200,  -480); // left  wall bottom inner
@@ -118,7 +119,7 @@ export class Track extends Component {
         const px  = spriteNode.position.x;
         const py  = spriteNode.position.y;
         const scx = spriteNode.scale.x;
-        const scy = spriteNode.scale.y;
+        const scy = spriteNode.scale.y * 2;
 
         const left   = px + (-ax)       * w * scx;
         const right  = px + (1 - ax)    * w * scx;
@@ -158,6 +159,13 @@ export class Track extends Component {
             new Vec2(topR,      top),
             new Vec2(topR - t,  top),
         ], 0.8, 0.05);
+
+        // If TrackSprite has a GameOverLine child, use its world Y as the authoritative threshold
+        const goEditorNode = spriteNode.getChildByName('GameOverLine');
+        if (goEditorNode) {
+            GAME_OVER_LINE_Y = Math.round(goEditorNode.worldPosition.y);
+            GAME_OVER_AREA   = TRACK_H > 0 ? (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) / TRACK_H : 0.5;
+        }
 
         const lineNode = new Node('GameOverLine');
         lineNode.setParent(this.node);

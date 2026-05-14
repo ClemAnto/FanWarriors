@@ -33,7 +33,9 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UITransform + position + scale + anchor) — non dalle costanti `TRACK_W`/`TRACK_BOTTOM_Y`. Si rigenerano automaticamente su `SIZE_CHANGED` / `TRANSFORM_CHANGED`. Spessore = `wallThickness`% della larghezza sprite (default 4%).
 
 
-**CRITICO — coordinate:** usare `node.position.y` (posizione locale rispetto a GameLayer), **non** `worldPosition.y`. Il nodo Canvas è a worldPosition (640, 360) → `worldPosition.y` ha un offset di +360 rispetto alle coordinate Canvas-local, quindi il confronto con `TRACK_TOP_Y`/`TRACK_BOTTOM_Y` (che sono coordinate Canvas-local) risulta sbagliato.
+**CRITICO — `worldPosition.y` in CC3 2D restituisce la Y LOCALE** (senza applicare la scala del parent). Confermato da `PerspectiveMapper` che moltiplica manualmente `wp.y * sy` per ottenere la Y canvas. Per convertire in canvas-space: `localY * parentScaleY`. Il confronto con `GAME_OVER_LINE_Y` (canvas space) deve quindi essere fatto in spazio locale: `w.node.position.y >= GAME_OVER_LINE_Y / box2dLayer.scaleY`.
+
+**2DBox layer ha scaleY = 0.5**: canvas Y di un warrior = `w.node.position.y * 0.5`. Il getter `GameManager.gameOverLineLocal` centralizza questa conversione: `GAME_OVER_LINE_Y / box2dLayer.scale.y = −320` (con GAME_OVER_LINE_Y=−160).
 
 **CRITICO — live values da Track:** le `export let` primitive importate possono essere snapshot al momento dell'import nei bundle CC3. `trackLayout` è stato rimosso — usare direttamente `TRACK_TOP_Y` / `TRACK_BOTTOM_Y` leggendoli nel momento in cui servono (non in fase di import), oppure chiamare `initLayout()` prima di leggerli.
 
@@ -357,7 +359,25 @@ Flag `LIVE_RESIZE` in `GameManager.ts` (riga 13): `true` in sviluppo, `false` in
 | HUD Widget-based | ✓ | automatico Cocos |
 | Timer label (posizione) | ✓ | aggiornato esplicitamente |
 | Warrior già in pista | ✗ | rimangono nel vecchio spazio — accettabile in debug |
-| `SpawnManager.spawnY` | ✗ | calcolato nel costruttore, non aggiornato — irrilevante in debug |
+| `SpawnManager.spawnY` | ✓ | ora è un getter che legge `GAME_OVER_LINE_Y` e `WALL_RB.y` live ad ogni spawn |
+
+---
+
+## DebugPanel — coordinate space (gotcha v0.5.1)
+
+`DebugPanel` opera in canvas space (world coords), ma i warrior sono figli di `box2dLayer` (scaleY=0.5), quindi `w.node.position.y` è in local space (y_locale = y_canvas / 0.5).
+
+Tre punti critici corretti in v0.5.1:
+- **Hit detection warrior**: `Vec2.distance(world, new Vec2(wp.x, wp.y * layerScaleY))` — y locale → canvas
+- **Drag move**: `node.setPosition(world.x, world.y / layerScaleY)` — canvas → local
+- **Drop palette**: `addDebugWarrior(t, 1, world.x, world.y / layerScaleY)` — canvas → local
+
+`DebugPanel.layerScaleY` deve essere impostato da GameManager prima di `init()`:
+```typescript
+const panel = debugNode.addComponent(DebugPanel);
+panel.layerScaleY = this.box2dLayer.scale.y;
+panel.init(this);
+```
 
 ---
 

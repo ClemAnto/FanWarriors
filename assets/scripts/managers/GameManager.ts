@@ -7,18 +7,19 @@ import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
 import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
+import { CoordConverter } from '../utils/CoordConverter';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.5.0';
+const VERSION            = '0.5.1';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
-const MAGNET_FORCE_BASE  = 30;  // base force at design width — scaled by LAYOUT_SCALE
+const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
 const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
-const WARRIOR_FRICTION        = 0.5; // Box2D friction on warrior collider (0 = frictionless, 1 = rough)
-const WARRIOR_SETTLED_DAMPING = 12;  // linearDamping applied when warrior stops — lower = easier to displace
+const WARRIOR_LINEAR_DAMPING   = 1.5; // linearDamping on active warriors — controls sliding speed decay
+const WARRIOR_SETTLED_DAMPING  = 12;  // linearDamping applied when warrior stops — lower = easier to displace
 const WARRIOR_VIEW_Y_OFFSET = 1.5; // viewNode lift above physics center, in units of radius
 const SETTLE_VELOCITY      = 0.4;   // Box2D velocity units — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warrior failed to cross
@@ -56,6 +57,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private box2dLayer!: Node;
     private warriorsLayer!: Node;
     private uiLayer!: Node;
+    private coords!: CoordConverter;
 
     // game state
     private score = 0;
@@ -71,6 +73,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private track: Track | null = null;
     private suctionCenter: Vec2 | null = null;
     private suctionTimeLeft: number = 0;
+    private suctionDuration: number = 0;
+    private suctionPeakForce: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
     private get gameOverLineLocal(): number {
@@ -112,7 +116,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         initLayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
-        Warrior.friction        = WARRIOR_FRICTION;
+        Warrior.linearDamping   = WARRIOR_LINEAR_DAMPING;
         Warrior.settledDamping  = WARRIOR_SETTLED_DAMPING;
         Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
         PhysicsSystem2D.instance.enable = true;
@@ -130,8 +134,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.gameLayer = this.worldNode.getChildByName('GameLayer')
             ?? (() => { const n = new Node('GameLayer'); n.setParent(this.worldNode); return n; })();
 
-        this.box2dLayer = this.worldNode.getChildByName('2DBox')
-            ?? (() => { const n = new Node('2DBox'); n.setParent(this.worldNode); return n; })();
+        this.box2dLayer = this.worldNode.getChildByName('Box2DLayer')
+            ?? (() => { console.warn('[GameManager] Box2DLayer not found in scene — created fresh (scaleY will be 1, not 0.5!)'); const n = new Node('Box2DLayer'); n.setParent(this.worldNode); return n; })();
+        // Canvas repositions to designHeight/2 in world space after Widget layout, which runs after
+        // start() — cannot read box2dLayer.worldPosition.y here; derive from design resolution instead.
+        this.coords = new CoordConverter(this.box2dLayer.scale.y, view.getDesignResolutionSize().height / 2);
 
         if (DEBUG_ENGINE) {
             const overlayNode = new Node('DebugOverlay');
@@ -139,8 +146,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.debugOverlay = overlayNode.addComponent(Graphics);
         }
 
-        this.warriorsLayer = this.worldNode.getChildByName('Warriors')
-            ?? (() => { const n = new Node('Warriors'); n.setParent(this.worldNode); return n; })();
+        this.warriorsLayer = this.worldNode.getChildByName('WarriorsLayer')
+            ?? (() => { console.warn('[GameManager] WarriorsLayer not found in scene — created fresh'); const n = new Node('WarriorsLayer'); n.setParent(this.worldNode); return n; })();
 
         this.uiLayer = canvas.getChildByName('UILayer')
             ?? (() => {
@@ -152,6 +159,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 uiw.left = uiw.right = uiw.top = uiw.bottom = 0;
                 return n;
             })();
+        // Ensure uiLayer renders on top of all game-world nodes
+        this.uiLayer.setSiblingIndex(canvas.children.length - 1);
 
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
@@ -181,7 +190,9 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (DEBUG) {
                 const debugNode = new Node('DebugPanel');
                 debugNode.setParent(this.uiLayer);
-                debugNode.addComponent(DebugPanel).init(this);
+                const panel = debugNode.addComponent(DebugPanel);
+                panel.layerScaleY = this.box2dLayer.scale.y;
+                panel.init(this);
             }
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
         });
@@ -352,6 +363,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
         if (w.mapper) w.mapper.animScale = 0;
+        // PerspectiveMapper.lateUpdate hasn't run yet for this brand-new component — hide viewNode
+        // immediately so it doesn't flash at (0,0) for the first rendered frame.
+        if (w.viewNode?.isValid) w.viewNode.setScale(0, 0, 1);
         this.warriors.push(w);
         this.nextLaunchWarrior = w;
         return w;
@@ -412,7 +426,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private penaliseAndReturn(w: Warrior): void {
         this.score = Math.max(0, this.score - FAILED_LAUNCH_MALUS);
-        this.spawnFloatingScore(w.node.position.x, w.node.position.y, -FAILED_LAUNCH_MALUS);
+        this.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), -FAILED_LAUNCH_MALUS);
         this.updateScoreLabel();
 
         w.launched = false;
@@ -555,8 +569,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         const inflightMerged = this.state === GameState.Inflight &&
             ((a.launched && !a.crossedLine) || (b.launched && !b.crossedLine));
 
-        const midX = (a.node.position.x + b.node.position.x) / 2;
-        const midY = (a.node.position.y + b.node.position.y) / 2;
+        const midX  = (a.node.position.x + b.node.position.x) / 2;  // local (scaleX=1 → canvas)
+        const midY  = (a.node.position.y + b.node.position.y) / 2;  // local
+        const midYC = this.coords.physToVisual(midY);                 // canvas Y for UI/VFX
         const newLevel = a.level + 1;
         const maxLevel = WARRIORS[a.type]?.maxLevel ?? 7;
         const vx = (a.velocity.x + b.velocity.x) * 0.5 * 0.75;
@@ -573,13 +588,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.checkRoundAdvance();
         const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
         this.score += points;
-        this.spawnFloatingScore(midX, midY, points);
+        this.spawnFloatingScore(midX, midYC, points);
         this.updateScoreLabel();
         this.updateRoundProgress();
 
         if (newLevel > maxLevel) {
             // Both at max level — consume both, free space, no new warrior spawned
-            this.flashBurst(midX, midY, a.type);
+            this.flashBurst(midX, midYC, a.type);
             if (inflightMerged) this.activateAfterInflightMerge();
             return;
         }
@@ -872,9 +887,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         const lvConf = LEVEL_CONFIG[level];
         const bonus = lvConf?.bonus ?? 0;
         const color = lvConf?.vfxColor ?? new Color(255, 255, 255, 255);
-        const mx = w.node.position.x;
-        const my = w.node.position.y;
-        const r  = w.radius;
+        const mx  = w.node.position.x;                   // local (scaleX=1 → canvas)
+        const my  = w.node.position.y;                   // local Y
+        const myC = this.coords.physToVisual(my);         // canvas Y for UI/VFX
+        const r   = w.radius;
 
         this.warriors = this.warriors.filter(wr => wr !== w);
         this.prevY.delete(w);
@@ -882,13 +898,13 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.score += bonus;
         this.updateScoreLabel();
-        if (bonus > 0) this.spawnFloatingScore(mx, my + 30, bonus);
+        if (bonus > 0) this.spawnFloatingScore(mx, myC + 30, bonus);
 
         // Two expanding rings
         for (let i = 0; i < 2; i++) {
             const vfx = new Node('ExpVFX');
             vfx.setParent(this.gameLayer);
-            vfx.setPosition(mx, my);
+            vfx.setPosition(mx, myC);
             const g = vfx.addComponent(Graphics);
             g.lineWidth = 6 - i * 2;
             g.strokeColor = color;
@@ -905,7 +921,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Label
         const labelNode = new Node('ExpLabel');
         labelNode.setParent(this.uiLayer);
-        labelNode.setPosition(mx, my + 10);
+        labelNode.setSiblingIndex(this.uiLayer.children.length - 1);
+        labelNode.setPosition(mx, myC + 10);
         const lbl = labelNode.addComponent(Label);
         lbl.string = lvConf?.label ?? '';
         lbl.fontSize = 40;
@@ -917,41 +934,95 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
             .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
 
-        const suctionY = my + 80 * LAYOUT_SCALE;
-        this.activateSuction(mx, suctionY, color);
         console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
     }
 
     // --- vortex suction ---
 
-    private activateSuction(cx: number, cy: number, ringColor: Color): void {
-        const SUCTION_DURATION = 3;
+    private activateSuction(cx: number, cy: number, ringColor: Color, strength = 1): void {
+        const BASE_DURATION = 3;
+        const BASE_FORCE    = 240;
         this.suctionCenter    = new Vec2(cx, cy);
-        this.suctionTimeLeft  = SUCTION_DURATION;
-        this.cohesionTimeLeft = SUCTION_DURATION + 2;
+        this.suctionDuration  = BASE_DURATION * strength;
+        this.suctionTimeLeft  = this.suctionDuration;
+        this.suctionPeakForce = BASE_FORCE * strength;
+        this.cohesionTimeLeft = this.suctionDuration + 2;
 
+        // C — pulse di scala sui warrior vicini al punto di merge
+        const pulseRadius = 300 * strength;
+        for (const w of this.warriors) {
+            if (!w.node?.isValid || !w.mapper || !w.crossedLine) continue;
+            const dx = w.node.position.x - cx;
+            const dy = w.node.position.y - cy;
+            if (Math.sqrt(dx * dx + dy * dy) > pulseRadius) continue;
+            const squeeze = 1 - 0.18 * strength;
+            tween(w.mapper)
+                .to(0.10, { animScale: squeeze }, { easing: 'quadIn' })
+                .to(0.20, { animScale: 1.0 },    { easing: 'quadOut' })
+                .start();
+        }
+
+        // vs = floor visivo: garantisce effetti leggibili anche al livello minimo
+        const vs  = Math.max(strength, 0.35);
+        const cyV = this.coords.physToVisual(cy);
+
+        // anelli contraenti
         for (let i = 0; i < 2; i++) {
             const sring = new Node('SuctionRing');
-            sring.setParent(this.gameLayer);
-            sring.setPosition(cx, cy);
+            sring.setParent(this.warriorsLayer);
+            sring.setPosition(cx, cyV);
             const sg = sring.addComponent(Graphics);
             sg.lineWidth   = 4 - i;
-            sg.strokeColor = new Color(ringColor.r, ringColor.g, ringColor.b, 200 - i * 40);
-            sg.circle(0, 0, 180 + i * 60);
+            sg.strokeColor = new Color(ringColor.r, ringColor.g, ringColor.b, Math.round((200 - i * 40) * vs));
+            sg.circle(0, 0, (180 + i * 60) * vs);
             sg.stroke();
             const sop = sring.addComponent(UIOpacity);
-            sop.opacity = 180 - i * 40;
+            sop.opacity = Math.round((180 - i * 40) * vs);
             const delay = i * 0.15;
-            tween(sring).delay(delay).to(SUCTION_DURATION - delay, { scale: new Vec3(0.01, 0.01, 1) }).start();
-            tween(sop).delay(delay).to(SUCTION_DURATION - delay, { opacity: 0 })
+            tween(sring).delay(delay).to(this.suctionDuration - delay, { scale: new Vec3(0.01, 0.01, 1) }).start();
+            tween(sop).delay(delay).to(this.suctionDuration - delay, { opacity: 0 })
                 .call(() => { if (sring.isValid) sring.destroy(); }).start();
+        }
+
+        // A — particelle vorticose che spiralano verso il centro
+        const count = Math.round(5 + 7 * vs);
+        for (let i = 0; i < count; i++) {
+            const angle  = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+            const radius = (80 + Math.random() * 80) * vs;
+            const startX = cx  + Math.cos(angle) * radius;
+            const startY = cyV + Math.sin(angle) * radius;
+            const midAngle = angle + Math.PI / 3;
+            const midR     = radius * 0.4;
+            const midX     = cx  + Math.cos(midAngle) * midR;
+            const midY     = cyV + Math.sin(midAngle) * midR;
+
+            const p = new Node('SuctionParticle');
+            p.setParent(this.warriorsLayer);
+            p.setPosition(startX, startY);
+            const g = p.addComponent(Graphics);
+            g.fillColor = new Color(ringColor.r, ringColor.g, ringColor.b, 220);
+            g.circle(0, 0, Math.max(2.5, (3 + Math.random() * 3) * vs));
+            g.fill();
+            const op = p.addComponent(UIOpacity);
+            op.opacity = 220;
+
+            const delay = Math.random() * 0.35;
+            const dur   = (0.35 + Math.random() * 0.25) * (0.5 + vs * 0.5);
+            tween(p)
+                .delay(delay)
+                .to(dur * 0.55, { position: new Vec3(midX, midY, 0) }, { easing: 'quadIn' })
+                .to(dur * 0.45, { position: new Vec3(cx,   cyV,  0) }, { easing: 'quadIn' })
+                .call(() => { if (p.isValid) p.destroy(); })
+                .start();
+            tween(op)
+                .delay(delay)
+                .to(dur * 0.3,  { opacity: 220 })
+                .to(dur * 0.7,  { opacity: 0 })
+                .start();
         }
     }
 
     private applyVortexSuction(dt: number): void {
-        const SUCTION_DURATION = 3.0;
-        const PEAK_FORCE       = 240;
-
         this.suctionTimeLeft -= dt;
         if (this.suctionTimeLeft <= 0) {
             this.suctionCenter = null;
@@ -959,9 +1030,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
 
         // Curva a campana: 0 → picco a metà → 0, sempre inward
-        const elapsed  = SUCTION_DURATION - this.suctionTimeLeft;
-        const progress = Math.sin(Math.PI * elapsed / SUCTION_DURATION);
-        const force    = PEAK_FORCE * progress;
+        const elapsed  = this.suctionDuration - this.suctionTimeLeft;
+        const progress = Math.sin(Math.PI * elapsed / this.suctionDuration);
+        const force    = this.suctionPeakForce * progress;
 
         const cx = this.suctionCenter!.x;
         const cy = this.suctionCenter!.y;
@@ -983,6 +1054,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const COHESION_RANGE  = 120 * LAYOUT_SCALE;
         const COHESION_FORCE  = 12  * LAYOUT_SCALE;
         const r1sq = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
+        const sx = this.box2dLayer.scale.x;
+        const sy = this.box2dLayer.scale.y;
 
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
@@ -990,15 +1063,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             for (let j = i + 1; j < this.warriors.length; j++) {
                 const b = this.warriors[j];
                 if (!b.node?.isValid || b.merging || !b.crossedLine || b === this.pendingWarrior) continue;
-                const dx   = b.node.position.x - a.node.position.x;
-                const dy   = b.node.position.y - a.node.position.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                // Convert to canvas space for gap comparison (radius and COHESION_RANGE are in canvas pixels)
+                const dxL  = b.node.position.x - a.node.position.x;
+                const dyL  = b.node.position.y - a.node.position.y;
+                const dist = Math.sqrt((dxL * sx) ** 2 + (dyL * sy) ** 2);
                 const gap  = Math.max(0, dist - a.radius - b.radius);
                 if (gap <= 0 || gap > COHESION_RANGE) continue;
                 const t    = 1 - gap / COHESION_RANGE;
                 const f    = COHESION_FORCE * t;
-                const nx   = dx / dist;
-                const ny   = dy / dist;
+                // Direction in local space for Box2D force application
+                const len  = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
+                const nx   = dxL / len;
+                const ny   = dyL / len;
                 const msA  = (a.radius * a.radius) / r1sq;
                 const msB  = (b.radius * b.radius) / r1sq;
                 a.applyForce(new Vec2( nx * f * msA,  ny * f * msA));
@@ -1296,11 +1372,12 @@ export class GameManager extends Component implements IGameManagerDebug {
             .start();
     }
 
-    private flashBurst(x: number, y: number, type: number): void {
+    // x and yCanvas are in canvas space (gameLayer coordinates)
+    private flashBurst(x: number, yCanvas: number, type: number): void {
         const burstColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
         const vfx = new Node('BurstVFX');
         vfx.setParent(this.gameLayer);
-        vfx.setPosition(x, y);
+        vfx.setPosition(x, yCanvas);
         const g = vfx.addComponent(Graphics);
         g.lineWidth = 4;
         g.strokeColor = burstColor;
@@ -1311,12 +1388,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(vfx).to(0.3, { scale: new Vec3(2, 2, 1) }).start();
         tween(op).to(0.3, { opacity: 0 })
             .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
-        this.activateSuction(x, y, burstColor);
+        this.activateSuction(x, this.coords.visualToPhys(yCanvas), burstColor);
     }
 
     private spawnFloatingScore(x: number, y: number, points: number): void {
         const node = new Node('FloatingScore');
         node.setParent(this.uiLayer);
+        node.setSiblingIndex(this.uiLayer.children.length - 1);
         node.setPosition(x, y);
 
         const lbl = node.addComponent(Label);
