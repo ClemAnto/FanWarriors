@@ -1,25 +1,27 @@
 import { Node } from 'cc';
 import { Warrior } from '../entities/Warrior';
-import { GAME_OVER_LINE_Y, TRACK_BOTTOM_Y, TRACK_TOP_Y, TRACK_W } from '../entities/Track';
+import { WALL_LT, WALL_RB } from '../entities/Track';
 
 export class SpawnManager {
     private parent: Node;
     private visualParent: Node;
     private spawnTypes: number;
+    private layerScaleY: number;
     private maxLevel = 1;
     private nextType = 0;
     private nextLevel = 1;
-    private readonly spawnY: number;
+    // WALL_* are in canvas space; divide by layerScaleY to get local coords for box2dLayer children
+    private canvasToLocal(y: number): number { return y / this.layerScaleY; }
+    private get spawnY(): number { return Math.round(this.canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.25)); }
 
     onMergeReady: ((a: Warrior, b: Warrior) => void) | null = null;
     onNextGenerated: (() => void) | null = null;
 
-    constructor(parent: Node, visualParent: Node, spawnTypes: number) {
+    constructor(parent: Node, visualParent: Node, spawnTypes: number, layerScaleY = 1) {
         this.parent = parent;
         this.visualParent = visualParent;
         this.spawnTypes = spawnTypes;
-        // center of lower half — read after initLayout() has been called by GameManager
-        this.spawnY = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2;
+        this.layerScaleY = layerScaleY;
         this.generateNext();
     }
 
@@ -35,10 +37,13 @@ export class SpawnManager {
     }
 
     prefill(): Warrior[] {
-        const zoneH = TRACK_TOP_Y - GAME_OVER_LINE_Y;
-        const py    = Math.round(this.spawnY + (TRACK_TOP_Y - this.spawnY) * 0.92);
-        const px    = Math.round(TRACK_W * 0.22);
-        const positions = [{ x: -px, y: py }, { x: 0, y: py + Math.round(zoneH * 0.08) }, { x: px, y: py }];
+        const py = Math.round(this.canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.92));
+        const px = Math.round((WALL_RB.x - WALL_LT.x) * 0.3);
+        const positions = [
+            { x: -px, y: py },
+            { x:   0, y: py },
+            { x:  px, y: py },
+        ];
         return positions.map(({ x, y }, i) => {
             const w = Warrior.spawn(this.parent, this.visualParent, i % this.spawnTypes, 1, x, y);
             w.crossedLine = true;

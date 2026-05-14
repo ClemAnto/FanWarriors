@@ -9,15 +9,16 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.4.0';
+const VERSION            = '0.5.0';
 const DEBUG              = false;  // set true to show debug panel and overlay
-const DEBUG_ENGINE       = true;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
-const MAGNET_FORCE_BASE  = 20;  // base force at design width — scaled by LAYOUT_SCALE
+const MAGNET_FORCE_BASE  = 30;  // base force at design width — scaled by LAYOUT_SCALE
 const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
-const WARRIOR_FRICTION   = 0.5; // Box2D friction on warrior collider (0 = frictionless, 1 = rough)
+const WARRIOR_FRICTION        = 0.5; // Box2D friction on warrior collider (0 = frictionless, 1 = rough)
+const WARRIOR_SETTLED_DAMPING = 12;  // linearDamping applied when warrior stops — lower = easier to displace
 const WARRIOR_VIEW_Y_OFFSET = 1.5; // viewNode lift above physics center, in units of radius
 const SETTLE_VELOCITY      = 0.4;   // Box2D velocity units — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warrior failed to cross
@@ -72,6 +73,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     private suctionTimeLeft: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
+    private get gameOverLineLocal(): number {
+        const sy = this.box2dLayer?.scale.y ?? 1;
+        return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
+    }
+
     private syncInputBounds(): void {
         this.inputCtrl.setTrackBounds(WALL_LB, WALL_LT, WALL_RB, WALL_RT);
     }
@@ -106,7 +112,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         initLayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
-        Warrior.friction    = WARRIOR_FRICTION;
+        Warrior.friction        = WARRIOR_FRICTION;
+        Warrior.settledDamping  = WARRIOR_SETTLED_DAMPING;
         Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
         PhysicsSystem2D.instance.enable = true;
         PhysicsSystem2D.instance.gravity = new Vec2(0, 0);
@@ -159,7 +166,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.initialScale = LAYOUT_SCALE;
         this.syncInputBounds();
 
-        this.spawnMgr = new SpawnManager(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1));
+        this.spawnMgr = new SpawnManager(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1), this.box2dLayer.scale.y);
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
 
@@ -288,7 +295,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.prevY.delete(w);
             if (w.node?.isValid) w.node.destroy();
         });
-        this.warriors.push(...this.spawnMgr.prefill());
+        // this.warriors.push(...this.spawnMgr.prefill());
 
         this.currentRound     = 1;
         this.totalMerges      = 0;
@@ -360,6 +367,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private onWarriorLaunched(w: Warrior): void {
+        const launchY = w.node.position.y;
+        if (launchY >= this.gameOverLineLocal) {
+            console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
+            return;
+        }
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
         console.log('[GameManager] warrior launched');
@@ -384,7 +396,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private checkLaunchResult(w: Warrior): void {
         if (!w.node?.isValid || w.crossedLine || this.state === GameState.GameOver) return;
-        if (w.node.position.y >= GAME_OVER_LINE_Y) return;
+        if (w.node.position.y >= this.gameOverLineLocal) return;
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
                 console.log('[GameManager] launched warrior hit established warriors and fell back — game over');
@@ -421,13 +433,14 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private checkLineLogic(): void {
         let anyDanger = false;
+        const gol = this.gameOverLineLocal;
         for (const w of this.warriors) {
             if (!w.node?.isValid) continue;
             const y    = w.node.position.y;
             const prev = this.prevY.get(w) ?? y;
 
             if (!w.crossedLine && w.launched) {
-                if (y >= GAME_OVER_LINE_Y) {
+                if (y >= gol) {
                     w.crossedLine = true;
                     w.settled = true;
                     console.log('[GameManager] warrior crossed line — in play');
@@ -443,8 +456,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 }
             } else if (w.crossedLine && w.settled) {
                 const bottom = y - w.radius;
-                if (w !== this.inflightWarrior && bottom <= GAME_OVER_LINE_Y) anyDanger = true;
-                if (prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y) {
+                if (w !== this.inflightWarrior && bottom <= gol) anyDanger = true;
+                if (prev >= gol && y < gol) {
                     console.log('[GameManager] warrior fully below game-over line — penalty');
                     this.penaltyExplode(w);
                 }
@@ -1215,7 +1228,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private zSortWarriors(): void {
         [...this.warriors]
             .sort((a, b) => b.node.position.y - a.node.position.y)
-            .forEach((w, i) => w.node.setSiblingIndex(i));
+            .forEach((w, i) => {
+                w.node.setSiblingIndex(i);
+                if (w.viewNode?.isValid) w.viewNode.setSiblingIndex(i);
+            });
     }
 
     private applyUpwardDrift(): void {
@@ -1233,6 +1249,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         const magnetForce = MAGNET_FORCE_BASE  * LAYOUT_SCALE;
         const r1    = (LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE;
         const r1sq  = r1 * r1;
+        // box2dLayer has non-uniform scale (scaleY=0.5): node.position is local, not canvas.
+        // Convert to canvas space for gap comparison (radius and magnetGap are in canvas pixels).
+        // Force direction stays in local space since Box2D operates there.
+        const sx = this.box2dLayer.scale.x;
+        const sy = this.box2dLayer.scale.y;
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
             if (!a.node?.isValid || a.merging) continue;
@@ -1245,10 +1266,9 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const b = this.warriors[j];
                 if (!b.node?.isValid || b.merging || b.type !== a.type || b.level !== a.level) continue;
 
-                const dist = Vec2.distance(
-                    new Vec2(a.node.position.x, a.node.position.y),
-                    new Vec2(b.node.position.x, b.node.position.y)
-                );
+                const dx = (b.node.position.x - a.node.position.x) * sx;
+                const dy = (b.node.position.y - a.node.position.y) * sy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
                 const gap = Math.max(0, dist - a.radius - b.radius);
                 if (gap < magnetGap && gap < nearestGap) {
                     nearestGap = gap;

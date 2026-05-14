@@ -9,8 +9,9 @@ const MERGE_DELAY = 0.3;
 
 @ccclass('Warrior')
 export class Warrior extends Component {
-    static friction    = 0.05;
-    static viewYOffset = 0.8;
+    static friction        = 0.05;
+    static settledDamping  = 16;
+    static viewYOffset     = 0.8;
     type: number = 0;
     level: number = 1;
     merging: boolean = false;
@@ -77,7 +78,7 @@ export class Warrior extends Component {
     settle(): void {
         const rb = this.getComponent(RigidBody2D);
         if (!rb) return;
-        rb.linearDamping  = 16;
+        rb.linearDamping  = Warrior.settledDamping;
         rb.angularDamping = 5;
         this.settled = true;
     }
