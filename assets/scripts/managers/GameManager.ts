@@ -5,19 +5,21 @@ import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
-import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, initLayout, Track } from '../entities/Track';
+import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
+import { CoordConverter } from '../utils/CoordConverter';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.3.8';
+const VERSION            = '0.5.3';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
-const MAGNET_FORCE_BASE  = 20;  // base force at design width — scaled by LAYOUT_SCALE
+const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
 const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
-const WARRIOR_FRICTION   = 0.5; // Box2D friction on warrior collider (0 = frictionless, 1 = rough)
+const WARRIOR_LINEAR_DAMPING   = 1.5; // linearDamping on active warriors — controls sliding speed decay
+const WARRIOR_SETTLED_DAMPING  = 12;  // linearDamping applied when warrior stops — lower = easier to displace
 const WARRIOR_VIEW_Y_OFFSET = 1.5; // viewNode lift above physics center, in units of radius
 const SETTLE_VELOCITY      = 0.4;   // Box2D velocity units — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warrior failed to cross
@@ -46,11 +48,16 @@ export class GameManager extends Component implements IGameManagerDebug {
     private prevY = new Map<Warrior, number>();
     private state = GameState.Idle;
     private pendingWarrior: Warrior | null = null;
+    private inflightWarrior: Warrior | null = null;
     private debugLabel: Label | null = null;
+    private debugOverlay: Graphics | null = null;
 
     private worldNode!: Node;
     private gameLayer!: Node;
+    private box2dLayer!: Node;
+    private warriorsLayer!: Node;
     private uiLayer!: Node;
+    private coords!: CoordConverter;
 
     // game state
     private score = 0;
@@ -66,12 +73,25 @@ export class GameManager extends Component implements IGameManagerDebug {
     private track: Track | null = null;
     private suctionCenter: Vec2 | null = null;
     private suctionTimeLeft: number = 0;
+    private suctionDuration: number = 0;
+    private suctionPeakForce: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
+    private get gameOverLineLocal(): number {
+        const sy = this.box2dLayer?.scale.y ?? 1;
+        return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
+    }
+
+    private syncInputBounds(): void {
+        this.inputCtrl.setTrackBounds(WALL_LB, WALL_LT, WALL_RB, WALL_RT);
+    }
+
     private readonly onBrowserResize = (): void => {
         cancelAnimationFrame(this.resizeRafId);
         this.resizeRafId = requestAnimationFrame(() => {
             this.track?.relayout();
+            this.inputCtrl?.relayout(LAYOUT_SCALE);
+            this.syncInputBounds();
             if (this.timerSectionNode) {
                 this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
             }
@@ -96,7 +116,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         initLayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
         console.log('[GameManager] start');
-        Warrior.friction    = WARRIOR_FRICTION;
+        Warrior.linearDamping   = WARRIOR_LINEAR_DAMPING;
+        Warrior.settledDamping  = WARRIOR_SETTLED_DAMPING;
         Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
         PhysicsSystem2D.instance.enable = true;
         PhysicsSystem2D.instance.gravity = new Vec2(0, 0);
@@ -113,6 +134,21 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.gameLayer = this.worldNode.getChildByName('GameLayer')
             ?? (() => { const n = new Node('GameLayer'); n.setParent(this.worldNode); return n; })();
 
+        this.box2dLayer = this.worldNode.getChildByName('Box2DLayer')
+            ?? (() => { console.warn('[GameManager] Box2DLayer not found in scene — created fresh (scaleY will be 1, not 0.5!)'); const n = new Node('Box2DLayer'); n.setParent(this.worldNode); return n; })();
+        // Canvas repositions to designHeight/2 in world space after Widget layout, which runs after
+        // start() — cannot read box2dLayer.worldPosition.y here; derive from design resolution instead.
+        this.coords = new CoordConverter(this.box2dLayer.scale.y, view.getDesignResolutionSize().height / 2);
+
+        if (DEBUG_ENGINE) {
+            const overlayNode = new Node('DebugOverlay');
+            overlayNode.setParent(this.box2dLayer);
+            this.debugOverlay = overlayNode.addComponent(Graphics);
+        }
+
+        this.warriorsLayer = this.worldNode.getChildByName('WarriorsLayer')
+            ?? (() => { console.warn('[GameManager] WarriorsLayer not found in scene — created fresh'); const n = new Node('WarriorsLayer'); n.setParent(this.worldNode); return n; })();
+
         this.uiLayer = canvas.getChildByName('UILayer')
             ?? (() => {
                 const n = new Node('UILayer');
@@ -123,17 +159,23 @@ export class GameManager extends Component implements IGameManagerDebug {
                 uiw.left = uiw.right = uiw.top = uiw.bottom = 0;
                 return n;
             })();
+        // Ensure uiLayer renders on top of all game-world nodes
+        this.uiLayer.setSiblingIndex(canvas.children.length - 1);
 
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
         this.track?.relayout();
 
         this.inputCtrl = this.node.addComponent(InputController);
-        this.inputCtrl.ropeParent = this.gameLayer;
-        this.inputCtrl.onLaunch = (w) => this.onWarriorLaunched(w);
-        this.inputCtrl.onTap    = (w) => this.cycleLauncherLevel(w);
+        this.inputCtrl.ropeParent = this.worldNode;
+        this.inputCtrl.onLaunch     = (w) => this.onWarriorLaunched(w);
+        this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
+        this.inputCtrl.getWarriors  = () => this.warriors;
+        this.inputCtrl.showBounds   = DEBUG_ENGINE;
+        this.inputCtrl.initialScale = LAYOUT_SCALE;
+        this.syncInputBounds();
 
-        this.spawnMgr = new SpawnManager(this.gameLayer, spawnTypesForRound(1));
+        this.spawnMgr = new SpawnManager(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1), this.box2dLayer.scale.y);
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
 
@@ -148,17 +190,9 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (DEBUG) {
                 const debugNode = new Node('DebugPanel');
                 debugNode.setParent(this.uiLayer);
-                debugNode.addComponent(DebugPanel).init(this);
-            }
-            if (DEBUG_ENGINE) {
-                const lineNode = new Node('GameOverLine');
-                lineNode.setParent(this.gameLayer);
-                const g = lineNode.addComponent(Graphics);
-                g.lineWidth = 2;
-                g.strokeColor = new Color(255, 0, 0, 200);
-                g.moveTo(-TRACK_W / 2, GAME_OVER_LINE_Y);
-                g.lineTo(TRACK_W / 2, GAME_OVER_LINE_Y);
-                g.stroke();
+                const panel = debugNode.addComponent(DebugPanel);
+                panel.layerScaleY = this.box2dLayer.scale.y;
+                panel.init(this);
             }
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
         });
@@ -208,7 +242,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     getWarriors(): readonly Warrior[] { return this.warriors; }
 
     addDebugWarrior(type: number, level: number, x: number, y: number): void {
-        const w = Warrior.spawn(this.gameLayer, type, level, x, y);
+        const w = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, level, x, y);
         w.crossedLine = true;
         w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
@@ -224,7 +258,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.warriors  = this.warriors.filter(x => x !== w);
         this.prevY.delete(w);
         w.node.destroy();
-        const nw = Warrior.spawn(this.gameLayer, type, newLevel, pos.x, pos.y);
+        const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, newLevel, pos.x, pos.y);
         nw.crossedLine  = true;
         nw.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(nw);
@@ -272,7 +306,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.prevY.delete(w);
             if (w.node?.isValid) w.node.destroy();
         });
-        this.warriors.push(...this.spawnMgr.prefill());
+        // this.warriors.push(...this.spawnMgr.prefill());
 
         this.currentRound     = 1;
         this.totalMerges      = 0;
@@ -289,6 +323,23 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     update(dt: number) {
         if (this.state === GameState.GameOver) return;
+        if (this.debugOverlay) {
+            const g = this.debugOverlay;
+            g.clear();
+            g.strokeColor = new Color(0, 255, 0, 180);
+            g.lineWidth = 6;
+            for (const w of this.warriors) {
+                if (!w.node?.isValid) continue;
+                const p   = w.node.position;
+                const r   = w.radius;
+                const rad = w.node.angle * Math.PI / 180;
+                g.circle(p.x, p.y, r);
+                g.stroke();
+                g.moveTo(p.x, p.y);
+                g.lineTo(p.x + Math.cos(rad) * r, p.y + Math.sin(rad) * r);
+                g.stroke();
+            }
+        }
         try {
             this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
             this.zSortWarriors();
@@ -311,6 +362,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
+        if (w.mapper) w.mapper.animScale = 0;
+        // PerspectiveMapper.lateUpdate hasn't run yet for this brand-new component — hide viewNode
+        // immediately so it doesn't flash at (0,0) for the first rendered frame.
+        if (w.viewNode?.isValid) w.viewNode.setScale(0, 0, 1);
         this.warriors.push(w);
         this.nextLaunchWarrior = w;
         return w;
@@ -326,7 +381,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private onWarriorLaunched(w: Warrior): void {
+        const launchY = w.node.position.y;
+        if (launchY >= this.gameOverLineLocal) {
+            console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
+            return;
+        }
         this.state = GameState.Inflight;
+        this.inflightWarrior = w;
         console.log('[GameManager] warrior launched');
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
     }
@@ -349,7 +410,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private checkLaunchResult(w: Warrior): void {
         if (!w.node?.isValid || w.crossedLine || this.state === GameState.GameOver) return;
-        if (w.node.position.y >= GAME_OVER_LINE_Y) return;
+        if (w.node.position.y >= this.gameOverLineLocal) return;
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
                 console.log('[GameManager] launched warrior hit established warriors and fell back — game over');
@@ -365,7 +426,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private penaliseAndReturn(w: Warrior): void {
         this.score = Math.max(0, this.score - FAILED_LAUNCH_MALUS);
-        this.spawnFloatingScore(w.node.position.x, w.node.position.y, -FAILED_LAUNCH_MALUS);
+        this.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), -FAILED_LAUNCH_MALUS);
         this.updateScoreLabel();
 
         w.launched = false;
@@ -385,14 +446,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private checkLineLogic(): void {
+        let anyDanger = false;
+        const gol = this.gameOverLineLocal;
         for (const w of this.warriors) {
             if (!w.node?.isValid) continue;
             const y    = w.node.position.y;
             const prev = this.prevY.get(w) ?? y;
 
             if (!w.crossedLine && w.launched) {
-                if (y >= GAME_OVER_LINE_Y) {
+                if (y >= gol) {
                     w.crossedLine = true;
+                    w.settled = true;
                     console.log('[GameManager] warrior crossed line — in play');
                     if (this.state === GameState.Inflight) {
                         if (this.waitForSettling) {
@@ -406,15 +470,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 }
             } else if (w.crossedLine && w.settled) {
                 const bottom = y - w.radius;
-                const h      = w.radius * 2;
-                let factor   = 0;
-                if (bottom <= GAME_OVER_LINE_Y + h) {
-                    factor = bottom >= GAME_OVER_LINE_Y
-                        ? 0.1 + 0.7 * (1 - (bottom - GAME_OVER_LINE_Y) / h)
-                        : 0.8 + 0.3 * Math.min(1, (GAME_OVER_LINE_Y - bottom) / h);
-                }
-                w.setDangerTint(factor);
-                if (prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y) {
+                if (w !== this.inflightWarrior && bottom <= gol) anyDanger = true;
+                if (prev >= gol && y < gol) {
                     console.log('[GameManager] warrior fully below game-over line — penalty');
                     this.penaltyExplode(w);
                 }
@@ -422,6 +479,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             this.prevY.set(w, y);
         }
+        this.track?.setLinePulse(anyDanger);
     }
 
     private penaltyExplode(_w: Warrior): void {
@@ -437,7 +495,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.warriors = this.warriors.filter(x => x !== w);
         this.prevY.delete(w);
         w.node.destroy();
-        const nw = Warrior.spawn(this.gameLayer, w.type, newLevel, pos.x, pos.y);
+        const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, w.type, newLevel, pos.x, pos.y);
         this.warriors.push(nw);
         this.inputCtrl.setWarrior(nw);
         console.log(`[GameManager] debug: launcher lv${w.level} → lv${newLevel}`);
@@ -511,8 +569,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         const inflightMerged = this.state === GameState.Inflight &&
             ((a.launched && !a.crossedLine) || (b.launched && !b.crossedLine));
 
-        const midX = (a.node.position.x + b.node.position.x) / 2;
-        const midY = (a.node.position.y + b.node.position.y) / 2;
+        const midX  = (a.node.position.x + b.node.position.x) / 2;  // local (scaleX=1 → canvas)
+        const midY  = (a.node.position.y + b.node.position.y) / 2;  // local
+        const midYC = this.coords.physToVisual(midY);                 // canvas Y for UI/VFX
         const newLevel = a.level + 1;
         const maxLevel = WARRIORS[a.type]?.maxLevel ?? 7;
         const vx = (a.velocity.x + b.velocity.x) * 0.5 * 0.75;
@@ -529,19 +588,20 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.checkRoundAdvance();
         const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
         this.score += points;
-        this.spawnFloatingScore(midX, midY, points);
+        this.spawnFloatingScore(midX, midYC, points);
         this.updateScoreLabel();
         this.updateRoundProgress();
 
         if (newLevel > maxLevel) {
             // Both at max level — consume both, free space, no new warrior spawned
-            this.flashBurst(midX, midY, a.type);
+            this.flashBurst(midX, midYC, a.type);
             if (inflightMerged) this.activateAfterInflightMerge();
             return;
         }
 
-        const merged = Warrior.spawn(this.gameLayer, a.type, newLevel, midX, midY);
+        const merged = Warrior.spawn(this.box2dLayer, this.warriorsLayer, a.type, newLevel, midX, midY);
         merged.crossedLine = true;
+        merged.settle();
         merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
         merged.velocity = new Vec2(vx, vy);
         this.warriors.push(merged);
@@ -827,9 +887,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         const lvConf = LEVEL_CONFIG[level];
         const bonus = lvConf?.bonus ?? 0;
         const color = lvConf?.vfxColor ?? new Color(255, 255, 255, 255);
-        const mx = w.node.position.x;
-        const my = w.node.position.y;
-        const r  = w.radius;
+        const mx  = w.node.position.x;                   // local (scaleX=1 → canvas)
+        const my  = w.node.position.y;                   // local Y
+        const myC = this.coords.physToVisual(my);         // canvas Y for UI/VFX
+        const r   = w.radius;
 
         this.warriors = this.warriors.filter(wr => wr !== w);
         this.prevY.delete(w);
@@ -837,13 +898,13 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.score += bonus;
         this.updateScoreLabel();
-        if (bonus > 0) this.spawnFloatingScore(mx, my + 30, bonus);
+        if (bonus > 0) this.spawnFloatingScore(mx, myC + 30, bonus);
 
         // Two expanding rings
         for (let i = 0; i < 2; i++) {
             const vfx = new Node('ExpVFX');
             vfx.setParent(this.gameLayer);
-            vfx.setPosition(mx, my);
+            vfx.setPosition(mx, myC);
             const g = vfx.addComponent(Graphics);
             g.lineWidth = 6 - i * 2;
             g.strokeColor = color;
@@ -860,7 +921,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Label
         const labelNode = new Node('ExpLabel');
         labelNode.setParent(this.uiLayer);
-        labelNode.setPosition(mx, my + 10);
+        labelNode.setSiblingIndex(this.uiLayer.children.length - 1);
+        labelNode.setPosition(mx, myC + 10);
         const lbl = labelNode.addComponent(Label);
         lbl.string = lvConf?.label ?? '';
         lbl.fontSize = 40;
@@ -872,41 +934,95 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
             .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
 
-        const suctionY = my + 80 * LAYOUT_SCALE;
-        this.activateSuction(mx, suctionY, color);
         console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
     }
 
     // --- vortex suction ---
 
-    private activateSuction(cx: number, cy: number, ringColor: Color): void {
-        const SUCTION_DURATION = 3;
+    private activateSuction(cx: number, cy: number, ringColor: Color, strength = 1): void {
+        const BASE_DURATION = 3;
+        const BASE_FORCE    = 240;
         this.suctionCenter    = new Vec2(cx, cy);
-        this.suctionTimeLeft  = SUCTION_DURATION;
-        this.cohesionTimeLeft = SUCTION_DURATION + 2;
+        this.suctionDuration  = BASE_DURATION * strength;
+        this.suctionTimeLeft  = this.suctionDuration;
+        this.suctionPeakForce = BASE_FORCE * strength;
+        this.cohesionTimeLeft = this.suctionDuration + 2;
 
+        // C — pulse di scala sui warrior vicini al punto di merge
+        const pulseRadius = 300 * strength;
+        for (const w of this.warriors) {
+            if (!w.node?.isValid || !w.mapper || !w.crossedLine) continue;
+            const dx = w.node.position.x - cx;
+            const dy = w.node.position.y - cy;
+            if (Math.sqrt(dx * dx + dy * dy) > pulseRadius) continue;
+            const squeeze = 1 - 0.18 * strength;
+            tween(w.mapper)
+                .to(0.10, { animScale: squeeze }, { easing: 'quadIn' })
+                .to(0.20, { animScale: 1.0 },    { easing: 'quadOut' })
+                .start();
+        }
+
+        // vs = floor visivo: garantisce effetti leggibili anche al livello minimo
+        const vs  = Math.max(strength, 0.35);
+        const cyV = this.coords.physToVisual(cy);
+
+        // anelli contraenti
         for (let i = 0; i < 2; i++) {
             const sring = new Node('SuctionRing');
-            sring.setParent(this.gameLayer);
-            sring.setPosition(cx, cy);
+            sring.setParent(this.warriorsLayer);
+            sring.setPosition(cx, cyV);
             const sg = sring.addComponent(Graphics);
             sg.lineWidth   = 4 - i;
-            sg.strokeColor = new Color(ringColor.r, ringColor.g, ringColor.b, 200 - i * 40);
-            sg.circle(0, 0, 180 + i * 60);
+            sg.strokeColor = new Color(ringColor.r, ringColor.g, ringColor.b, Math.round((200 - i * 40) * vs));
+            sg.circle(0, 0, (180 + i * 60) * vs);
             sg.stroke();
             const sop = sring.addComponent(UIOpacity);
-            sop.opacity = 180 - i * 40;
+            sop.opacity = Math.round((180 - i * 40) * vs);
             const delay = i * 0.15;
-            tween(sring).delay(delay).to(SUCTION_DURATION - delay, { scale: new Vec3(0.01, 0.01, 1) }).start();
-            tween(sop).delay(delay).to(SUCTION_DURATION - delay, { opacity: 0 })
+            tween(sring).delay(delay).to(this.suctionDuration - delay, { scale: new Vec3(0.01, 0.01, 1) }).start();
+            tween(sop).delay(delay).to(this.suctionDuration - delay, { opacity: 0 })
                 .call(() => { if (sring.isValid) sring.destroy(); }).start();
+        }
+
+        // A — particelle vorticose che spiralano verso il centro
+        const count = Math.round(5 + 7 * vs);
+        for (let i = 0; i < count; i++) {
+            const angle  = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+            const radius = (80 + Math.random() * 80) * vs;
+            const startX = cx  + Math.cos(angle) * radius;
+            const startY = cyV + Math.sin(angle) * radius;
+            const midAngle = angle + Math.PI / 3;
+            const midR     = radius * 0.4;
+            const midX     = cx  + Math.cos(midAngle) * midR;
+            const midY     = cyV + Math.sin(midAngle) * midR;
+
+            const p = new Node('SuctionParticle');
+            p.setParent(this.warriorsLayer);
+            p.setPosition(startX, startY);
+            const g = p.addComponent(Graphics);
+            g.fillColor = new Color(ringColor.r, ringColor.g, ringColor.b, 220);
+            g.circle(0, 0, Math.max(2.5, (3 + Math.random() * 3) * vs));
+            g.fill();
+            const op = p.addComponent(UIOpacity);
+            op.opacity = 220;
+
+            const delay = Math.random() * 0.35;
+            const dur   = (0.35 + Math.random() * 0.25) * (0.5 + vs * 0.5);
+            tween(p)
+                .delay(delay)
+                .to(dur * 0.55, { position: new Vec3(midX, midY, 0) }, { easing: 'quadIn' })
+                .to(dur * 0.45, { position: new Vec3(cx,   cyV,  0) }, { easing: 'quadIn' })
+                .call(() => { if (p.isValid) p.destroy(); })
+                .start();
+            tween(op)
+                .delay(delay)
+                .to(dur * 0.3,  { opacity: 220 })
+                .to(dur * 0.7,  { opacity: 0 })
+                .start();
         }
     }
 
     private applyVortexSuction(dt: number): void {
-        const SUCTION_DURATION = 3.0;
-        const PEAK_FORCE       = 240;
-
         this.suctionTimeLeft -= dt;
         if (this.suctionTimeLeft <= 0) {
             this.suctionCenter = null;
@@ -914,9 +1030,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
 
         // Curva a campana: 0 → picco a metà → 0, sempre inward
-        const elapsed  = SUCTION_DURATION - this.suctionTimeLeft;
-        const progress = Math.sin(Math.PI * elapsed / SUCTION_DURATION);
-        const force    = PEAK_FORCE * progress;
+        const elapsed  = this.suctionDuration - this.suctionTimeLeft;
+        const progress = Math.sin(Math.PI * elapsed / this.suctionDuration);
+        const force    = this.suctionPeakForce * progress;
 
         const cx = this.suctionCenter!.x;
         const cy = this.suctionCenter!.y;
@@ -938,6 +1054,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const COHESION_RANGE  = 120 * LAYOUT_SCALE;
         const COHESION_FORCE  = 12  * LAYOUT_SCALE;
         const r1sq = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
+        const sx = this.box2dLayer.scale.x;
+        const sy = this.box2dLayer.scale.y;
 
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
@@ -945,15 +1063,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             for (let j = i + 1; j < this.warriors.length; j++) {
                 const b = this.warriors[j];
                 if (!b.node?.isValid || b.merging || !b.crossedLine || b === this.pendingWarrior) continue;
-                const dx   = b.node.position.x - a.node.position.x;
-                const dy   = b.node.position.y - a.node.position.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                // Convert to canvas space for gap comparison (radius and COHESION_RANGE are in canvas pixels)
+                const dxL  = b.node.position.x - a.node.position.x;
+                const dyL  = b.node.position.y - a.node.position.y;
+                const dist = Math.sqrt((dxL * sx) ** 2 + (dyL * sy) ** 2);
                 const gap  = Math.max(0, dist - a.radius - b.radius);
                 if (gap <= 0 || gap > COHESION_RANGE) continue;
                 const t    = 1 - gap / COHESION_RANGE;
                 const f    = COHESION_FORCE * t;
-                const nx   = dx / dist;
-                const ny   = dy / dist;
+                // Direction in local space for Box2D force application
+                const len  = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
+                const nx   = dxL / len;
+                const ny   = dyL / len;
                 const msA  = (a.radius * a.radius) / r1sq;
                 const msB  = (b.radius * b.radius) / r1sq;
                 a.applyForce(new Vec2( nx * f * msA,  ny * f * msA));
@@ -1133,6 +1254,19 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private animateNextTransition(): void {
+        // Zoom-in warrior at launcher (deferred one frame — nextLaunchWarrior set after spawnNext returns)
+        this.scheduleOnce(() => {
+            const w = this.nextLaunchWarrior;
+            if (!w?.node?.isValid || !w.mapper) return;
+            w.mapper.animScale = 0;
+            tween(w.mapper)
+                .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
+                .to(0.08, { animScale: 0.9 })
+                .to(0.06, { animScale: 1.0 })
+                .call(() => { this.nextLaunchWarrior = null; })
+                .start();
+        }, 0);
+
         if (!this.nextSecNode?.isValid) {
             this.updateNextPreview();
             return;
@@ -1149,18 +1283,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.scheduleOnce(() => this.updateNextPreview(true), 0.30);
         }
 
-        // Zoom-in warrior at launcher position (deferred one frame — nextLaunchWarrior set after spawnNext returns)
-        this.scheduleOnce(() => {
-            const w = this.nextLaunchWarrior;
-            if (!w?.node?.isValid) return;
-            w.node.setScale(0, 0, 1);
-            tween(w.node)
-                .to(0.18, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'quadOut' })
-                .to(0.08, { scale: new Vec3(0.9, 0.9, 1) })
-                .to(0.06, { scale: new Vec3(1.0, 1.0, 1) })
-                .call(() => { this.nextLaunchWarrior = null; })
-                .start();
-        }, 0);
     }
 
     private makeLabel(parent: Node, text: string, x: number, y: number, fontSize: number, color: Color): Label {
@@ -1182,7 +1304,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private zSortWarriors(): void {
         [...this.warriors]
             .sort((a, b) => b.node.position.y - a.node.position.y)
-            .forEach((w, i) => w.node.setSiblingIndex(i));
+            .forEach((w, i) => {
+                w.node.setSiblingIndex(i);
+                if (w.viewNode?.isValid) w.viewNode.setSiblingIndex(i);
+            });
     }
 
     private applyUpwardDrift(): void {
@@ -1200,6 +1325,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         const magnetForce = MAGNET_FORCE_BASE  * LAYOUT_SCALE;
         const r1    = (LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE;
         const r1sq  = r1 * r1;
+        // box2dLayer has non-uniform scale (scaleY=0.5): node.position is local, not canvas.
+        // Convert to canvas space for gap comparison (radius and magnetGap are in canvas pixels).
+        // Force direction stays in local space since Box2D operates there.
+        const sx = this.box2dLayer.scale.x;
+        const sy = this.box2dLayer.scale.y;
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
             if (!a.node?.isValid || a.merging) continue;
@@ -1212,10 +1342,9 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const b = this.warriors[j];
                 if (!b.node?.isValid || b.merging || b.type !== a.type || b.level !== a.level) continue;
 
-                const dist = Vec2.distance(
-                    new Vec2(a.node.position.x, a.node.position.y),
-                    new Vec2(b.node.position.x, b.node.position.y)
-                );
+                const dx = (b.node.position.x - a.node.position.x) * sx;
+                const dy = (b.node.position.y - a.node.position.y) * sy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
                 const gap = Math.max(0, dist - a.radius - b.radius);
                 if (gap < magnetGap && gap < nearestGap) {
                     nearestGap = gap;
@@ -1236,17 +1365,19 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private flashMerge(w: Warrior): void {
-        tween(w.node)
-            .to(0.08, { scale: new Vec3(1.4, 1.4, 1) })
-            .to(0.12, { scale: new Vec3(1.0, 1.0, 1) })
+        if (!w.mapper) return;
+        tween(w.mapper)
+            .to(0.08, { animScale: 1.4 })
+            .to(0.12, { animScale: 1.0 })
             .start();
     }
 
-    private flashBurst(x: number, y: number, type: number): void {
+    // x and yCanvas are in canvas space (gameLayer coordinates)
+    private flashBurst(x: number, yCanvas: number, type: number): void {
         const burstColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
         const vfx = new Node('BurstVFX');
         vfx.setParent(this.gameLayer);
-        vfx.setPosition(x, y);
+        vfx.setPosition(x, yCanvas);
         const g = vfx.addComponent(Graphics);
         g.lineWidth = 4;
         g.strokeColor = burstColor;
@@ -1257,12 +1388,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         tween(vfx).to(0.3, { scale: new Vec3(2, 2, 1) }).start();
         tween(op).to(0.3, { opacity: 0 })
             .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
-        this.activateSuction(x, y, burstColor);
+        this.activateSuction(x, this.coords.visualToPhys(yCanvas), burstColor);
     }
 
     private spawnFloatingScore(x: number, y: number, points: number): void {
         const node = new Node('FloatingScore');
         node.setParent(this.uiLayer);
+        node.setSiblingIndex(this.uiLayer.children.length - 1);
         node.setPosition(x, y);
 
         const lbl = node.addComponent(Label);

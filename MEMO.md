@@ -26,41 +26,18 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 ### Track walls (Track.ts)
 | Parete | Restitution | Friction | Note |
 |--------|-------------|----------|------|
-| Laterali (PolygonCollider2D) | 0.8 | 0.05 | Inclinate 5° — più strette in alto |
-| Top (BoxCollider2D) | 0.0 | 1.0 | Solo larghezza ridotta del funnel |
-| Bottom (BoxCollider2D) | 0.0 | 0.0 | |
+| Laterali (PolygonCollider2D) | 0.8 | 0.05 | Da bottom-left→top-left e bottom-right→top-right di TrackSprite |
+| Top (BoxCollider2D) | 0.0 | 1.0 | Larghezza = `funnelPercentage`% della larghezza sprite |
+| Bottom (BoxCollider2D) | 0.0 | 0.0 | Larghezza = larghezza sprite |
 
-### Track — geometria funnel (Track.ts)
+I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UITransform + position + scale + anchor) — non dalle costanti `TRACK_W`/`TRACK_BOTTOM_Y`. Si rigenerano automaticamente su `SIZE_CHANGED` / `TRANSFORM_CHANGED`. Spessore = `wallThickness`% della larghezza sprite (default 4%).
 
-Tutte le costanti sono **calcolate da `initLayout()`** — non fisse. Ricalcolate all'avvio e ad ogni relayout.
 
-| Costante | Formula | Esempio a 720×1280 design |
-|----------|---------|--------------------------|
-| `TRACK_H` | `min(vs.height × 0.75, (10/6) × 0.95 × vs.width)` | 960 |
-| `TRACK_W` | `TRACK_H × 6/10 × 1.2` (+20% solo in larghezza) | 691 |
-| `TRACK_BOTTOM_Y` | `−vs.height / 2` | −640 |
-| `TRACK_TOP_Y` | `TRACK_BOTTOM_Y + TRACK_H` | +320 |
-| `GAME_OVER_LINE_Y` | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` | −160 |
-| `FUNNEL_OFFSET` | `TRACK_W × funnelPct / 200` | 72 (a 25%) |
-| `LAYOUT_SCALE` | `TRACK_W / 384` | 1.5 |
-| Larghezza in cima | `TRACK_W − 2 × FUNNEL_OFFSET` | 432 |
+**CRITICO — `worldPosition.y` in CC3 2D restituisce la Y LOCALE** (senza applicare la scala del parent). Confermato da `PerspectiveMapper` che moltiplica manualmente `wp.y * sy` per ottenere la Y canvas. Per convertire in canvas-space: `localY * parentScaleY`. Il confronto con `GAME_OVER_LINE_Y` (canvas space) deve quindi essere fatto in spazio locale: `w.node.position.y >= GAME_OVER_LINE_Y / box2dLayer.scaleY`.
 
-**Aspect ratio pista: 6:10 × 1.2** (TRACK_W = 0.6 × 1.2 × TRACK_H — allargata del 20% solo in X).  
-**Formula altezza**: `min(75% altezza schermo, (10/6) × 95% larghezza schermo)`.  
-**TrackSprite**: nodo figlio di Track con la texture visiva della pista. `drawTrack()` lo sincronizza automaticamente a `TRACK_W × TRACK_H` — non impostare la UITransform a mano nella scena.  
-Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalmente (x = 0).
+**2DBox layer ha scaleY = 0.5**: canvas Y di un warrior = `w.node.position.y * 0.5`. Il getter `GameManager.gameOverLineLocal` centralizza questa conversione: `GAME_OVER_LINE_Y / box2dLayer.scale.y = −320` (con GAME_OVER_LINE_Y=−160).
 
-### PerspectiveMapper (PerspectiveMapper.ts)
-| Costante | Valore | Note |
-|----------|--------|------|
-| `SCALE_BOTTOM` | 1.2 | Bottom pista (depth=0) — i warrior in fondo appaiono più grandi (funnel più largo) |
-| `SCALE_TOP` | 0.9 | Top pista (depth=1) — i warrior in cima appaiono più piccoli (funnel più stretto) |
-| `VISUAL_SCALE` | 1.1 | Moltiplicatore globale rispetto al raggio fisico |
-| `viewNode` Y offset | `r × Warrior.viewYOffset` | Impostato in `Warrior.init()` — vale per sprite E placeholder; costante `WARRIOR_VIEW_Y_OFFSET` in GameManager.ts |
-
-**CRITICO — coordinate:** usare `node.position.y` (posizione locale rispetto a GameLayer), **non** `worldPosition.y`. Il nodo Canvas è a worldPosition (640, 360) → `worldPosition.y` ha un offset di +360 rispetto alle coordinate Canvas-local, quindi il confronto con `TRACK_TOP_Y`/`TRACK_BOTTOM_Y` (che sono coordinate Canvas-local) risulta sbagliato.
-
-**CRITICO — live values da Track:** le `export let` primitive importate possono essere snapshot al momento dell'import nei bundle CC3. Usare l'oggetto `trackLayout` (esportato da Track.ts, aggiornato da `initLayout()`) — le proprietà di un oggetto sono sempre live in qualsiasi module system.
+**CRITICO — live values da Track:** le `export let` primitive importate possono essere snapshot al momento dell'import nei bundle CC3. `trackLayout` è stato rimosso — usare direttamente `TRACK_TOP_Y` / `TRACK_BOTTOM_Y` leggendoli nel momento in cui servono (non in fase di import), oppure chiamare `initLayout()` prima di leggerli.
 
 ### InputController (InputController.ts)
 | Parametro | Valore | Note |
@@ -69,6 +46,12 @@ Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalment
 | `MAX_DRAG` | 80px | Cap visivo e di forza |
 | `MAX_IMPULSE` | 300 | Forza massima applicata |
 | Angolo max lancio | ±75° | Clampato da `clampLaunchDir()` |
+
+**Balestra — angolo post-lancio**: la `snapAnim` non reimposta più l'angolo a 0. Il `launcherNode` rimane all'angolo del lancio fino al `clearWarrior()` (chiamato quando viene caricato il warrior successivo), che lo riporta a 0.
+
+**Traiettoria — collisione disco-disco**: `rayCircleT` usa `w.radius + this.warrior.radius` come raggio di collisione. Il raggio da solo (`w.radius`) causa stop anticipato — il corretto punto di stop è quando le superfici si toccano.
+
+**`showBounds`**: impostato a `DEBUG_ENGINE` (non più hardcoded `true`). Mostra i bound della pista sovrapposti alla traiettoria.
 
 ### GameManager (GameManager.ts)
 | Parametro | Valore | Note |
@@ -81,20 +64,6 @@ Agganciata in basso (`TRACK_BOTTOM_Y = −vs.height/2`), centrata orizzontalment
 | `SPAWN_X` | 0 | Centro orizzontale |
 | `SPAWN_Y` | −220 | Sotto la game over line |
 
----
-
-## Coordinate e risoluzione
-
-- Design resolution: **720×1280 portrait**, policy `FIXED_HEIGHT` (impostato via codice in `GameManager.start()`)
-- Con FIXED_HEIGHT l'altezza è sempre 1280 unità design; la larghezza si adatta all'aspect ratio del dispositivo
-- Origine world space: **centro canvas (0, 0)** → schermo va da −640 a +640 in Y, e ±(visibleWidth/2) in X
-- `getUILocation()` restituisce coordinate con origine **bottom-left** → usare `view.getVisibleSize()` per la conversione corretta (non hardcodare larghezza)
-- **Zona di lancio:** da `TRACK_BOTTOM_Y` a `GAME_OVER_LINE_Y` — metà inferiore della pista (dinamica)
-- **Zona di gioco:** da `GAME_OVER_LINE_Y` a `TRACK_TOP_Y` — metà superiore della pista (dinamica)
-- Tutte le costanti sono **dinamiche** — derivano da `initLayout()` all'avvio (e al relayout se `LIVE_RESIZE = true`)
-- Warrior spawn: `spawnY = (GAME_OVER_LINE_Y + TRACK_BOTTOM_Y) / 2` — centro zona di lancio (calcolato nel costruttore di `SpawnManager`)
-- Prefill positions: `GAME_OVER_LINE_Y + 300` (offset hardcoded — da scalare con `LAYOUT_SCALE` in Fase 3 se necessario)
-- **Regola:** tutti i posizionamenti devono derivare dalle costanti di Track — nessun valore hardcoded
 
 ---
 
@@ -200,15 +169,8 @@ Dopo `node.destroy()`, l'accesso a `component.node` ritorna `null` nel tick succ
 this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
 ```
 
-### `worldPosition.y` ≠ coordinate Canvas-local
 
-Il nodo Canvas è a `worldPosition = (640, 360)`. I child di Canvas (GameLayer, Track, warriors) hanno:
-- `node.position.y` = posizione in coordinate Canvas-local ← **usa questo per confronti con TRACK constants**
-- `node.worldPosition.y` = position.y + 360 (offset canvas) ← **SBAGLIATO per confronti con TRACK**
 
-`TRACK_BOTTOM_Y` e `TRACK_TOP_Y` sono in coordinate Canvas-local. Qualsiasi calcolo di profondità/posizione rispetto alla pista deve usare `node.position.y`.
-
----
 
 ### Tutti i nodi 2D devono essere figli di Canvas
 Nodi creati a runtime con `new Node()` devono avere `setParent(canvasNode)` — il GameManager usa `this.node.parent` assumendo che il suo nodo sia figlio di Canvas. Non spostare il nodo GameManager fuori da Canvas.
@@ -283,6 +245,20 @@ I warrior prefill hanno `crossedLine = true` impostato manualmente — non passa
 
 ---
 
+## Linea di game over — stile visivo (v0.4.0+)
+
+Disegnata in `Track.buildWalls()` sul nodo **Track** — garantisce che sia sempre renderizzata sotto i warrior (che stanno in `GameLayer`). Si rigenera automaticamente su `relayout()`.
+
+- Linea tratteggiata manuale (dash 12px, gap 8px) con `Graphics`
+- Spessore **6px**, rosso `(255, 0, 0, 153)` — opacità 60%
+- Nodo aggiunto a `_walls[]` → distrutto e ricreato ad ogni rebuild muri
+
+**Pulse di pericolo**: quando almeno un warrior (da turni precedenti) ha il bordo inferiore ≤ `GAME_OVER_LINE_Y`, `GameManager.checkLineLogic()` chiama `track.setLinePulse(true)`. `Track` avvia un tween `UIOpacity` 255→30→255 in loop (0.7s/ciclo). Appena nessun warrior tocca la linea, `setLinePulse(false)` ferma il tween e ripristina opacità 255.
+
+`setLinePulse` è idempotente: controlla `_linePulseActive` prima di avviare/fermare per evitare restart ogni frame.
+
+---
+
 ## Cosa NON è ancora implementato (stato Fase 2)
 
 - **Livelli massimi per specie** — nel codice tutti i tipi vanno fino a lv7, ma il GDD prevede cap diversi per specie (lv5/6/7 solo per alcune). Da implementare in Fase 3 quando arrivano gli asset definitivi.
@@ -332,7 +308,14 @@ if (bottom <= GAME_OVER_LINE_Y + h) {
 ```
 Mappatura colore in `Warrior.setDangerTint`: `gb = Math.max(0, Math.round(255 - factor * 170))`.
 
-**CRITICO — `settled` flag**: la tint si applica **solo** se `w.settled === true`. `settled` diventa `true` la prima volta che `settle()` è chiamato (via `forceStop()` al primo stop, o direttamente sui prefill). Il warrior in volo (appena lanciato, prima di fermarsi nel mucchio) non riceve mai la tint rossa.
+**CRITICO — `settled` flag e chi lo imposta (v0.4.0)**:
+- **Prefill**: `SpawnManager.prefill()` chiama `w.settle()` → `settled = true` ✓
+- **Lanciati**: `checkLineLogic` imposta `w.settled = true` nel momento in cui il warrior supera `GAME_OVER_LINE_Y` ✓
+- **Merged**: `mergeWarriors()` chiama `merged.settle()` dopo lo spawn ✓
+
+`waitForSettling` è sempre `false` → `GameState.Settling` non viene mai raggiunto → `checkSettled()` non è il punto in cui si setta `settled`.
+
+**`inflightWarrior`**: il warrior di turno corrente (quello appena lanciato dal player) è escluso dal calcolo del danger tint e dall'`anyDanger` che attiva il pulse della linea. Viene impostato in `onWarriorLaunched(w)` e sovrascritto al lancio successivo. Questo evita che il warrior appena entrato in pista triggeri l'allarme prima di stabilizzarsi nel mucchio.
 
 La condizione di game-over usa i **centri** (non i bordi): `prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y` — più robusta per warrior che galleggiano vicino alla linea.
 
@@ -376,7 +359,25 @@ Flag `LIVE_RESIZE` in `GameManager.ts` (riga 13): `true` in sviluppo, `false` in
 | HUD Widget-based | ✓ | automatico Cocos |
 | Timer label (posizione) | ✓ | aggiornato esplicitamente |
 | Warrior già in pista | ✗ | rimangono nel vecchio spazio — accettabile in debug |
-| `SpawnManager.spawnY` | ✗ | calcolato nel costruttore, non aggiornato — irrilevante in debug |
+| `SpawnManager.spawnY` | ✓ | ora è un getter che legge `GAME_OVER_LINE_Y` e `WALL_RB.y` live ad ogni spawn |
+
+---
+
+## DebugPanel — coordinate space (gotcha v0.5.1)
+
+`DebugPanel` opera in canvas space (world coords), ma i warrior sono figli di `box2dLayer` (scaleY=0.5), quindi `w.node.position.y` è in local space (y_locale = y_canvas / 0.5).
+
+Tre punti critici corretti in v0.5.1:
+- **Hit detection warrior**: `Vec2.distance(world, new Vec2(wp.x, wp.y * layerScaleY))` — y locale → canvas
+- **Drag move**: `node.setPosition(world.x, world.y / layerScaleY)` — canvas → local
+- **Drop palette**: `addDebugWarrior(t, 1, world.x, world.y / layerScaleY)` — canvas → local
+
+`DebugPanel.layerScaleY` deve essere impostato da GameManager prima di `init()`:
+```typescript
+const panel = debugNode.addComponent(DebugPanel);
+panel.layerScaleY = this.box2dLayer.scale.y;
+panel.init(this);
+```
 
 ---
 

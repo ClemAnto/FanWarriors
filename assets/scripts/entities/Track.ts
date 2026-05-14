@@ -1,5 +1,5 @@
-import { _decorator, Component, Node, Graphics, Color, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, view, CCFloat, UITransform } from 'cc';
-const { ccclass, property } = _decorator;
+import { _decorator, Component, Node, RigidBody2D, ERigidBody2DType, BoxCollider2D, PolygonCollider2D, Size, Vec2, UITransform, view, Graphics, Color, UIOpacity, tween, Tween } from 'cc';
+const { ccclass } = _decorator;
 
 // ── Layout — recalculated at startup from actual screen size ─────────────────
 export let LAYOUT_SCALE   = 1.0;   // TRACK_W / 384 — proportional scale factor for all game elements
@@ -8,12 +8,15 @@ export let TRACK_BOTTOM_Y = -640;  // bottom of visible screen
 export let TRACK_TOP_Y    =  320;  // TRACK_BOTTOM_Y + TRACK_H
 export let TRACK_H        =  960;  // min(75% screen height, 12/5 × 95% screen width)
 export let GAME_OVER_LINE_Y = -160; // midpoint of track height
+export let GAME_OVER_AREA   =  0.5; // normalized [0..1] fraction of track height from bottom
 export let FUNNEL_OFFSET  =   48;  // TRACK_W * funnelPercentage / 200
+// Inner edges of the funnel walls — set by buildWalls(), match Box2D collider geometry exactly
+export let WALL_LB = new Vec2(-200,  -480); // left  wall bottom inner
+export let WALL_LT = new Vec2(-176,   480); // left  wall top    inner
+export let WALL_RB = new Vec2( 200,  -480); // right wall bottom inner
+export let WALL_RT = new Vec2( 176,   480); // right wall top    inner
 
-/** Always-live reference to track vertical bounds — safe to import in any module. */
-export const trackLayout = { bottomY: -640, topY: 320 };
 
-const WALL_T = 20;
 const ASPECT_RATIO = 6/10;
 
 let _funnelPct = 25; // persisted across initLayout() calls without explicit arg
@@ -30,102 +33,156 @@ export function initLayout(funnelPct?: number): void {
     TRACK_TOP_Y      = TRACK_BOTTOM_Y + TRACK_H;
     GAME_OVER_LINE_Y = Math.round((TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2);
     LAYOUT_SCALE     = TRACK_W / 384;
-    trackLayout.bottomY = TRACK_BOTTOM_Y;
-    trackLayout.topY    = TRACK_TOP_Y;
     // topW = TRACK_W * (1 - funnelPct/100)  →  FO = TRACK_W * funnelPct / 200
     FUNNEL_OFFSET    = Math.round(TRACK_W * _funnelPct / 200);
 }
 
 @ccclass('Track')
 export class Track extends Component {
-    @property({ type: CCFloat, range: [0, 50, 1], slide: true, tooltip: 'Top edge width as % narrower than bottom (25 → top = 75% of bottom)' })
-    funnelPercentage: number = 25;
+    private readonly funnelPercentage = 75;
+    private readonly wallThickness    = 6;
+    private _walls: Node[] = [];
+    private _lineOpacity: UIOpacity | null = null;
+    private _linePulseActive = false;
 
     start() {
-        console.log('[Track] start');
+        const vs = view.getVisibleSize();
+        console.log(`[Track] start — screen ${vs.width}x${vs.height}`);
         initLayout(this.funnelPercentage);
-        this.node.setPosition(0, 0, 0);
-        this.drawTrack();
+
+        const spriteNode = this.node.getChildByName('TrackSprite');
+        const uit = spriteNode?.getComponent(UITransform);
+        if (uit) {
+            uit.node.on(UITransform.EventType.SIZE_CHANGED,    this.buildWalls, this);
+            uit.node.on(Node.EventType.TRANSFORM_CHANGED,      this.buildWalls, this);
+        }
+
         this.buildWalls();
         console.log(`[Track] ready — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H} bottom=${TRACK_BOTTOM_Y} top=${TRACK_TOP_Y} topW=${TRACK_W - 2 * FUNNEL_OFFSET}`);
     }
 
-    relayout(): void {
-        initLayout(this.funnelPercentage);
-        this.drawTrack();
-        this.buildWalls();
-        this.node.getChildByName('GameOverLine')  ?.setPosition(0, GAME_OVER_LINE_Y, 0);
-        this.node.getChildByName('LauncherAnchor')?.setPosition(0, TRACK_TOP_Y, 0);
-        console.log(`[Track] relayout — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H}`);
-    }
-
-    private drawTrack(): void {
-        const g   = this.node.getComponent(Graphics) ?? this.node.addComponent(Graphics);
-        g.clear();
-        const hw  = TRACK_W / 2;
-        const bot = TRACK_BOTTOM_Y;
-        const top = TRACK_TOP_Y;
-        const fo  = FUNNEL_OFFSET;
-
-        // Funnel fill — trapezoid wider at bottom, narrower at top
-        g.fillColor = new Color(100, 100, 110, 255);
-        g.moveTo(-hw,      bot);
-        g.lineTo( hw,      bot);
-        g.lineTo( hw - fo, top);
-        g.lineTo(-hw + fo, top);
-        g.close();
-        g.fill();
-
-        // Wall inner edges
-        g.lineWidth    = WALL_T;
-        g.strokeColor  = new Color(50, 50, 65, 255);
-        g.moveTo(-hw,      bot); g.lineTo(-hw + fo, top); g.stroke();
-        g.moveTo( hw,      bot); g.lineTo( hw - fo, top); g.stroke();
-        g.moveTo(-hw + fo, top); g.lineTo( hw - fo, top); g.stroke();
-
-        // Game-over line — width interpolated at GAME_OVER_LINE_Y
-        const t         = (GAME_OVER_LINE_Y - bot) / (top - bot);
-        const lineHalfW = hw - fo * t;
-        g.lineWidth   = 4;
-        g.strokeColor = new Color(220, 40, 40, 255);
-        g.moveTo(-lineHalfW, GAME_OVER_LINE_Y);
-        g.lineTo( lineHalfW, GAME_OVER_LINE_Y);
-        g.stroke();
-
-        // Sync TrackSprite texture size to match current TRACK_W × TRACK_H
-        const spriteNode = this.node.getChildByName('TrackSprite');
-        if (spriteNode) {
-            spriteNode.getComponent(UITransform)?.setContentSize(TRACK_W, TRACK_H);
-            spriteNode.setPosition(0, GAME_OVER_LINE_Y);
+    onDestroy() {
+        const uit = this.node.getChildByName('TrackSprite')?.getComponent(UITransform);
+        if (uit) {
+            uit.node.off(UITransform.EventType.SIZE_CHANGED,   this.buildWalls, this);
+            uit.node.off(Node.EventType.TRANSFORM_CHANGED,     this.buildWalls, this);
         }
     }
 
+    relayout(): void {
+        initLayout(this.funnelPercentage);
+        this.buildWalls();
+        console.log(`[Track] relayout — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H}`);
+    }
+
+    setLinePulse(active: boolean): void {
+        if (this._linePulseActive === active) return;
+        this._linePulseActive = active;
+        if (active) this._startLinePulse(); else this._stopLinePulse();
+    }
+
+    private _startLinePulse(): void {
+        if (!this._lineOpacity) return;
+        const op = this._lineOpacity;
+        Tween.stopAllByTarget(op);
+        const loop = () => {
+            if (!this._linePulseActive || !op.isValid) return;
+            tween(op).to(0.35, { opacity: 30 }).to(0.35, { opacity: 255 }).call(loop).start();
+        };
+        loop();
+    }
+
+    private _stopLinePulse(): void {
+        if (!this._lineOpacity) return;
+        Tween.stopAllByTarget(this._lineOpacity);
+        this._lineOpacity.opacity = 255;
+    }
+
     private buildWalls(): void {
-        for (const name of ['WallLeft', 'WallRight', 'WallTop', 'WallBottom'])
-            this.node.getChildByName(name)?.destroy();
-        const hw  = TRACK_W / 2;
-        const bot = TRACK_BOTTOM_Y;
-        const top = TRACK_TOP_Y;
-        const fo  = FUNNEL_OFFSET;
-        const t   = WALL_T;
+        if (this._lineOpacity) {
+            Tween.stopAllByTarget(this._lineOpacity);
+            this._lineOpacity = null;
+        }
+        for (const w of this._walls) w.destroy();
+        this._walls = [];
+
+        const spriteNode = this.node.getChildByName('TrackSprite');
+        if (!spriteNode) { console.warn('[Track] TrackSprite not found'); return; }
+        const uit = spriteNode.getComponent(UITransform);
+        if (!uit)  { console.warn('[Track] TrackSprite has no UITransform'); return; }
+
+        // sprite bounds in Track-local space (accounts for position, scale, anchor)
+        const w   = uit.contentSize.width;
+        const h   = uit.contentSize.height;
+        const ax  = uit.anchorPoint.x;
+        const ay  = uit.anchorPoint.y;
+        const px  = spriteNode.position.x;
+        const py  = spriteNode.position.y;
+        const scx = spriteNode.scale.x;
+        const scy = spriteNode.scale.y * 2;
+
+        const left   = px + (-ax)       * w * scx;
+        const right  = px + (1 - ax)    * w * scx;
+        const bot    = py + (-ay)       * h * scy;
+        const top    = py + (1 - ay)    * h * scy;
+        const fullW  = right - left;
+        const centerX = (left + right) / 2;
+
+        // wall thickness = wallThickness% of sprite width
+        const t    = this.wallThickness / 100 * fullW;
+        // funnel top edge (centered, narrower)
+        const topW  = this.funnelPercentage / 100 * fullW;
+        const topL  = centerX - topW / 2;
+        const topR  = centerX + topW / 2;
+
+        // Export inner wall edges so trajectory simulation can match Box2D exactly
+        WALL_LB.set(left  + t,      bot);
+        WALL_LT.set(topL  + t,      top);
+        WALL_RB.set(right - t,      bot);
+        WALL_RT.set(topR  - t,      top);
+
+        console.log(`[Track] buildWalls — sprite ${w}x${h} @ (${px},${py}) scale(${scx},${scy}) anchor(${ax},${ay}) → L=${left} R=${right} B=${bot} T=${top} t=${t.toFixed(1)}`);
+
+        this.spawnBoxWall('WallBottom', centerX, bot + t / 2,  fullW, t, 0.0, 0.0);
+        this.spawnBoxWall('WallTop',    centerX, top - t / 2,  topW,  t, 0.0, 1.0);
 
         this.spawnFunnelWall('WallLeft', [
-            new Vec2(-hw,          bot),
-            new Vec2(-hw + t,      bot),
-            new Vec2(-hw + fo + t, top),
-            new Vec2(-hw + fo,     top),
+            new Vec2(left,      bot),
+            new Vec2(left + t,  bot),
+            new Vec2(topL + t,  top),
+            new Vec2(topL,      top),
         ], 0.8, 0.05);
 
         this.spawnFunnelWall('WallRight', [
-            new Vec2( hw - t,      bot),
-            new Vec2( hw,          bot),
-            new Vec2( hw - fo,     top),
-            new Vec2( hw - fo - t, top),
+            new Vec2(right - t, bot),
+            new Vec2(right,     bot),
+            new Vec2(topR,      top),
+            new Vec2(topR - t,  top),
         ], 0.8, 0.05);
 
-        const innerTopW = TRACK_W - 2 * fo;
-        this.spawnBoxWall('WallTop',    0, top - t / 2, innerTopW, t, 0.0, 1.0);
-        this.spawnBoxWall('WallBottom', 0, bot + t / 2, TRACK_W,   t, 0.0, 0.0);
+        // If TrackSprite has a GameOverLine child, use its world Y as the authoritative threshold
+        const goEditorNode = spriteNode.getChildByName('GameOverLine');
+        if (goEditorNode) {
+            GAME_OVER_LINE_Y = Math.round(goEditorNode.worldPosition.y);
+            GAME_OVER_AREA   = TRACK_H > 0 ? (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) / TRACK_H : 0.5;
+        }
+
+        const lineNode = new Node('GameOverLine');
+        lineNode.setParent(this.node);
+        const g = lineNode.addComponent(Graphics);
+        g.lineWidth   = 6;
+        g.strokeColor = new Color(255, 0, 0, 153);
+        const dashLen = 12, gapLen = 8, ly = GAME_OVER_LINE_Y;
+        let lx = -TRACK_W / 2;
+        while (lx < TRACK_W / 2) {
+            g.moveTo(lx, ly);
+            g.lineTo(Math.min(lx + dashLen, TRACK_W / 2), ly);
+            lx += dashLen + gapLen;
+        }
+        g.stroke();
+        this._lineOpacity = lineNode.addComponent(UIOpacity);
+        if (this._linePulseActive) this._startLinePulse();
+        this._walls.push(lineNode);
     }
 
     private spawnFunnelWall(name: string, points: Vec2[], restitution: number, friction: number): void {
@@ -138,6 +195,7 @@ export class Track extends Component {
         col.points = points;
         col.friction    = friction;
         col.restitution = restitution;
+        this._walls.push(node);
     }
 
     private spawnBoxWall(name: string, x: number, y: number, w: number, h: number, restitution: number, friction: number): void {
@@ -150,5 +208,6 @@ export class Track extends Component {
         col.size   = new Size(w, h);
         col.friction    = friction;
         col.restitution = restitution;
+        this._walls.push(node);
     }
 }

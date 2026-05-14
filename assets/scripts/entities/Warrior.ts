@@ -9,8 +9,10 @@ const MERGE_DELAY = 0.3;
 
 @ccclass('Warrior')
 export class Warrior extends Component {
-    static friction    = 0.05;
-    static viewYOffset = 0.8;
+    static contactFriction = 0.3;
+    static linearDamping   = 0.5;
+    static settledDamping  = 16;
+    static viewYOffset     = 0.8;
     type: number = 0;
     level: number = 1;
     merging: boolean = false;
@@ -19,6 +21,7 @@ export class Warrior extends Component {
     settled: boolean = false;
     hitOtherWarrior: boolean = false;
     viewNode!: Node;
+    mapper: PerspectiveMapper | null = null;
 
     get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE; }
     get velocity(): Vec2 { return this.getComponent(RigidBody2D)?.linearVelocity ?? new Vec2(0, 0); }
@@ -27,31 +30,34 @@ export class Warrior extends Component {
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
 
     private mergeCallbacks = new Map<Warrior, () => void>();
-    private dangerSprite: Sprite | null = null;
 
-    static spawn(parent: Node, type: number, level: number, x: number, y: number): Warrior {
+    static spawn(parent: Node, visualParent: Node, type: number, level: number, x: number, y: number): Warrior {
         const node = new Node('Warrior');
         node.setParent(parent);
         node.setPosition(x, y);
         const w = node.addComponent(Warrior);
-        w.init(type, level);
+        w.init(type, level, visualParent);
         return w;
     }
 
-    init(type: number, level: number): void {
+    init(type: number, level: number, visualParent: Node): void {
         this.type = type;
         this.level = level;
 
         this.viewNode = new Node('View');
-        this.viewNode.setParent(this.node);
-        this.viewNode.setPosition(0, 0);
+        this.viewNode.setParent(visualParent);
 
         this.buildPhysics();
         this.buildGraphics();
-        this.viewNode.setPosition(0, this.radius * Warrior.viewYOffset);
 
-        const mapper = this.node.addComponent(PerspectiveMapper);
-        mapper.viewNode = this.viewNode;
+        const m = this.node.addComponent(PerspectiveMapper);
+        m.viewNode = this.viewNode;
+        m.yOffset  = this.radius * Warrior.viewYOffset;
+        this.mapper = m;
+    }
+
+    onDestroy(): void {
+        if (this.viewNode?.isValid) this.viewNode.destroy();
     }
 
     start() {
@@ -70,16 +76,10 @@ export class Warrior extends Component {
         this.getComponent(RigidBody2D)?.applyForceToCenter(force, true);
     }
 
-    setDangerTint(factor: number): void {
-        if (!this.dangerSprite) return;
-        const gb = Math.max(0, Math.round(255 - factor * 170));
-        this.dangerSprite.color = new Color(255, gb, gb, 255);
-    }
-
     settle(): void {
         const rb = this.getComponent(RigidBody2D);
         if (!rb) return;
-        rb.linearDamping  = 16;
+        rb.linearDamping  = Warrior.settledDamping;
         rb.angularDamping = 5;
         this.settled = true;
     }
@@ -87,13 +87,13 @@ export class Warrior extends Component {
     resetPhysics(): void {
         const rb = this.getComponent(RigidBody2D);
         if (rb) {
-            rb.linearDamping  = 0.5;
+            rb.linearDamping  = Warrior.linearDamping;
             rb.angularDamping = 1.5;
         }
         const col = this.getComponent(CircleCollider2D);
         if (col) {
             col.density     = 8.0;
-            col.friction    = Warrior.friction;
+            col.friction    = Warrior.contactFriction;
             col.restitution = 0.04;
         }
     }
@@ -136,7 +136,7 @@ export class Warrior extends Component {
         const cb = () => {
             if (!this.node.isValid || !otherW.node.isValid) return;
             if (this.merging || otherW.merging) return;
-            if (!this.onMergeReady) return; // merge suspended (e.g. debug pause)
+            if (!this.onMergeReady) return;
             this.merging = true;
             otherW.merging = true;
             console.log(`[Warrior] merge triggered — type=${this.type} lv${this.level}`);
@@ -157,7 +157,6 @@ export class Warrior extends Component {
         }
     }
 
-    // Uses sprite from cache if available, otherwise draws programmatic placeholder
     private buildGraphics(): void {
         const frame = WarriorSpriteCache.get(WARRIORS[this.type]?.type ?? '', this.level);
         if (frame) {
@@ -174,7 +173,6 @@ export class Warrior extends Component {
         const sp = this.viewNode.addComponent(Sprite);
         sp.sizeMode = Sprite.SizeMode.CUSTOM;
         sp.spriteFrame = frame;
-        this.dangerSprite = sp;
     }
 
     private buildPlaceholderGraphics(): void {
@@ -184,7 +182,6 @@ export class Warrior extends Component {
         const outlineW = Math.max(2, r * 0.12);
         const black    = new Color(0, 0, 0, 255);
 
-        // Piedistallo — drawn first so it renders behind body
         const baseRx = r * 0.85;
         const baseRy = r * 0.22;
         const baseY  = -r * 0.88;
@@ -196,7 +193,6 @@ export class Warrior extends Component {
         g.ellipse(0, baseY, baseRx, baseRy);
         g.stroke();
 
-        // Body
         const bodyY = -r * 0.08;
         const bodyR = r * 0.72;
         g.fillColor   = color;
@@ -227,7 +223,6 @@ export class Warrior extends Component {
     private buildLabels(): void {
         const r = this.radius;
 
-        // Level number — centre of body
         const levelNode = new Node('Level');
         levelNode.setParent(this.viewNode);
         levelNode.setPosition(0, -r * 0.08);
@@ -240,7 +235,6 @@ export class Warrior extends Component {
         levelLbl.outlineColor  = new Color(0, 0, 0, 255);
         levelLbl.outlineWidth  = 2;
 
-        // Species initials — centre of head
         const typeNode = new Node('Type');
         typeNode.setParent(this.viewNode);
         typeNode.setPosition(0, r * 0.52);
@@ -257,15 +251,15 @@ export class Warrior extends Component {
     private buildPhysics(): void {
         const rb = this.node.addComponent(RigidBody2D);
         rb.type = ERigidBody2DType.Dynamic;
-        rb.linearDamping  = 0.5;   // low — curling-style long slide
+        rb.linearDamping  = Warrior.linearDamping;
         rb.angularDamping = 1.5;
-        rb.fixedRotation  = true;  // billboard sprites — never spin
+        rb.fixedRotation  = false;
         rb.enabledContactListener = true;
 
         const col = this.node.addComponent(CircleCollider2D);
         col.radius      = this.radius;
         col.density     = 8.0;
-        col.friction    = Warrior.friction;
-        col.restitution = 0.04;  // very inelastic: impacts kill momentum
+        col.friction    = Warrior.contactFriction;
+        col.restitution = 0.04;
     }
 }

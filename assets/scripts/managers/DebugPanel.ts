@@ -74,6 +74,7 @@ export interface IGameManagerDebug {
 
 @ccclass('DebugPanel')
 export class DebugPanel extends Component {
+    layerScaleY = 1;  // box2dLayer.scale.y — warriors' local y = canvas y / layerScaleY
     private gm!: IGameManagerDebug;
     private bg!: Graphics;
     private pauseLbl!: Label;
@@ -367,7 +368,7 @@ export class DebugPanel extends Component {
             for (const w of this.gm.getWarriors()) {
                 if (!w.crossedLine || !w.node?.isValid) continue;
                 const wp = w.node.position;
-                if (Vec2.distance(world, new Vec2(wp.x, wp.y)) <= w.radius + 8) {
+                if (Vec2.distance(world, new Vec2(wp.x, wp.y * this.layerScaleY)) <= w.radius + 8) {
                     this.pauseTouchWarrior = w;
                     this.pauseTouchStart   = world.clone();
                     return;
@@ -389,7 +390,7 @@ export class DebugPanel extends Component {
         for (const w of this.gm.getWarriors()) {
             if (!w.crossedLine || !w.node?.isValid) continue;
             const wp = w.node.position;
-            if (Vec2.distance(world, new Vec2(wp.x, wp.y)) <= w.radius + 6) {
+            if (Vec2.distance(world, new Vec2(wp.x, wp.y * this.layerScaleY)) <= w.radius + 6) {
                 this.tapWarrior = w;
                 this.tapStart   = world.clone();
                 return;
@@ -408,7 +409,7 @@ export class DebugPanel extends Component {
             }
         }
         if (this.dragWarrior?.node?.isValid) {
-            this.dragWarrior.node.setPosition(world.x, world.y);
+            this.dragWarrior.node.setPosition(world.x, this.layerScaleY > 0 ? world.y / this.layerScaleY : world.y);
             return;
         }
         if (this.dragType < 0) return;
@@ -436,7 +437,7 @@ export class DebugPanel extends Component {
         if (this.dragType >= 0) {
             if (this.ghost?.isValid) { this.ghost.destroy(); this.ghost = null; }
             if (Math.abs(world.x) <= TRACK_W / 2 && world.y > GAME_OVER_LINE_Y + 20) {
-                this.gm.addDebugWarrior(this.dragType, 1, world.x, world.y);
+                this.gm.addDebugWarrior(this.dragType, 1, world.x, this.layerScaleY > 0 ? world.y / this.layerScaleY : world.y);
             }
             this.dragType = -1;
             return;
