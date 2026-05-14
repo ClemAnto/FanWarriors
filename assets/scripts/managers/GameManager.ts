@@ -10,7 +10,7 @@ import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.5.3';
+const VERSION            = '0.5.4';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -53,7 +53,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private debugOverlay: Graphics | null = null;
 
     private worldNode!: Node;
-    private gameLayer!: Node;
+    private vfxLayer!: Node;
     private box2dLayer!: Node;
     private warriorsLayer!: Node;
     private uiLayer!: Node;
@@ -68,7 +68,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private roundUpPause = false;
     private timerRemaining = LAUNCH_TIMER;
     private timerPaused = false;
-    private waitForSettling = false;
+    private waitForSettling = true;
     private sceneName = '';
     private track: Track | null = null;
     private suctionCenter: Vec2 | null = null;
@@ -95,7 +95,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (this.timerSectionNode) {
                 this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
             }
-            this.positionNextSec();
         });
     };
 
@@ -104,8 +103,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private roundLabel: Label | null = null;
     private roundProgressGfx: Graphics | null = null;
     private roundProgressLabel: Label | null = null;
-    private nextSecNode: Node | null = null;
     private nextPreviewNode: Node | null = null;
+    private nextNextWarriorNode: Node | null = null;
     private nextLaunchWarrior: Warrior | null = null;
     private timerLabel: Label | null = null;
     private timerSectionNode: Node | null = null;
@@ -131,8 +130,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.worldNode = canvas.getChildByName('World')
             ?? (() => { const n = new Node('World'); n.setParent(canvas); return n; })();
 
-        this.gameLayer = this.worldNode.getChildByName('GameLayer')
-            ?? (() => { const n = new Node('GameLayer'); n.setParent(this.worldNode); return n; })();
+        this.vfxLayer = this.worldNode.getChildByName('VFXLayer')
+            ?? (() => { const n = new Node('VFXLayer'); n.setParent(this.worldNode); return n; })();
 
         this.box2dLayer = this.worldNode.getChildByName('Box2DLayer')
             ?? (() => { console.warn('[GameManager] Box2DLayer not found in scene — created fresh (scaleY will be 1, not 0.5!)'); const n = new Node('Box2DLayer'); n.setParent(this.worldNode); return n; })();
@@ -165,6 +164,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
         this.track?.relayout();
+        this.nextPreviewNode = this.track?.node.getChildByName('NextPreview') ?? null;
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.worldNode;
@@ -498,6 +498,17 @@ export class GameManager extends Component implements IGameManagerDebug {
         const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, w.type, newLevel, pos.x, pos.y);
         this.warriors.push(nw);
         this.inputCtrl.setWarrior(nw);
+        if (nw.mapper) nw.mapper.animScale = 0;
+        if (nw.viewNode?.isValid) nw.viewNode.setScale(0, 0, 1);
+        this.nextLaunchWarrior = nw;
+        if (nw.mapper) {
+            tween(nw.mapper)
+                .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
+                .to(0.08, { animScale: 0.9 })
+                .to(0.06, { animScale: 1.0 })
+                .call(() => { if (this.nextLaunchWarrior === nw) this.nextLaunchWarrior = null; })
+                .start();
+        }
         console.log(`[GameManager] debug: launcher lv${w.level} → lv${newLevel}`);
     }
 
@@ -632,16 +643,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (existingHud) {
             this.scoreLabel      = existingHud.getChildByName('ScoreSec')  ?.getChildByName('ScoreValue')  ?.getComponent(Label) ?? null;
             this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
-            this.nextSecNode     = existingHud.getChildByName('NextSec') ?? null;
-            this.nextPreviewNode = this.nextSecNode?.getChildByName('NextPreview') ?? null;
             this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
             this.timerSectionNode = existingHud.getChildByName('TimerSec') ?? null;
             const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
             if (versionLabel) versionLabel.string = `v${VERSION}`;
             const existingBtn = existingHud.getChildByName('FullscreenBtn');
             if (existingBtn) this.drawFullscreenIcon(existingBtn);
-            if (this.nextSecNode) this.createNextBg(this.nextSecNode);
-            this.positionNextSec();
             this.updateNextPreview();
             // Create ring nodes programmatically on existing HUD
             const roundSec = existingHud.getChildByName('RoundSec');
@@ -701,17 +708,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.roundProgressLabel.fontSize = 13;
         this.roundProgressLabel.color = new Color(160, 220, 255, 200);
 
-        // ── Left-center: NEXT preview ────────────────────────────────────
-        const nextSec = new Node('NextSec');
-        nextSec.setParent(hud);
-        nextSec.addComponent(UITransform).setContentSize(1, 1);
-        this.nextSecNode = nextSec;
-        this.makeLabel(nextSec, 'NEXT', 0, 88, 13, new Color(180, 180, 180, 255));
-        this.nextPreviewNode = new Node('NextPreview');
-        this.nextPreviewNode.setParent(nextSec);
-        this.nextPreviewNode.setPosition(0, 44);
-        this.createNextBg(nextSec);
-        this.positionNextSec();
         this.updateNextPreview();
 
         // ── Fullscreen button (top-right, inside margin) ──────────────────
@@ -903,7 +899,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Two expanding rings
         for (let i = 0; i < 2; i++) {
             const vfx = new Node('ExpVFX');
-            vfx.setParent(this.gameLayer);
+            vfx.setParent(this.vfxLayer);
             vfx.setPosition(mx, myC);
             const g = vfx.addComponent(Graphics);
             g.lineWidth = 6 - i * 2;
@@ -969,7 +965,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // anelli contraenti
         for (let i = 0; i < 2; i++) {
             const sring = new Node('SuctionRing');
-            sring.setParent(this.warriorsLayer);
+            sring.setParent(this.vfxLayer);
             sring.setPosition(cx, cyV);
             const sg = sring.addComponent(Graphics);
             sg.lineWidth   = 4 - i;
@@ -997,7 +993,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const midY     = cyV + Math.sin(midAngle) * midR;
 
             const p = new Node('SuctionParticle');
-            p.setParent(this.warriorsLayer);
+            p.setParent(this.vfxLayer);
             p.setPosition(startX, startY);
             const g = p.addComponent(Graphics);
             g.fillColor = new Color(ringColor.r, ringColor.g, ringColor.b, 220);
@@ -1171,86 +1167,28 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private updateNextPreview(animate = false): void {
-        if (!this.nextPreviewNode) return;
+        if (!this.nextPreviewNode?.isValid) return;
         const { type, level } = this.spawnMgr.next;
-        const r = (LEVEL_CONFIG[level]?.radius ?? 20) * LAYOUT_SCALE * 0.9;
         const frame = WarriorSpriteCache.get(WARRIORS[type]?.type ?? '', level);
 
-        this.nextPreviewNode.destroyAllChildren();
-
-        if (frame) {
-            const sp  = this.nextPreviewNode.getComponent(Sprite)      ?? this.nextPreviewNode.addComponent(Sprite);
-            const uit = this.nextPreviewNode.getComponent(UITransform)  ?? this.nextPreviewNode.addComponent(UITransform);
-            uit.setContentSize(r * 4, r * 4);
-            sp.sizeMode = Sprite.SizeMode.CUSTOM;
-            sp.spriteFrame = frame;
-            const g = this.nextPreviewNode.getComponent(Graphics);
-            if (g) g.clear();
-        } else {
-            const sp = this.nextPreviewNode.getComponent(Sprite);
-            if (sp) sp.spriteFrame = null!;
-
-            let g = this.nextPreviewNode.getComponent(Graphics);
-            if (!g) g = this.nextPreviewNode.addComponent(Graphics);
-            else g.clear();
-            g.fillColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
-            g.circle(0, 0, r);
-            g.fill();
-            g.strokeColor = new Color(255, 255, 255, 180);
-            g.lineWidth = 3;
-            g.circle(0, 0, r);
-            g.stroke();
-
-            const lvNode = new Node('Lv');
-            lvNode.setParent(this.nextPreviewNode);
-            const lbl = lvNode.addComponent(Label);
-            lbl.string = String(level);
-            lbl.fontSize = Math.round(r * 0.55);
-            lbl.isBold = true;
-            lbl.color = new Color(255, 255, 255, 255);
+        if (!this.nextNextWarriorNode?.isValid) {
+            const icon = new Node('NextWarrior');
+            icon.setParent(this.nextPreviewNode);
+            icon.addComponent(UITransform).setContentSize(100, 100);
+            this.nextNextWarriorNode = icon;
         }
+        const sp = this.nextNextWarriorNode.getComponent(Sprite) ?? this.nextNextWarriorNode.addComponent(Sprite);
+        sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        sp.spriteFrame = frame ?? null!;
 
-        if (animate && this.nextPreviewNode?.isValid) {
-            this.nextPreviewNode.setScale(0.05, 0.05, 1);
-            tween(this.nextPreviewNode)
+        if (animate) {
+            this.nextNextWarriorNode.setScale(0.05, 0.05, 1);
+            tween(this.nextNextWarriorNode)
                 .to(0.18, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'quadOut' })
                 .to(0.08, { scale: new Vec3(0.93, 0.93, 1) })
                 .to(0.07, { scale: new Vec3(1.0,  1.0,  1) })
                 .start();
         }
-    }
-
-    private positionNextSec(): void {
-        if (!this.nextSecNode?.isValid) return;
-        const BG_R        = 46;
-        const circleLocalY = 44;
-
-        // Destroy Widget so setPosition is never overridden by layout passes
-        this.nextSecNode.getComponent(Widget)?.destroy();
-
-        const screenLeft = -(view.getVisibleSize().width / 2);
-        const x = Math.max(screenLeft + BG_R, -(TRACK_W / 2));
-
-        this.nextSecNode.setPosition(x, GAME_OVER_LINE_Y - circleLocalY);
-    }
-
-    private createNextBg(nextSec: Node): void {
-        let bg = nextSec.getChildByName('NextBg');
-        if (!bg) {
-            bg = new Node('NextBg');
-            bg.setParent(nextSec);
-            bg.setPosition(0, 44);
-            bg.setSiblingIndex(0);
-        }
-        const g = bg.getComponent(Graphics) ?? bg.addComponent(Graphics);
-        g.clear();
-        g.fillColor = new Color(0, 0, 0, 200);
-        g.circle(0, 0, 46);
-        g.fill();
-        g.strokeColor = new Color(255, 255, 255, 50);
-        g.lineWidth = 2;
-        g.circle(0, 0, 46);
-        g.stroke();
     }
 
     private animateNextTransition(): void {
@@ -1263,18 +1201,12 @@ export class GameManager extends Component implements IGameManagerDebug {
                 .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
                 .to(0.08, { animScale: 0.9 })
                 .to(0.06, { animScale: 1.0 })
-                .call(() => { this.nextLaunchWarrior = null; })
+                .call(() => { if (this.nextLaunchWarrior === w) this.nextLaunchWarrior = null; })
                 .start();
         }, 0);
 
-        if (!this.nextSecNode?.isValid) {
-            this.updateNextPreview();
-            return;
-        }
-
-        // Zoom-out creature only, then after a brief pause bubble-in new one
-        if (this.nextPreviewNode?.isValid) {
-            tween(this.nextPreviewNode)
+        if (this.nextNextWarriorNode?.isValid) {
+            tween(this.nextNextWarriorNode)
                 .to(0.12, { scale: new Vec3(0, 0, 1) }, { easing: 'quadIn' })
                 .delay(0.18)
                 .call(() => this.updateNextPreview(true))
@@ -1372,11 +1304,10 @@ export class GameManager extends Component implements IGameManagerDebug {
             .start();
     }
 
-    // x and yCanvas are in canvas space (gameLayer coordinates)
     private flashBurst(x: number, yCanvas: number, type: number): void {
         const burstColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
         const vfx = new Node('BurstVFX');
-        vfx.setParent(this.gameLayer);
+        vfx.setParent(this.vfxLayer);
         vfx.setPosition(x, yCanvas);
         const g = vfx.addComponent(Graphics);
         g.lineWidth = 4;
