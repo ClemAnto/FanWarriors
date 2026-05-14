@@ -10,7 +10,7 @@ import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.5.4';
+const VERSION            = '0.5.5';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -47,7 +47,6 @@ export class GameManager extends Component implements IGameManagerDebug {
     private warriors: Warrior[] = [];
     private prevY = new Map<Warrior, number>();
     private state = GameState.Idle;
-    private pendingWarrior: Warrior | null = null;
     private inflightWarrior: Warrior | null = null;
     private debugLabel: Label | null = null;
     private debugOverlay: Graphics | null = null;
@@ -68,7 +67,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private roundUpPause = false;
     private timerRemaining = LAUNCH_TIMER;
     private timerPaused = false;
-    private waitForSettling = true;
+    private waitForSettling = false;
     private sceneName = '';
     private track: Track | null = null;
     private suctionCenter: Vec2 | null = null;
@@ -399,11 +398,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         console.log('[GameManager] all warriors settled');
         if (this.roundUpPause) return;
-        if (this.pendingWarrior?.node?.isValid) {
-            const next = this.pendingWarrior;
-            this.pendingWarrior = null;
-            this.activateWarrior(next);
-        }
+        this.activateWarrior(this.createWarrior());
     }
 
     // --- line / game over logic ---
@@ -461,8 +456,6 @@ export class GameManager extends Component implements IGameManagerDebug {
                     if (this.state === GameState.Inflight) {
                         if (this.waitForSettling) {
                             this.state = GameState.Settling;
-                            if (!this.pendingWarrior)
-                                this.pendingWarrior = this.createWarrior();
                         } else {
                             this.activateWarrior(this.createWarrior());
                         }
@@ -630,7 +623,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         console.log('[GameManager] inflight warrior merged before crossing line — activating next');
         if (this.waitForSettling) {
             this.state = GameState.Settling;
-            if (!this.pendingWarrior) this.pendingWarrior = this.createWarrior();
         } else {
             this.activateWarrior(this.createWarrior());
         }
@@ -1033,7 +1025,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const cx = this.suctionCenter!.x;
         const cy = this.suctionCenter!.y;
         for (const w of this.warriors) {
-            if (!w.node?.isValid || w.merging || !w.crossedLine || w === this.pendingWarrior) continue;
+            if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
             // Only pull warriors that are below the suction center — they all get pulled upward
             if (w.node.position.y >= cy) continue;
             const dx = cx - w.node.position.x;
@@ -1055,10 +1047,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
-            if (!a.node?.isValid || a.merging || !a.crossedLine || a === this.pendingWarrior) continue;
+            if (!a.node?.isValid || a.merging || !a.crossedLine) continue;
             for (let j = i + 1; j < this.warriors.length; j++) {
                 const b = this.warriors[j];
-                if (!b.node?.isValid || b.merging || !b.crossedLine || b === this.pendingWarrior) continue;
+                if (!b.node?.isValid || b.merging || !b.crossedLine) continue;
                 // Convert to canvas space for gap comparison (radius and COHESION_RANGE are in canvas pixels)
                 const dxL  = b.node.position.x - a.node.position.x;
                 const dyL  = b.node.position.y - a.node.position.y;
@@ -1246,7 +1238,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const force = UPWARD_DRIFT_BASE * LAYOUT_SCALE;
         const r1sq  = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
         for (const w of this.warriors) {
-            if (!w.node?.isValid || w.merging || !w.crossedLine || w === this.pendingWarrior) continue;
+            if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
             const massScale = (w.radius * w.radius) / r1sq;
             w.applyForce(new Vec2(0, force * massScale));
         }
