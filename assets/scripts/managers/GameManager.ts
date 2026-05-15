@@ -81,6 +81,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _dangerCooldown = 0;
     private _stateBeforePause: GameState | null = null;
     private _pauseOverlay: Node | null = null;
+    private _pauseLabelNode: Node | null = null;
+    private _musicLabel: Label | null = null;
+    private _sfxLabel:   Label | null = null;
     private get gameOverLineLocal(): number {
         const sy = this.box2dLayer?.scale.y ?? 1;
         return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
@@ -662,16 +665,19 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
             this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
             this.timerSectionNode = existingHud.getChildByName('TimerSec') ?? null;
+    
             const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
             if (versionLabel) versionLabel.string = `v${VERSION}`;
-            const existingBtn = existingHud.getChildByName('FullscreenBtn');
-            if (existingBtn) this.drawFullscreenIcon(existingBtn);
-            this.wireAudioButton(existingHud, 'MusicBtn', 'MusicLabel',
-                () => AudioManager.instance.toggleMusic(), () => AudioManager.instance.musicMuted);
-            this.wireAudioButton(existingHud, 'SfxBtn', 'SfxLabel',
-                () => AudioManager.instance.toggleSfx(),  () => AudioManager.instance.sfxMuted);
-            const pauseLabelNode = existingHud.getChildByName('PauseBtn')?.getChildByName('PauseLabel') ?? null;
-            existingHud.getChildByName('PauseBtn')?.on(Node.EventType.TOUCH_START, () => this.togglePause(pauseLabelNode), this);
+            const menuNode = existingHud.getChildByName('menu');
+            if (menuNode) {
+                this._musicLabel     = menuNode.getChildByName('MusicBtn') ?.getChildByName('Label')?.getComponent(Label) ?? null;
+                this._sfxLabel       = menuNode.getChildByName('SfxBtn')   ?.getChildByName('Label')?.getComponent(Label) ?? null;
+                this._pauseLabelNode = menuNode.getChildByName('PauseBtn') ?.getChildByName('Label') ?? null;
+                if (this._musicLabel) this._musicLabel.color = AudioManager.instance.musicMuted
+                    ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
+                if (this._sfxLabel) this._sfxLabel.color = AudioManager.instance.sfxMuted
+                    ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
+            }
             this.updateNextPreview();
             // Create ring nodes programmatically on existing HUD
             const roundSec = existingHud.getChildByName('RoundSec');
@@ -733,9 +739,6 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.updateNextPreview();
 
-        // ── Fullscreen button (top-right, inside margin) ──────────────────
-        this.createFullscreenButton(hud);
-
         // ── Timer — world position, centre of launch zone ─────────────────
         const timerNode = new Node('TimerValue');
         timerNode.setParent(hud);
@@ -770,7 +773,30 @@ export class GameManager extends Component implements IGameManagerDebug {
         return node;
     }
 
-    private togglePause(labelNode: Node | null): void {
+    togglePause(): void { this._togglePause(this._pauseLabelNode); }
+
+    toggleSFX(): void {
+        AudioManager.instance.toggleSfx();
+        if (this._sfxLabel) this._sfxLabel.color = AudioManager.instance.sfxMuted
+            ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
+    }
+
+    toggleMusic(): void {
+        AudioManager.instance.toggleMusic();
+        if (this._musicLabel) this._musicLabel.color = AudioManager.instance.musicMuted
+            ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
+    }
+
+    toggleFullscreen(): void {
+        if (!sys.isBrowser) return;
+        if (!(document as any).fullscreenElement) {
+            (document.documentElement as any).requestFullscreen?.().catch?.(() => {});
+        } else {
+            (document as any).exitFullscreen?.().catch?.(() => {});
+        }
+    }
+
+    private _togglePause(labelNode: Node | null): void {
         if (this.state === GameState.GameOver) return;
         const isPaused = this.state === GameState.Paused;
         if (isPaused) {
@@ -797,51 +823,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private wireAudioButton(hud: Node, btnName: string, labelName: string, toggle: () => boolean, isMuted: () => boolean): void {
-        const btn = hud.getChildByName(btnName);
-        if (!btn) return;
-        const lbl = btn.getChildByName(labelName)?.getComponent(Label) ?? null;
-        const updateColor = (muted: boolean) => {
-            if (lbl) lbl.color = muted ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
-        };
-        updateColor(isMuted());
-        btn.on(Node.EventType.TOUCH_START, () => updateColor(toggle()), this);
-    }
-
-    private createFullscreenButton(parent: Node): void {
-        const btn = new Node('FullscreenBtn');
-        btn.setParent(parent);
-        btn.addComponent(UITransform).setContentSize(44, 44);
-        const bw = btn.addComponent(Widget);
-        bw.isAlignRight  = true; bw.right  = 80;
-        bw.isAlignBottom = true; bw.bottom = 40;
-        bw.updateAlignment();
-        this.drawFullscreenIcon(btn);
-    }
-
-    private drawFullscreenIcon(btn: Node): void {
-        const g = btn.getComponent(Graphics) ?? btn.addComponent(Graphics);
-        g.fillColor = new Color(0, 0, 0, 100);
-        g.rect(-22, -22, 44, 44);
-        g.fill();
-        g.strokeColor = new Color(255, 255, 255, 180);
-        g.lineWidth = 2.5;
-        g.moveTo(-11, -3); g.lineTo(-11, -11); g.lineTo(-3, -11);
-        g.moveTo(3, -11);  g.lineTo(11, -11);  g.lineTo(11, -3);
-        g.moveTo(-11, 3);  g.lineTo(-11, 11);  g.lineTo(-3, 11);
-        g.moveTo(3, 11);   g.lineTo(11, 11);   g.lineTo(11, 3);
-        g.stroke();
-        btn.on(Node.EventType.TOUCH_START, () => this.toggleFullscreen(), this);
-    }
-
-    private toggleFullscreen(): void {
-        if (!sys.isBrowser) return;
-        if (!(document as any).fullscreenElement) {
-            (document.documentElement as any).requestFullscreen?.().catch?.(() => {});
-        } else {
-            (document as any).exitFullscreen?.().catch?.(() => {});
-        }
-    }
 
     private tickTimer(dt: number): void {
         if (this.timerPaused) return;
