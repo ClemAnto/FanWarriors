@@ -3,9 +3,16 @@ import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 import { LAYOUT_SCALE } from './Track';
 import { PerspectiveMapper } from './PerspectiveMapper';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
+import { AudioManager, SFX } from '../managers/AudioManager';
 const { ccclass } = _decorator;
 
-const MERGE_DELAY = 0.3;
+const MERGE_DELAY      = 0.3;
+const BOUNCE_VOL_MAX   = 150;  // velocity at which volume reaches 1.0
+
+// Smooth curve: quiet at low speed, full at BOUNCE_VOL_MAX
+function bounceVol(speed: number): number {
+    return Math.min(speed / BOUNCE_VOL_MAX, 1.0) ** 0.5;
+}
 
 @ccclass('Warrior')
 export class Warrior extends Component {
@@ -116,7 +123,22 @@ export class Warrior extends Component {
 
     private onBeginContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
-        if (!otherW) return;
+        const speed  = this.getComponent(RigidBody2D)!.linearVelocity.length();
+
+        if (!otherW) {
+            console.log(`[Bounce] wall hit — launched=${this.launched} crossedLine=${this.crossedLine} speed=${speed.toFixed(1)}`);
+            if (this.launched || this.crossedLine) {
+                AudioManager.instance.play(SFX.BOUNCE, bounceVol(speed));
+            }
+            return;
+        }
+
+        // Warrior-warrior — play only on one side to avoid doubling
+        const uuidWins = this.node.uuid < otherW.node.uuid;
+        console.log(`[Bounce] warrior hit — launched=${this.launched} crossedLine=${this.crossedLine} speed=${speed.toFixed(1)} uuidWins=${uuidWins}`);
+        if ((this.launched || this.crossedLine) && uuidWins) {
+            AudioManager.instance.play(SFX.HIT, bounceVol(speed));
+        }
 
         if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;
 

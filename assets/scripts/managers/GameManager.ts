@@ -8,6 +8,7 @@ import { GameState } from './GameState';
 import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
+import { AudioManager, SFX } from './AudioManager';
 const { ccclass } = _decorator;
 
 const VERSION            = '0.5.5';
@@ -76,6 +77,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private suctionPeakForce: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
+    private _lastTickSec = -1;
+    private _dangerCooldown = 0;
+    private _stateBeforePause: GameState | null = null;
+    private _pauseOverlay: Node | null = null;
     private get gameOverLineLocal(): number {
         const sy = this.box2dLayer?.scale.y ?? 1;
         return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
@@ -109,6 +114,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private timerSectionNode: Node | null = null;
 
     start() {
+        AudioManager.instance; // trigger singleton init + asset preload as early as possible
+        this.scheduleOnce(() => AudioManager.instance.playMusic(), 0.5);
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
         initLayout();
@@ -321,7 +328,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     update(dt: number) {
-        if (this.state === GameState.GameOver) return;
+        if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
         if (this.debugOverlay) {
             const g = this.debugOverlay;
             g.clear();
@@ -348,7 +355,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             }
             if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
             if (this.suctionCenter) this.applyVortexSuction(dt);
-            this.checkLineLogic();
+            this.checkLineLogic(dt);
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
             this.updateDebugLabel();
@@ -387,6 +394,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
+        this._lastTickSec = -1;
+        AudioManager.instance.play(SFX.LAUNCH);
         console.log('[GameManager] warrior launched');
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
     }
@@ -397,6 +406,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
 
         console.log('[GameManager] all warriors settled');
+        AudioManager.instance.play(SFX.LAND, 0.5);
         if (this.roundUpPause) return;
         this.activateWarrior(this.createWarrior());
     }
@@ -421,6 +431,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private penaliseAndReturn(w: Warrior): void {
         this.score = Math.max(0, this.score - FAILED_LAUNCH_MALUS);
+        AudioManager.instance.play(SFX.MALUS);
         this.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), -FAILED_LAUNCH_MALUS);
         this.updateScoreLabel();
 
@@ -440,7 +451,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             .start();
     }
 
-    private checkLineLogic(): void {
+    private checkLineLogic(dt: number): void {
         let anyDanger = false;
         const gol = this.gameOverLineLocal;
         for (const w of this.warriors) {
@@ -473,6 +484,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.prevY.set(w, y);
         }
         this.track?.setLinePulse(anyDanger);
+        if (anyDanger) {
+            this._dangerCooldown -= dt;
+            if (this._dangerCooldown <= 0) {
+                this._dangerCooldown = 0.9;
+                AudioManager.instance.play(SFX.DANGER, 0.6);
+            }
+        } else {
+            this._dangerCooldown = 0;
+        }
     }
 
     private penaltyExplode(_w: Warrior): void {
@@ -509,6 +529,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
         this.inputCtrl.clearWarrior();
+        AudioManager.instance.play(SFX.GAME_OVER);
         console.log('[GameManager] game over');
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
@@ -598,6 +619,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         if (newLevel > maxLevel) {
             // Both at max level — consume both, free space, no new warrior spawned
+            AudioManager.instance.play(SFX.EXPLOSION_LEGEND);
             this.flashBurst(midX, midYC, a.type);
             if (inflightMerged) this.activateAfterInflightMerge();
             return;
@@ -613,6 +635,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (newLevel === maxLevel && maxLevel >= 5) {
             this.triggerSpecialExplosion(merged, newLevel);
         } else {
+            const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
+            const mergeSfx = mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)];
+            AudioManager.instance.play(mergeSfx);
             this.flashMerge(merged);
         }
 
@@ -641,6 +666,12 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (versionLabel) versionLabel.string = `v${VERSION}`;
             const existingBtn = existingHud.getChildByName('FullscreenBtn');
             if (existingBtn) this.drawFullscreenIcon(existingBtn);
+            this.wireAudioButton(existingHud, 'MusicBtn', 'MusicLabel',
+                () => AudioManager.instance.toggleMusic(), () => AudioManager.instance.musicMuted);
+            this.wireAudioButton(existingHud, 'SfxBtn', 'SfxLabel',
+                () => AudioManager.instance.toggleSfx(),  () => AudioManager.instance.sfxMuted);
+            const pauseLabelNode = existingHud.getChildByName('PauseBtn')?.getChildByName('PauseLabel') ?? null;
+            existingHud.getChildByName('PauseBtn')?.on(Node.EventType.TOUCH_START, () => this.togglePause(pauseLabelNode), this);
             this.updateNextPreview();
             // Create ring nodes programmatically on existing HUD
             const roundSec = existingHud.getChildByName('RoundSec');
@@ -739,6 +770,44 @@ export class GameManager extends Component implements IGameManagerDebug {
         return node;
     }
 
+    private togglePause(labelNode: Node | null): void {
+        if (this.state === GameState.GameOver) return;
+        const isPaused = this.state === GameState.Paused;
+        if (isPaused) {
+            this.state = this._stateBeforePause ?? GameState.Aiming;
+            this._stateBeforePause = null;
+            PhysicsSystem2D.instance.enable = true;
+            if (labelNode) labelNode.getComponent(Label)!.string = '||';
+            if (this._pauseOverlay?.isValid) this._pauseOverlay.destroy();
+            this._pauseOverlay = null;
+        } else {
+            this._stateBeforePause = this.state;
+            this.state = GameState.Paused;
+            PhysicsSystem2D.instance.enable = false;
+            if (labelNode) labelNode.getComponent(Label)!.string = '▶';
+            const overlay = new Node('PauseOverlay');
+            overlay.setParent(this.uiLayer);
+            const g = overlay.addComponent(Graphics);
+            const vs = view.getVisibleSize();
+            g.fillColor = new Color(0, 0, 0, 140);
+            g.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
+            g.fill();
+            this.makeLabel(overlay, 'PAUSA', 0, 60, 64, new Color(255, 255, 255, 230));
+            this._pauseOverlay = overlay;
+        }
+    }
+
+    private wireAudioButton(hud: Node, btnName: string, labelName: string, toggle: () => boolean, isMuted: () => boolean): void {
+        const btn = hud.getChildByName(btnName);
+        if (!btn) return;
+        const lbl = btn.getChildByName(labelName)?.getComponent(Label) ?? null;
+        const updateColor = (muted: boolean) => {
+            if (lbl) lbl.color = muted ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
+        };
+        updateColor(isMuted());
+        btn.on(Node.EventType.TOUCH_START, () => updateColor(toggle()), this);
+    }
+
     private createFullscreenButton(parent: Node): void {
         const btn = new Node('FullscreenBtn');
         btn.setParent(parent);
@@ -791,6 +860,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.timerLabel.color = secs <= 5
             ? new Color(255, 80, 80, 255)
             : new Color(200, 200, 200, 200);
+        if (secs <= 5 && secs > 0 && secs !== this._lastTickSec) {
+            this._lastTickSec = secs;
+            AudioManager.instance.play(SFX.TIMER_TICK);
+        }
     }
 
     private updateScoreLabel(): void {
@@ -866,6 +939,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.updateRoundLabel();
         this.roundUpPause = true;
+        AudioManager.instance.play(SFX.ROUND_UP);
         this.showRoundUpBanner();
         this.scheduleOnce(() => { this.roundUpPause = false; }, 1.5);
         console.log(`[GameManager] round up → round ${this.currentRound}, types=${spawnTypesForRound(this.currentRound)}, timer=${launchTimerForRound(this.currentRound)}s`);
@@ -875,6 +949,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const lvConf = LEVEL_CONFIG[level];
         const bonus = lvConf?.bonus ?? 0;
         const color = lvConf?.vfxColor ?? new Color(255, 255, 255, 255);
+        const expSfx = level >= 7 ? SFX.EXPLOSION_LEGEND : level >= 6 ? SFX.EXPLOSION_HERO : SFX.EXPLOSION_CHAMPION;
+        AudioManager.instance.play(expSfx);
         const mx  = w.node.position.x;                   // local (scaleX=1 → canvas)
         const my  = w.node.position.y;                   // local Y
         const myC = this.coords.physToVisual(my);         // canvas Y for UI/VFX
@@ -1189,6 +1265,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const w = this.nextLaunchWarrior;
             if (!w?.node?.isValid || !w.mapper) return;
             w.mapper.animScale = 0;
+            AudioManager.instance.play(SFX.SPAWN, 0.8);
             tween(w.mapper)
                 .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
                 .to(0.08, { animScale: 0.9 })

@@ -57,6 +57,18 @@
 
 ---
 
+## Gerarchia layer World (regola stabile)
+
+| Layer | scaleY | Contenuto | Regola |
+|---|---|---|---|
+| `Box2DLayer` | **0.5** | Nodi fisici warrior (RigidBody2D + Collider) | Solo fisica — mai VFX |
+| `WarriorsLayer` | 1 | `viewNode` sprite warrior | Solo nodi soggetti a z-sorting |
+| `VFXLayer` | 1 | Tutti gli effetti visivi effimeri | Sopra tutti i warrior — mai z-sortato |
+
+**Regola VFXLayer**: qualsiasi nodo che non rappresenta un'entità di gioco persistente va su `VFXLayer`. Questo include cerchi espandenti (merge burst, esplosioni), anelli suction, particelle suction, screen shake, flash overlay, future particelle. `WarriorsLayer` è riservato ai `viewNode` dei warrior perché `zSortWarriors()` ne riordina i figli ogni frame — aggiungere VFX qui causerebbe z-order errato.
+
+---
+
 ## Separazione layer fisico / layer visivo
 
 **Implementato** in Fase 2 (`PerspectiveMapper.ts`, `Warrior.ts`).

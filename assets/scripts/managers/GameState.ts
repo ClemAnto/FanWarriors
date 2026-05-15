@@ -4,4 +4,5 @@ export enum GameState {
     Inflight,   // warrior launched, waiting to cross line
     Settling,   // warrior crossed line, physics settling
     GameOver,
+    Paused,
 }
