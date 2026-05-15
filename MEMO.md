@@ -227,7 +227,7 @@ All'avvio la pista viene prefillata con 3 warrior (design decision, Fase 1):
 
 Posizioni aggiornate in Fase 2 per la pista a funnel (TRACK_W=576): a y=220 la semi-larghezza interna è ~216px, quindi x=±90 lascia ampio margine dalla parete.
 
-I warrior prefill hanno `crossedLine = true` impostato manualmente — non passano per il sistema di lancio.
+I warrior prefill hanno `crossedLine = true` e `fired = true` impostati manualmente — non passano per il sistema di lancio ma sono soggetti al check di game-over.
 
 ---
 
@@ -308,16 +308,18 @@ if (bottom <= GAME_OVER_LINE_Y + h) {
 ```
 Mappatura colore in `Warrior.setDangerTint`: `gb = Math.max(0, Math.round(255 - factor * 170))`.
 
-**CRITICO — `settled` flag e chi lo imposta (v0.4.0)**:
-- **Prefill**: `SpawnManager.prefill()` chiama `w.settle()` → `settled = true` ✓
-- **Lanciati**: `checkLineLogic` imposta `w.settled = true` nel momento in cui il warrior supera `GAME_OVER_LINE_Y` ✓
-- **Merged**: `mergeWarriors()` chiama `merged.settle()` dopo lo spawn ✓
+**CRITICO — `settled` e `fired` flag e chi li imposta**:
+- **Prefill**: `SpawnManager.prefill()` chiama `w.settle()` → `settled = true`; imposta anche `w.fired = true` (è già in campo) ✓
+- **Lanciati**: `checkLineLogic` imposta `w.settled = true` e `w.crossedLine = true` quando il warrior supera la linea; `fired` è già `true` (settato da `applyImpulse`) ✓
+- **Merged**: `mergeWarriors()` chiama `merged.settle()` e imposta `merged.fired = true` ✓
 
 `waitForSettling` è sempre `false` → `GameState.Settling` non viene mai raggiunto → `checkSettled()` non è il punto in cui si setta `settled`.
 
-**`inflightWarrior`**: il warrior di turno corrente (quello appena lanciato dal player) è escluso dal calcolo del danger tint e dall'`anyDanger` che attiva il pulse della linea. Viene impostato in `onWarriorLaunched(w)` e sovrascritto al lancio successivo. Questo evita che il warrior appena entrato in pista triggeri l'allarme prima di stabilizzarsi nel mucchio.
+**`fired` (one-way flag)**: settato da `applyImpulse()` e mai resettato (diversamente da `launched` che viene resettato da `penaliseAndReturn`). Garantisce che il warrior sul launcher e quello nella preview (che non hanno mai chiamato `applyImpulse`) non possano triggerare il game over per nessuna ragione — il branch game-over in `checkLineLogic` richiede `w.fired`.
 
-La condizione di game-over usa i **centri** (non i bordi): `prev >= GAME_OVER_LINE_Y && y < GAME_OVER_LINE_Y` — più robusta per warrior che galleggiano vicino alla linea.
+**`inflightWarrior`**: il warrior di turno corrente è escluso dall'`anyDanger` che attiva il pulse della linea. Viene impostato in `onWarriorLaunched(w)` e sovrascritto al lancio successivo.
+
+**Condizione game-over — frame sostenuti**: la condizione non è più una singola transizione di frame (`prev >= gol && y < gol`) ma richiede `GAME_OVER_FRAMES = 3` frame consecutivi sotto la linea. Analogamente, `crossedLine = true` richiede `CROSS_LINE_FRAMES = 3` frame consecutivi sopra la linea. Questo elimina i false positive da jitter fisico e da "sfioramento" della linea per un solo frame.
 
 ---
 

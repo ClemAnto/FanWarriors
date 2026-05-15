@@ -35,7 +35,7 @@ export class AudioManager extends Component {
     private static _inst: AudioManager | null = null;
 
     static get instance(): AudioManager {
-        if (!AudioManager._inst) {
+        if (!AudioManager._inst || !AudioManager._inst.node?.isValid) {
             const node = new Node('AudioManager');
             director.getScene()!.addChild(node);
             node.addComponent(AudioManager);
@@ -47,10 +47,11 @@ export class AudioManager extends Component {
     private _musicSource!: AudioSource;
     private _clips = new Map<SFX, AudioClip | null>();
 
-    sfxVolume   = 1.0;
-    musicVolume = 0.6;
-    sfxMuted    = false;
-    musicMuted  = false;
+    sfxVolume    = 1.0;
+    musicVolume  = 0.6;
+    sfxMuted     = false;
+    musicMuted   = false;
+    private _pauseMuted = false;
 
     onLoad(): void {
         AudioManager._inst = this;
@@ -71,8 +72,18 @@ export class AudioManager extends Component {
         }
     }
 
+    muteForPause(): void {
+        this._pauseMuted = true;
+        this._musicSource.volume = 0;
+    }
+
+    unmuteForPause(): void {
+        this._pauseMuted = false;
+        if (!this.musicMuted) this._musicSource.volume = this.musicVolume;
+    }
+
     play(sfx: SFX, relVolume = 1): void {
-        if (this.sfxMuted) return;
+        if (this.sfxMuted || this._pauseMuted) return;
         const clip = this._clips.get(sfx);
         if (!clip) { console.warn(`[Audio] NO CLIP — ${sfx}`); return; }
         console.log(`[Audio] play ${sfx} vol=${(relVolume * this.sfxVolume).toFixed(2)}`);

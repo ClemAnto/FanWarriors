@@ -25,6 +25,8 @@ const WARRIOR_VIEW_Y_OFFSET = 1.5; // viewNode lift above physics center, in uni
 const SETTLE_VELOCITY      = 0.4;   // Box2D velocity units — warrior is "stopped" below this
 const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warrior failed to cross
 const FAILED_LAUNCH_MALUS  = 50;    // score penalty when launched warrior fails to cross the line
+const CROSS_LINE_FRAMES    = 3;     // consecutive frames above gol before crossedLine is committed (prevents grazing false-positive)
+const GAME_OVER_FRAMES     = 3;     // consecutive frames below gol before game over triggers (prevents physics-jitter false-positive)
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
@@ -46,7 +48,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
-    private prevY = new Map<Warrior, number>();
+    private framesAboveLine = new Map<Warrior, number>();
+    private framesBelowLine = new Map<Warrior, number>();
     private state = GameState.Idle;
     private inflightWarrior: Warrior | null = null;
     private debugLabel: Label | null = null;
@@ -80,6 +83,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _lastTickSec = -1;
     private _dangerCooldown = 0;
     private _stateBeforePause: GameState | null = null;
+    private _autoPaused = false;
     private _pauseOverlay: Node | null = null;
     private _pauseLabelNode: Node | null = null;
     private _musicLabel: Label | null = null;
@@ -92,6 +96,14 @@ export class GameManager extends Component implements IGameManagerDebug {
     private syncInputBounds(): void {
         this.inputCtrl.setTrackBounds(WALL_LB, WALL_LT, WALL_RB, WALL_RT);
     }
+
+    private readonly _onVisibilityChange = (): void => {
+        if (document.hidden) this._autoPause();
+        else this._autoResume();
+    };
+
+    private readonly _onWindowBlur  = (): void => this._autoPause();
+    private readonly _onWindowFocus = (): void => this._autoResume();
 
     private readonly onBrowserResize = (): void => {
         cancelAnimationFrame(this.resizeRafId);
@@ -204,11 +216,33 @@ export class GameManager extends Component implements IGameManagerDebug {
                 panel.init(this);
             }
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
+            if (sys.isBrowser) {
+                document.addEventListener('visibilitychange', this._onVisibilityChange);
+                window.addEventListener('blur',  this._onWindowBlur);
+                window.addEventListener('focus', this._onWindowFocus);
+            }
         });
     }
 
     onDestroy() {
         if (LIVE_RESIZE && sys.isBrowser) window.removeEventListener('resize', this.onBrowserResize);
+        if (sys.isBrowser) {
+            document.removeEventListener('visibilitychange', this._onVisibilityChange);
+            window.removeEventListener('blur',  this._onWindowBlur);
+            window.removeEventListener('focus', this._onWindowFocus);
+        }
+    }
+
+    private _autoPause(): void {
+        if (this.state === GameState.GameOver || this.state === GameState.Paused || this.state === GameState.Idle) return;
+        this._autoPaused = true;
+        this._togglePause(this._pauseLabelNode);
+    }
+
+    private _autoResume(): void {
+        if (!this._autoPaused) return;
+        this._autoPaused = false;
+        if (this.state === GameState.Paused) this._togglePause(this._pauseLabelNode);
     }
 
     // ── IGameManagerDebug ──
@@ -253,6 +287,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     addDebugWarrior(type: number, level: number, x: number, y: number): void {
         const w = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, level, x, y);
         w.crossedLine = true;
+        w.fired = true;
         w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
         console.log(`[GameManager] debug: placed type=${type} lv=${level} at (${x.toFixed(0)},${y.toFixed(0)})`);
@@ -265,10 +300,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         const maxLevel = WARRIORS[type]?.maxLevel ?? 7;
         const newLevel = w.level < maxLevel ? w.level + 1 : 1;
         this.warriors  = this.warriors.filter(x => x !== w);
-        this.prevY.delete(w);
+        this.framesAboveLine.delete(w);
+        this.framesBelowLine.delete(w);
         w.node.destroy();
         const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, newLevel, pos.x, pos.y);
         nw.crossedLine  = true;
+        nw.fired        = true;
         nw.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(nw);
         console.log(`[GameManager] debug: cycled type=${type} → lv${newLevel}`);
@@ -293,7 +330,8 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         [...this.warriors].filter(w => w.crossedLine).forEach(w => {
             this.warriors = this.warriors.filter(x => x !== w);
-            this.prevY.delete(w);
+            this.framesAboveLine.delete(w);
+            this.framesBelowLine.delete(w);
             if (w.node?.isValid) w.node.destroy();
         });
 
@@ -312,7 +350,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     resetDebugState(): void {
         [...this.warriors].filter(w => w.crossedLine).forEach(w => {
             this.warriors = this.warriors.filter(x => x !== w);
-            this.prevY.delete(w);
+            this.framesAboveLine.delete(w);
+            this.framesBelowLine.delete(w);
             if (w.node?.isValid) w.node.destroy();
         });
         // this.warriors.push(...this.spawnMgr.prefill());
@@ -350,7 +389,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             }
         }
         try {
-            this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
+            if (this.warriors.some(w => !w?.node?.isValid)) {
+                this.warriors = this.warriors.filter(w => {
+                    if (!w?.node?.isValid) {
+                        if (w) { this.framesAboveLine.delete(w); this.framesBelowLine.delete(w); }
+                        return false;
+                    }
+                    return true;
+                });
+            }
             this.zSortWarriors();
             if (!this.timerPaused) {
                 this.applyMagnetism();
@@ -418,6 +465,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private checkLaunchResult(w: Warrior): void {
         if (!w.node?.isValid || w.crossedLine || this.state === GameState.GameOver) return;
+        if (this.inflightWarrior !== w) return;
         if (w.node.position.y >= this.gameOverLineLocal) return;
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
@@ -459,32 +507,47 @@ export class GameManager extends Component implements IGameManagerDebug {
         const gol = this.gameOverLineLocal;
         for (const w of this.warriors) {
             if (!w.node?.isValid) continue;
-            const y    = w.node.position.y;
-            const prev = this.prevY.get(w) ?? y;
+            const y = w.node.position.y;
 
             if (!w.crossedLine && w.launched) {
                 if (y >= gol) {
-                    w.crossedLine = true;
-                    w.settled = true;
-                    console.log('[GameManager] warrior crossed line — in play');
-                    if (this.state === GameState.Inflight) {
-                        if (this.waitForSettling) {
-                            this.state = GameState.Settling;
-                        } else {
-                            this.activateWarrior(this.createWarrior());
+                    // Require sustained above-line to prevent a brief graze from committing crossedLine
+                    const n = (this.framesAboveLine.get(w) ?? 0) + 1;
+                    this.framesAboveLine.set(w, n);
+                    if (n >= CROSS_LINE_FRAMES) {
+                        this.framesAboveLine.delete(w);
+                        this.framesBelowLine.delete(w);
+                        w.crossedLine = true;
+                        w.settled = true;
+                        console.log(`[GameManager] warrior crossed line (${n} frames above) — in play`);
+                        if (this.state === GameState.Inflight) {
+                            if (this.waitForSettling) {
+                                this.state = GameState.Settling;
+                            } else {
+                                this.activateWarrior(this.createWarrior());
+                            }
                         }
                     }
+                } else {
+                    this.framesAboveLine.delete(w);
                 }
-            } else if (w.crossedLine && w.settled) {
+            } else if (w.crossedLine && w.settled && w.fired) {
                 const bottom = y - w.radius;
                 if (w !== this.inflightWarrior && bottom <= gol) anyDanger = true;
-                if (prev >= gol && y < gol) {
-                    console.log('[GameManager] warrior fully below game-over line — penalty');
-                    this.penaltyExplode(w);
+                if (y < gol) {
+                    // Require sustained below-line to avoid single-frame physics-jitter game over
+                    const n = (this.framesBelowLine.get(w) ?? 0) + 1;
+                    this.framesBelowLine.set(w, n);
+                    if (n >= GAME_OVER_FRAMES) {
+                        this.framesBelowLine.delete(w);
+                        console.log(`[GameManager] warrior below line ${n} frames (y=${y.toFixed(1)} gol=${gol.toFixed(1)}) — game over`);
+                        this.penaltyExplode(w);
+                        return;
+                    }
+                } else {
+                    this.framesBelowLine.delete(w);
                 }
             }
-
-            this.prevY.set(w, y);
         }
         this.track?.setLinePulse(anyDanger);
         if (anyDanger) {
@@ -498,9 +561,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private penaltyExplode(_w: Warrior): void {
+    private penaltyExplode(w: Warrior): void {
         if (this.timerPaused) return;
-        console.log(`[GameManager] warrior fell below line — game over`);
+        const y = w.node?.isValid ? w.node.position.y.toFixed(1) : '?';
+        const v = w.velocity.length().toFixed(2);
+        console.log(`[GameManager] penaltyExplode — y=${y} v=${v} crossedLine=${w.crossedLine} settled=${w.settled} state=${this.state}`);
         this.triggerGameOver();
     }
 
@@ -509,7 +574,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const newLevel = (w.level % maxLevel) + 1;
         const pos = w.node.position;
         this.warriors = this.warriors.filter(x => x !== w);
-        this.prevY.delete(w);
+        this.framesAboveLine.delete(w);
+        this.framesBelowLine.delete(w);
         w.node.destroy();
         const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, w.type, newLevel, pos.x, pos.y);
         this.warriors.push(nw);
@@ -606,8 +672,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const vy = (a.velocity.y + b.velocity.y) * 0.5 * 0.75;
         console.log(`[GameManager] merge! type=${a.type} lv${a.level}+lv${b.level} → lv${newLevel} (max=${maxLevel}) v=(${vx.toFixed(1)},${vy.toFixed(1)})`);
 
-        this.prevY.delete(a);
-        this.prevY.delete(b);
+        this.framesAboveLine.delete(a); this.framesBelowLine.delete(a);
+        this.framesAboveLine.delete(b); this.framesBelowLine.delete(b);
         a.node.destroy();
         b.node.destroy();
 
@@ -630,6 +696,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         const merged = Warrior.spawn(this.box2dLayer, this.warriorsLayer, a.type, newLevel, midX, midY);
         merged.crossedLine = true;
+        merged.fired = true;
         merged.settle();
         merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
         merged.velocity = new Vec2(vx, vy);
@@ -806,6 +873,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (labelNode) labelNode.getComponent(Label)!.string = '||';
             if (this._pauseOverlay?.isValid) this._pauseOverlay.destroy();
             this._pauseOverlay = null;
+            AudioManager.instance.unmuteForPause();
         } else {
             this._stateBeforePause = this.state;
             this.state = GameState.Paused;
@@ -820,6 +888,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             g.fill();
             this.makeLabel(overlay, 'PAUSA', 0, 60, 64, new Color(255, 255, 255, 230));
             this._pauseOverlay = overlay;
+            AudioManager.instance.muteForPause();
         }
     }
 
@@ -938,7 +1007,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const r   = w.radius;
 
         this.warriors = this.warriors.filter(wr => wr !== w);
-        this.prevY.delete(w);
+        this.framesAboveLine.delete(w);
+        this.framesBelowLine.delete(w);
         w.node.destroy();
 
         this.score += bonus;

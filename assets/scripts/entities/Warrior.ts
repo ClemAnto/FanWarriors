@@ -24,6 +24,7 @@ export class Warrior extends Component {
     level: number = 1;
     merging: boolean = false;
     launched: boolean = false;
+    fired: boolean = false;
     crossedLine: boolean = false;
     settled: boolean = false;
     hitOtherWarrior: boolean = false;
@@ -75,6 +76,7 @@ export class Warrior extends Component {
 
     applyImpulse(impulse: Vec2): void {
         this.launched = true;
+        this.fired = true;
         this.hitOtherWarrior = false;
         this.getComponent(RigidBody2D)?.applyLinearImpulseToCenter(impulse, true);
     }

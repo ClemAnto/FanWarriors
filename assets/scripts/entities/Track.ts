@@ -44,6 +44,7 @@ export class Track extends Component {
     private _walls: Node[] = [];
     private _lineOpacity: UIOpacity | null = null;
     private _linePulseActive = false;
+    private _spriteUIT: UITransform | null = null;
 
     start() {
         const vs = view.getVisibleSize();
@@ -51,10 +52,10 @@ export class Track extends Component {
         initLayout(this.funnelPercentage);
 
         const spriteNode = this.node.getChildByName('TrackSprite');
-        const uit = spriteNode?.getComponent(UITransform);
-        if (uit) {
-            uit.node.on(UITransform.EventType.SIZE_CHANGED,    this.buildWalls, this);
-            uit.node.on(Node.EventType.TRANSFORM_CHANGED,      this.buildWalls, this);
+        this._spriteUIT = spriteNode?.getComponent(UITransform) ?? null;
+        if (this._spriteUIT) {
+            this._spriteUIT.node.on(UITransform.EventType.SIZE_CHANGED,    this.buildWalls, this);
+            this._spriteUIT.node.on(Node.EventType.TRANSFORM_CHANGED,      this.buildWalls, this);
         }
 
         this.buildWalls();
@@ -62,10 +63,10 @@ export class Track extends Component {
     }
 
     onDestroy() {
-        const uit = this.node.getChildByName('TrackSprite')?.getComponent(UITransform);
-        if (uit) {
-            uit.node.off(UITransform.EventType.SIZE_CHANGED,   this.buildWalls, this);
-            uit.node.off(Node.EventType.TRANSFORM_CHANGED,     this.buildWalls, this);
+        if (this._spriteUIT) {
+            this._spriteUIT.node.off(UITransform.EventType.SIZE_CHANGED,   this.buildWalls, this);
+            this._spriteUIT.node.off(Node.EventType.TRANSFORM_CHANGED,     this.buildWalls, this);
+            this._spriteUIT = null;
         }
     }
 

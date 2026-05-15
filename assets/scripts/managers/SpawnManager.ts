@@ -47,6 +47,7 @@ export class SpawnManager {
         return positions.map(({ x, y }, i) => {
             const w = Warrior.spawn(this.parent, this.visualParent, i % this.spawnTypes, 1, x, y);
             w.crossedLine = true;
+            w.fired = true;
             w.onMergeReady = this.onMergeReady;
             w.settle();
             return w;

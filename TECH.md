@@ -126,3 +126,10 @@ viewNode.setScale(scale, scale, 1);
 **Pulse linea**: `Track.setLinePulse(bool)` gestisce un tween `UIOpacity` 255→30→255 (loop ricorsivo con flag `_linePulseActive` come guard). `GameManager` accumula `anyDanger` nel loop di `checkLineLogic` e chiama `setLinePulse` una volta a fine frame — transizione solo se lo stato cambia.
 
 **Esclusione `inflightWarrior`**: il warrior del turno corrente non contribuisce a `anyDanger` né riceve tint, anche dopo aver superato la linea. Diventa eleggibile solo quando viene lanciato il warrior successivo (che sovrascrive il riferimento in `onWarriorLaunched`). Motivazione UX: l'effetto pericolo deve segnalare accumulo dal mucchio storico, non la normale traiettoria di ingresso.
+
+**Game over — check a frame sostenuti (v0.5.5+)**: il trigger game-over non avviene più su una singola transizione di frame (`prev >= gol && y < gol`, che poteva firedare per jitter fisico o per un warrior che sfiorava la linea per 1 frame). I check ora usano contatori di frame consecutivi:
+- `framesAboveLine`: warrior lanciato deve stare ≥ gol per `CROSS_LINE_FRAMES = 3` frame prima che `crossedLine = true` venga committato
+- `framesBelowLine`: warrior in-play deve stare < gol per `GAME_OVER_FRAMES = 3` frame prima del game over
+A 60fps = ~50ms: impercettibile per il player, filtra tutti i glitch fisici.
+
+**Flag `fired` (Warrior)**: flag one-way settato da `applyImpulse()` e mai resettato (diversamente da `launched` che viene resettato da `penaliseAndReturn`). Il branch game-over in `checkLineLogic` richiede `w.fired` — impedisce fisicamente a warrior sul launcher o in preview di triggerare game over per posizionamento errato o animazioni. Warrior merged/prefill/debug ricevono `fired = true` esplicitamente al momento della creazione.
