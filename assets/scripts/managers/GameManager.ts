@@ -12,7 +12,7 @@ import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.6.9';
+const VERSION            = '0.6.10';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
