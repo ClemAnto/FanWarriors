@@ -98,6 +98,10 @@ export class AudioManager extends Component {
         this._musicSource.play();
     }
 
+    stopMusic(): void {
+        this._musicSource.stop();
+    }
+
     toggleSfx(): boolean {
         this.sfxMuted = !this.sfxMuted;
         sys.localStorage.setItem(LS_SFX_MUTED, this.sfxMuted ? '1' : '0');

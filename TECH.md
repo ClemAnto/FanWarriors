@@ -133,3 +133,52 @@ viewNode.setScale(scale, scale, 1);
 A 60fps = ~50ms: impercettibile per il player, filtra tutti i glitch fisici.
 
 **Flag `fired` (Warrior)**: flag one-way settato da `applyImpulse()` e mai resettato (diversamente da `launched` che viene resettato da `penaliseAndReturn`). Il branch game-over in `checkLineLogic` richiede `w.fired` — impedisce fisicamente a warrior sul launcher o in preview di triggerare game over per posizionamento errato o animazioni. Warrior merged/prefill/debug ricevono `fired = true` esplicitamente al momento della creazione.
+
+---
+
+## Auto-pausa background/focus (v0.6.0)
+
+**Decisione**: uso di `visibilitychange` + `blur`/`focus` browser per pausa automatica su background/standby.
+
+**Perché**: Cocos non espone un lifecycle hook nativo per background su web. I tre eventi coprono tutti i casi: tab nascosta (visibilitychange), finestra non attiva (blur), mobileSafari che manda in background (visibilitychange).
+
+**Flag `_autoPaused`**: distingue pausa automatica da manuale. `_autoResume()` non fa nulla se `_autoPaused` è falso — evita che il ritorno del focus sblocchi una pausa manuale dell'utente.
+
+**AudioManager singleton guard**: il getter `AudioManager.instance` ora controlla `node?.isValid` prima di restituire `_inst`. Se il nodo è stato distrutto da un reload scena, ricrea l'istanza fresh invece di restituire un riferimento stale.
+
+---
+
+## NextPreview — posizione nella gerarchia scena (v0.6.0)
+
+**Decisione**: `NextPreview` è figlio diretto di **Track** (non della HUD).
+
+**Perché**: `GameManager.start()` usa `this.track?.node.getChildByName('NextPreview')` — `getChildByName` in CC3 cerca solo nei figli diretti, non ricorsivamente. Il vecchio nodo era sotto `HUD/NextSec` (poi eliminato). Mettere il nodo sotto Track lo rende trovabile dalla ricerca e lo mantiene coordinato spazialmente con la pista.
+
+**Regola operativa**: non creare mai nodi UI programmaticamente senza istruzione esplicita. Tutti gli elementi UI devono essere aggiunti nella scena tramite editor Cocos Creator.
+
+---
+
+## Feedback aptico (vibrazione) + FullscreenBtn condizionale (v0.6.2)
+
+**Vibrazione**: `GameManager._vibrate(ms)` chiama `(navigator as any).vibrate?.(ms)` — no-op silenzioso se non supportato. 40ms su merge normale, 120ms su explosion max-level. Flag `_vibrationEnabled` caricato da `localStorage` key `fw_vibration` (default '1'). `toggleVibration()` è public per il ClickEvent da scena.
+
+**VibraBtn in scena**: aggiunto come 5° figlio di `menu` (nodi array 143–150 in `Game.scene`). Il `cc.Layout` Horizontal del menu posiziona automaticamente tutti i tasti — nessuna coordinata hardcoded necessaria.
+
+**FullscreenBtn auto-hide**: in `initHud()`, se `document.documentElement.requestFullscreen` non esiste (iOS Safari, alcuni Android WebView), `FullscreenBtn.active = false`. Il tasto resta nella scena ma è invisibile/inattivo — non richiede variante di scena separata.
+
+---
+
+## DebugPanel — coordinate canvas vs fisica (v0.6.2)
+
+**Spazi di coordinate rilevanti per DebugPanel:**
+- `toWorld(ui)` restituisce canvas-relative Y: `ui.y - vs.height/2` — range −640..+640, origine al centro schermo.
+- `viewNode.position.y` (LOCAL in WarriorsLayer) = stesso spazio di `toWorld()`. Da usare per l'hit detection visiva.
+- `viewNode.worldPosition.y` = `viewNode.position.y + 640` — NON comparabile con `toWorld()` (offset Canvas.worldY).
+
+**Conversioni:**
+- Canvas → physics local: `toPhysY(c) = (c − designH/2 × (sy−1)) / sy²` = `(c + 320) × 4` per sy=0.5
+- Physics local → canvas: `toVisualY(p) = p × sy² + designH/2 × (sy−1)` = `p × 0.25 − 320` per sy=0.5
+
+**Check drop palette**: usare `toVisualY(GAME_OVER_LINE_Y / sy)` come soglia Y — è la posizione visiva della linea di game over (dove i warrior appaiono a schermo), non la costante di fisica.
+
+**InputController.blocked**: flag settato da DebugPanel via `GameManager.setLauncherBlocked()` durante palette drag. Controllato in handleDragStart/Move/End — impedisce lancio anche se il TOUCH_START era già stato ricevuto da InputController prima che DebugPanel impostasse il blocco.

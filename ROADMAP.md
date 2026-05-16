@@ -194,7 +194,7 @@
   - Esplosione (scala e densità per tier 5–6 e bonus Campione/Eroe/Leggenda)
   - Coriandoli con gravità (tier 5–6)
   - Aura magnetismo (asset dedicato fisso)
-- [ ] VFX di scena via codice: screen shake, flash overlay, flash rosso malus, slowmo
+- [x] VFX di scena via codice: **screen shake** implementato (VFXManager) — flash overlay, flash rosso malus, slowmo ancora da fare
 
 ### Settimana 7: UI completa *(18–24 giu)*
 
@@ -313,9 +313,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-12 — v0.3.8: cache-busting headers netlify.toml fixati (ordine regole corretto + aggiunto CSS/JSON), deploy migrato da Netlify (quota esaurita) a GitHub Pages via `npm run deploy` → https://clemanto.github.io/FanWarriors/
+> Aggiornato al 2026-05-16 — v0.6.2: vibrazione al merge implementata, VibraBtn aggiunto al menu, FullscreenBtn si nasconde automaticamente dove l'API non è disponibile (iOS/Safari).
 
 1. **Completare sprite livelli speciali** (Campione / Eroe / Leggenda) e sprite pista
 2. **Animazioni rimanenti**: idle (respiro), squash on landing, pop on merge, esplosioni 3 tier
-3. **Impostare `LIVE_RESIZE = false` e `DEBUG = false`** in GameManager.ts per build di produzione
-4. **UI Fase 3**: HUD definitivo (contachilometri punteggio, round animato, timer 4 stati), schermata game over, pausa, tutorial definitivi
+3. **UI Fase 3**: HUD definitivo (contachilometri punteggio, round animato, timer 4 stati), schermata game over, pausa, tutorial definitivi
+4. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo

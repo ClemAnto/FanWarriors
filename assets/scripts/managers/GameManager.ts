@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -9,11 +9,12 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
+import { VFXManager } from './VFXManager';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.6.2';
-const DEBUG              = true;  // set true to show debug panel and overlay
-const DEBUG_ENGINE       = true;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const VERSION            = '0.6.9';
+const DEBUG              = false;  // set true to show debug panel and overlay
+const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
@@ -82,12 +83,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     private resizeRafId = 0;
     private _lastTickSec = -1;
     private _dangerCooldown = 0;
+    private _slowmoTimer    = 0;
+    private _slowmoScale    = 1.0;
+    private vfx!: VFXManager;
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
     private _pauseOverlay: Node | null = null;
     private _pauseLabelNode: Node | null = null;
     private _musicLabel: Label | null = null;
     private _sfxLabel:   Label | null = null;
+    private _vibraLabel: Label | null = null;
+    private _vibrationEnabled = true;
     private get gameOverLineLocal(): number {
         const sy = this.box2dLayer?.scale.y ?? 1;
         return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
@@ -131,6 +137,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     start() {
         AudioManager.instance; // trigger singleton init + asset preload as early as possible
         this.scheduleOnce(() => AudioManager.instance.playMusic(), 0.5);
+        this._vibrationEnabled = sys.localStorage.getItem('fw_vibration') !== '0';
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
         initLayout();
@@ -150,7 +157,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         // World — single parent for all in-game nodes; apply transforms here to affect everything
         this.worldNode = canvas.getChildByName('World')
             ?? (() => { const n = new Node('World'); n.setParent(canvas); return n; })();
-
         this.vfxLayer = this.worldNode.getChildByName('VFXLayer')
             ?? (() => { const n = new Node('VFXLayer'); n.setParent(this.worldNode); return n; })();
 
@@ -181,6 +187,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             })();
         // Ensure uiLayer renders on top of all game-world nodes
         this.uiLayer.setSiblingIndex(canvas.children.length - 1);
+        this.vfx = new VFXManager(this.vfxLayer, this.uiLayer, this.worldNode);
 
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
@@ -225,6 +232,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     onDestroy() {
+        director.getScheduler().setTimeScale(1.0);
         if (LIVE_RESIZE && sys.isBrowser) window.removeEventListener('resize', this.onBrowserResize);
         if (sys.isBrowser) {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
@@ -376,6 +384,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     update(dt: number) {
+        this.vfx.tick(dt);
+        this.tickSlowmo(dt);
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
         if (this.debugOverlay) {
             const g = this.debugOverlay;
@@ -488,8 +498,9 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private penaliseAndReturn(w: Warrior): void {
         this.score = Math.max(0, this.score - FAILED_LAUNCH_MALUS);
+        this.vfx.screenShake(5, 0.18);
         AudioManager.instance.play(SFX.MALUS);
-        this.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), -FAILED_LAUNCH_MALUS);
+        this.vfx.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), -FAILED_LAUNCH_MALUS);
         this.updateScoreLabel();
 
         w.launched = false;
@@ -603,7 +614,12 @@ export class GameManager extends Component implements IGameManagerDebug {
     private triggerGameOver(): void {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
+        this._slowmoTimer = 0;
+        this._slowmoScale = 1.0;
+        director.getScheduler().setTimeScale(1.0);
+        this.vfx.screenShake(12, 0.35);
         this.inputCtrl.clearWarrior();
+        AudioManager.instance.stopMusic();
         AudioManager.instance.play(SFX.GAME_OVER);
         console.log('[GameManager] game over');
         if (this.score > this.bestScore) {
@@ -688,7 +704,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.checkRoundAdvance();
         const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
         this.score += points;
-        this.spawnFloatingScore(midX, midYC, points);
+        this.vfx.spawnFloatingScore(midX, midYC, points, this.mergesThisLaunch > 1);
         this.updateScoreLabel();
         this.updateRoundProgress();
 
@@ -696,6 +712,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             // Both at max level — consume both, free space, no new warrior spawned
             AudioManager.instance.play(SFX.EXPLOSION_LEGEND);
             this.flashBurst(midX, midYC, a.type);
+            this._vibrate(120);
             if (inflightMerged) this.activateAfterInflightMerge();
             return;
         }
@@ -710,11 +727,13 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         if (newLevel === maxLevel && maxLevel >= 5) {
             this.triggerSpecialExplosion(merged, newLevel);
+            this._vibrate(120);
         } else {
             const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
             const mergeSfx = mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)];
             AudioManager.instance.play(mergeSfx);
-            this.flashMerge(merged);
+            this.vfx.flashMerge(merged.mapper);
+            this._vibrate(40);
         }
 
         if (inflightMerged) this.activateAfterInflightMerge();
@@ -746,10 +765,17 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._musicLabel     = menuNode.getChildByName('MusicBtn') ?.getChildByName('Label')?.getComponent(Label) ?? null;
                 this._sfxLabel       = menuNode.getChildByName('SfxBtn')   ?.getChildByName('Label')?.getComponent(Label) ?? null;
                 this._pauseLabelNode = menuNode.getChildByName('PauseBtn') ?.getChildByName('Label') ?? null;
+                this._vibraLabel     = menuNode.getChildByName('VibraBtn') ?.getChildByName('Label')?.getComponent(Label) ?? null;
                 if (this._musicLabel) this._musicLabel.color = AudioManager.instance.musicMuted
                     ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
                 if (this._sfxLabel) this._sfxLabel.color = AudioManager.instance.sfxMuted
                     ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
+                if (this._vibraLabel) this._vibraLabel.color = this._vibrationEnabled
+                    ? new Color(255, 255, 255, 220) : new Color(100, 100, 100, 150);
+                if (sys.isBrowser && !(document.documentElement as any).requestFullscreen) {
+                    const fsBtn = menuNode.getChildByName('FullscreenBtn');
+                    if (fsBtn) fsBtn.active = false;
+                }
             }
             this.updateNextPreview();
             // Create ring nodes programmatically on existing HUD
@@ -869,6 +895,18 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
+    toggleVibration(): void {
+        this._vibrationEnabled = !this._vibrationEnabled;
+        sys.localStorage.setItem('fw_vibration', this._vibrationEnabled ? '1' : '0');
+        if (this._vibraLabel) this._vibraLabel.color = this._vibrationEnabled
+            ? new Color(255, 255, 255, 220) : new Color(100, 100, 100, 150);
+    }
+
+    private _vibrate(ms: number): void {
+        if (!this._vibrationEnabled || !sys.isBrowser) return;
+        (navigator as any).vibrate?.(ms);
+    }
+
     private _togglePause(labelNode: Node | null): void {
         if (this.state === GameState.GameOver) return;
         const isPaused = this.state === GameState.Paused;
@@ -876,7 +914,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.state = this._stateBeforePause ?? GameState.Aiming;
             this._stateBeforePause = null;
             PhysicsSystem2D.instance.enable = true;
-            if (labelNode) labelNode.getComponent(Label)!.string = '||';
+            if (labelNode) labelNode.getComponent(Label)!.string = '⏸️';
             if (this._pauseOverlay?.isValid) this._pauseOverlay.destroy();
             this._pauseOverlay = null;
             AudioManager.instance.unmuteForPause();
@@ -884,7 +922,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._stateBeforePause = this.state;
             this.state = GameState.Paused;
             PhysicsSystem2D.instance.enable = false;
-            if (labelNode) labelNode.getComponent(Label)!.string = '▶';
+            if (labelNode) labelNode.getComponent(Label)!.string = '▶️';
             const overlay = new Node('PauseOverlay');
             overlay.setParent(this.uiLayer);
             const g = overlay.addComponent(Graphics);
@@ -924,6 +962,26 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private updateScoreLabel(): void {
         if (this.scoreLabel) this.scoreLabel.string = String(this.score);
+    }
+
+    private activateSlowmo(scale: number, duration: number): void {
+        if (this._slowmoTimer <= 0 || scale < this._slowmoScale) {
+            this._slowmoScale = scale;
+            director.getScheduler().setTimeScale(scale);
+            console.log(`[GameManager] slowmo: ×${scale} for ${duration}s`);
+        }
+        this._slowmoTimer = Math.max(this._slowmoTimer, duration);
+    }
+
+    private tickSlowmo(dt: number): void {
+        if (this._slowmoTimer <= 0) return;
+        this._slowmoTimer -= dt / this._slowmoScale; // dt is already scaled — convert to real time
+        if (this._slowmoTimer <= 0) {
+            this._slowmoTimer = 0;
+            this._slowmoScale = 1.0;
+            director.getScheduler().setTimeScale(1.0);
+            console.log('[GameManager] slowmo ended');
+        }
     }
 
     private updateRoundLabel(): void {
@@ -996,6 +1054,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.updateRoundLabel();
         this.roundUpPause = true;
         AudioManager.instance.play(SFX.ROUND_UP);
+        this.activateSlowmo(0.20, 2.5);
         this.showRoundUpBanner();
         this.scheduleOnce(() => { this.roundUpPause = false; }, 1.5);
         console.log(`[GameManager] round up → round ${this.currentRound}, types=${spawnTypesForRound(this.currentRound)}, timer=${launchTimerForRound(this.currentRound)}s`);
@@ -1007,9 +1066,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         const color = lvConf?.vfxColor ?? new Color(255, 255, 255, 255);
         const expSfx = level >= 7 ? SFX.EXPLOSION_LEGEND : level >= 6 ? SFX.EXPLOSION_HERO : SFX.EXPLOSION_CHAMPION;
         AudioManager.instance.play(expSfx);
-        const mx  = w.node.position.x;                   // local (scaleX=1 → canvas)
-        const my  = w.node.position.y;                   // local Y
-        const myC = this.coords.physToVisual(my);         // canvas Y for UI/VFX
+        this.vfx.screenShake(level >= 7 ? 20 : level >= 6 ? 14 : 8, level >= 7 ? 0.50 : level >= 6 ? 0.40 : 0.28);
+        this.activateSlowmo(level >= 7 ? 0.15 : level >= 6 ? 0.25 : 0.40, level >= 7 ? 1.0 : level >= 6 ? 0.7 : 0.5);
+        const mx  = w.node.position.x;
+        const myC = this.coords.physToVisual(w.node.position.y);
         const r   = w.radius;
 
         this.warriors = this.warriors.filter(wr => wr !== w);
@@ -1019,42 +1079,9 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.score += bonus;
         this.updateScoreLabel();
-        if (bonus > 0) this.spawnFloatingScore(mx, myC + 30, bonus);
-
-        // Two expanding rings
-        for (let i = 0; i < 2; i++) {
-            const vfx = new Node('ExpVFX');
-            vfx.setParent(this.vfxLayer);
-            vfx.setPosition(mx, myC);
-            const g = vfx.addComponent(Graphics);
-            g.lineWidth = 6 - i * 2;
-            g.strokeColor = color;
-            g.circle(0, 0, r);
-            g.stroke();
-            const op = vfx.addComponent(UIOpacity);
-            op.opacity = 255;
-            const dur = 0.45 + i * 0.12;
-            tween(vfx).to(dur, { scale: new Vec3(3 + i, 3 + i, 1) }).start();
-            tween(op).to(dur, { opacity: 0 })
-                .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
-        }
-
-        // Label
-        const labelNode = new Node('ExpLabel');
-        labelNode.setParent(this.uiLayer);
-        labelNode.setSiblingIndex(this.uiLayer.children.length - 1);
-        labelNode.setPosition(mx, myC + 10);
-        const lbl = labelNode.addComponent(Label);
-        lbl.string = lvConf?.label ?? '';
-        lbl.fontSize = 40;
-        lbl.isBold = true;
-        lbl.color = color;
-        const labelOp = labelNode.addComponent(UIOpacity);
-        labelOp.opacity = 255;
-        tween(labelNode).by(0.7, { position: new Vec3(0, 55, 0) }).start();
-        tween(labelOp).delay(0.3).to(0.4, { opacity: 0 })
-            .call(() => { if (labelNode.isValid) labelNode.destroy(); }).start();
-
+        if (bonus > 0) this.vfx.spawnFloatingScore(mx, myC + 30, bonus);
+        this.vfx.spawnExplosionRings(mx, myC, r, color);
+        this.vfx.spawnExplosionLabel(mx, myC + 10, lvConf?.label ?? '', color);
         console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
     }
 
@@ -1083,64 +1110,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 .start();
         }
 
-        // vs = floor visivo: garantisce effetti leggibili anche al livello minimo
-        const vs  = Math.max(strength, 0.35);
-        const cyV = this.coords.physToVisual(cy);
-
-        // anelli contraenti
-        for (let i = 0; i < 2; i++) {
-            const sring = new Node('SuctionRing');
-            sring.setParent(this.vfxLayer);
-            sring.setPosition(cx, cyV);
-            const sg = sring.addComponent(Graphics);
-            sg.lineWidth   = 4 - i;
-            sg.strokeColor = new Color(ringColor.r, ringColor.g, ringColor.b, Math.round((200 - i * 40) * vs));
-            sg.circle(0, 0, (180 + i * 60) * vs);
-            sg.stroke();
-            const sop = sring.addComponent(UIOpacity);
-            sop.opacity = Math.round((180 - i * 40) * vs);
-            const delay = i * 0.15;
-            tween(sring).delay(delay).to(this.suctionDuration - delay, { scale: new Vec3(0.01, 0.01, 1) }).start();
-            tween(sop).delay(delay).to(this.suctionDuration - delay, { opacity: 0 })
-                .call(() => { if (sring.isValid) sring.destroy(); }).start();
-        }
-
-        // A — particelle vorticose che spiralano verso il centro
-        const count = Math.round(5 + 7 * vs);
-        for (let i = 0; i < count; i++) {
-            const angle  = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-            const radius = (80 + Math.random() * 80) * vs;
-            const startX = cx  + Math.cos(angle) * radius;
-            const startY = cyV + Math.sin(angle) * radius;
-            const midAngle = angle + Math.PI / 3;
-            const midR     = radius * 0.4;
-            const midX     = cx  + Math.cos(midAngle) * midR;
-            const midY     = cyV + Math.sin(midAngle) * midR;
-
-            const p = new Node('SuctionParticle');
-            p.setParent(this.vfxLayer);
-            p.setPosition(startX, startY);
-            const g = p.addComponent(Graphics);
-            g.fillColor = new Color(ringColor.r, ringColor.g, ringColor.b, 220);
-            g.circle(0, 0, Math.max(2.5, (3 + Math.random() * 3) * vs));
-            g.fill();
-            const op = p.addComponent(UIOpacity);
-            op.opacity = 220;
-
-            const delay = Math.random() * 0.35;
-            const dur   = (0.35 + Math.random() * 0.25) * (0.5 + vs * 0.5);
-            tween(p)
-                .delay(delay)
-                .to(dur * 0.55, { position: new Vec3(midX, midY, 0) }, { easing: 'quadIn' })
-                .to(dur * 0.45, { position: new Vec3(cx,   cyV,  0) }, { easing: 'quadIn' })
-                .call(() => { if (p.isValid) p.destroy(); })
-                .start();
-            tween(op)
-                .delay(delay)
-                .to(dur * 0.3,  { opacity: 220 })
-                .to(dur * 0.7,  { opacity: 0 })
-                .start();
-        }
+        this.vfx.spawnSuctionVFX(cx, this.coords.physToVisual(cy), ringColor, strength, this.suctionDuration);
     }
 
     private applyVortexSuction(dt: number): void {
@@ -1266,29 +1236,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private showRoundUpBanner(): void {
-        const node = new Node('RoundUpBanner');
-        node.setParent(this.uiLayer);
-        node.setPosition(0, 0);
-        node.setScale(0.4, 0.4, 1);
-
-        const lbl = node.addComponent(Label);
-        lbl.string = `ROUND ${this.currentRound}`;
-        lbl.fontSize = 45;
-        lbl.isBold = true;
-        lbl.color = new Color(255, 220, 50, 255);
-
-        const opacity = node.addComponent(UIOpacity);
-        opacity.opacity = 255;
-
-        tween(node)
-            .to(0.25, { scale: new Vec3(1.1, 1.1, 1) })
-            .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
-            .start();
-        tween(opacity)
-            .delay(1.05)
-            .to(0.4, { opacity: 0 })
-            .call(() => { if (node.isValid) node.destroy(); })
-            .start();
+        this.vfx.showRoundUpBanner(this.currentRound);
     }
 
     private updateNextPreview(animate = false): void {
@@ -1423,55 +1371,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private flashMerge(w: Warrior): void {
-        if (!w.mapper) return;
-        tween(w.mapper)
-            .to(0.08, { animScale: 1.4 })
-            .to(0.12, { animScale: 1.0 })
-            .start();
-    }
-
     private flashBurst(x: number, yCanvas: number, type: number): void {
         const burstColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
-        const vfx = new Node('BurstVFX');
-        vfx.setParent(this.vfxLayer);
-        vfx.setPosition(x, yCanvas);
-        const g = vfx.addComponent(Graphics);
-        g.lineWidth = 4;
-        g.strokeColor = burstColor;
-        g.circle(0, 0, (LEVEL_CONFIG[4]?.radius ?? 42) * LAYOUT_SCALE);
-        g.stroke();
-        const op = vfx.addComponent(UIOpacity);
-        op.opacity = 200;
-        tween(vfx).to(0.3, { scale: new Vec3(2, 2, 1) }).start();
-        tween(op).to(0.3, { opacity: 0 })
-            .call(() => { if (vfx.isValid) vfx.destroy(); }).start();
+        this.vfx.spawnBurstRing(x, yCanvas, (LEVEL_CONFIG[4]?.radius ?? 42) * LAYOUT_SCALE, burstColor);
+        this.vfx.screenShake(14, 0.40);
+        this.activateSlowmo(0.15, 1.0);
         this.activateSuction(x, this.coords.visualToPhys(yCanvas), burstColor);
-    }
-
-    private spawnFloatingScore(x: number, y: number, points: number): void {
-        const node = new Node('FloatingScore');
-        node.setParent(this.uiLayer);
-        node.setSiblingIndex(this.uiLayer.children.length - 1);
-        node.setPosition(x, y);
-
-        const lbl = node.addComponent(Label);
-        lbl.string   = points >= 0 ? `+${points}` : `${points}`;
-        lbl.fontSize  = points >= 0 && this.mergesThisLaunch > 1 ? 44 : 34;
-        lbl.isBold    = true;
-        lbl.color     = points >= 0 ? new Color(255, 220, 50, 255) : new Color(255, 80, 80, 255);
-
-        const opacity = node.addComponent(UIOpacity);
-        opacity.opacity = 255;
-
-        tween(node)
-            .by(0.9, { position: new Vec3(0, 90, 0) })
-            .start();
-        tween(opacity)
-            .delay(0.35)
-            .to(0.55, { opacity: 0 })
-            .call(() => { if (node.isValid) node.destroy(); })
-            .start();
     }
 
     private createDebugLabel(): Label {
