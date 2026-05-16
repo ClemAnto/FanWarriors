@@ -259,6 +259,23 @@ Disegnata in `Track.buildWalls()` sul nodo **Track** — garantisce che sia semp
 
 ---
 
+## Auto-pausa (v0.6.0)
+
+Il gioco si mette in pausa automaticamente quando l'app perde il focus (background/standby).
+
+**Implementazione**: `GameManager` registra tre listener browser (solo se `sys.isBrowser`) all'interno del callback `WarriorSpriteCache.preload()`:
+- `document.visibilitychange` → `_onVisibilityChange` (arrow function per `this` stabile)
+- `window.blur` → `_onWindowBlur`
+- `window.focus` → `_onWindowFocus`
+
+Vengono deregistrati in `onDestroy()`. Il flag `_autoPaused` distingue la pausa automatica da quella manuale — evita che `_autoResume` sblocchi una pausa manuale premuta dall'utente.
+
+Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o `Idle`.
+
+**AudioManager**: `muteForPause()` azzera il volume music senza modificare le preferenze utente; `unmuteForPause()` lo ripristina. SFX bloccati tramite flag `_pauseMuted` controllato in `play()`.
+
+---
+
 ## Cosa NON è ancora implementato (stato Fase 2)
 
 - **Livelli massimi per specie** — nel codice tutti i tipi vanno fino a lv7, ma il GDD prevede cap diversi per specie (lv5/6/7 solo per alcune). Da implementare in Fase 3 quando arrivano gli asset definitivi.
@@ -270,17 +287,19 @@ Disegnata in `Track.buildWalls()` sul nodo **Track** — garantisce che sia semp
 
 ---
 
-## HUD — struttura corrente (v0.3.6)
+## HUD — struttura corrente (v0.6.0)
 
 | Sezione | Posizione | Font caption / valore |
 |---------|-----------|----------------------|
 | ScoreSec | top-left | 28 / 46 |
 | RoundSec | top-right | 28 / 46 — include ring progress e label `N/M` |
-| NextSec | left, centrata verticalmente | 13 |
 | TimerSec | centro zona di lancio | 44 |
 
 **MERGES rimossa dalla HUD** in v0.3.6 — il tracciamento dei merge è ora implicito nel ring del round.  
 **Ring progress round**: `R=35`, `LW=10` (spessore raddoppiato rispetto a v0.3.4). Sfondo `(60,60,70,220)`, arco `(120,220,255,255)`.
+
+**NextSec rimosso** in v0.6.0 (nodo eliminato dall'editor). La preview del prossimo warrior è ora su **NextPreview**, nodo figlio diretto di **Track** (non della HUD). `GameManager.start()` lo cerca con `this.track?.node.getChildByName('NextPreview')`.  
+**Regola critica**: non creare elementi UI programmaticamente — vanno aggiunti nella scena dall'editor.
 
 ---
 
@@ -461,32 +480,17 @@ $proc = Start-Process -FilePath "C:\ProgramData\cocos\editors\Creator\3.8.8\Coco
 Write-Output "Exit code: $($proc.ExitCode)"
 ```
 
-**2. Serve + tunnel in un comando**
+**2. Serve locale**
 ```powershell
-npm run serve   # scripts/serve-remote.js — avvia Python HTTP server porta 8080 + ngrok
+npm run serve   # scripts/serve-remote.js — avvia Python HTTP server porta 8080 (localhost only)
 ```
 
-**3. Tunnel pubblico (ngrok)**
-```bash
-npx ngrok http 8080
-# Oppure in background e recupera URL via API:
-npx ngrok http 8080 --log=stdout &
-curl -s http://localhost:4040/api/tunnels | grep -o '"public_url":"[^"]*"'
-```
-L'URL resta fisso per tutta la sessione ngrok (es. `https://macarena-lavender-excavator.ngrok-free.dev`).
-
-**4. Impedire standby PC**
+**3. Impedire standby PC**
 ```bash
 # Disabilita standby AC (prima di uscire)
 powercfg /change standby-timeout-ac 0
 # Ripristina (quando torni)
 powercfg /change standby-timeout-ac 15
-```
-
-### Setup iniziale ngrok (una tantum)
-```bash
-# Registrarsi su ngrok.com e ottenere authtoken dal dashboard
-npx ngrok config add-authtoken <TOKEN>
 ```
 
 ### CRITICO — kill prima di rebuild
@@ -497,6 +501,3 @@ Get-Process -Name "node" | Stop-Process -Force
 cmd /c rd /s /q "d:\Projects\FunWarriors\build"
 ```
 
-### Perché ngrok e non localtunnel
-localtunnel è gratuito ma crasha frequentemente (503 Bad Gateway, connessione persa).  
-ngrok richiede account gratuito ma è stabile per sessioni di test lunghe.

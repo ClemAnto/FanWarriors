@@ -70,6 +70,7 @@ export interface IGameManagerDebug {
     saveDebugState(): void;
     loadDebugState(): void;
     resetDebugState(): void;
+    setLauncherBlocked(v: boolean): void;
 }
 
 @ccclass('DebugPanel')
@@ -292,10 +293,24 @@ export class DebugPanel extends Component {
         return new Vec2((ui.x - vs.width / 2) / PANEL_SCALE, (ui.y - vs.height / 2) / PANEL_SCALE);
     }
 
-    // World coords (unscaled) — used for drop-into-track placement
+    // Canvas-relative coords (origin at screen center) — same space as viewNode.position (WarriorsLayer local)
     private toWorld(ui: Vec2): Vec2 {
         const vs = view.getVisibleSize();
         return new Vec2(ui.x - vs.width / 2, ui.y - vs.height / 2);
+    }
+
+    // canvas Y → box2dLayer local Y  (visualToPhys)
+    private toPhysY(canvasY: number): number {
+        const sy = this.layerScaleY;
+        const wy = view.getDesignResolutionSize().height / 2;
+        return (canvasY - wy * (sy - 1)) / (sy * sy);
+    }
+
+    // box2dLayer local Y → canvas Y  (physToVisual — inverse of toPhysY)
+    private toVisualY(physLocalY: number): number {
+        const sy = this.layerScaleY;
+        const wy = view.getDesignResolutionSize().height / 2;
+        return physLocalY * sy * sy + wy * (sy - 1);
     }
 
     private onTouchStart(e: EventTouch): void { this.handleStart(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
@@ -364,11 +379,12 @@ export class DebugPanel extends Component {
         }
 
         // Paused: record warrior touch — drag activates on move, tap cycles level on release
+        // viewNode.position is local in WarriorsLayer — same canvas-relative space as toWorld()
         if (this.gm.isTimerPaused()) {
             for (const w of this.gm.getWarriors()) {
-                if (!w.crossedLine || !w.node?.isValid) continue;
-                const wp = w.node.position;
-                if (Vec2.distance(world, new Vec2(wp.x, wp.y * this.layerScaleY)) <= w.radius + 8) {
+                if (!w.crossedLine || !w.node?.isValid || !w.viewNode?.isValid) continue;
+                const vp = w.viewNode.position;
+                if (Vec2.distance(world, new Vec2(vp.x, vp.y)) <= w.radius * 1.5 + 8) {
                     this.pauseTouchWarrior = w;
                     this.pauseTouchStart   = world.clone();
                     return;
@@ -376,10 +392,15 @@ export class DebugPanel extends Component {
             }
         }
 
-        // Palette icon — start drag (always allowed, even when paused)
+        // Palette icon — start drag, auto-pause and block launcher
         for (let t = 0; t < 7; t++) {
             const iy = PAL_START_Y - t * ICON_SPACING;
             if (Vec2.distance(p, new Vec2(CX, iy)) <= ICON_R + 8) {
+                if (!this.gm.isTimerPaused()) {
+                    this.gm.setTimerPaused(true);
+                    this.refresh();
+                }
+                this.gm.setLauncherBlocked(true);
                 this.dragType = t;
                 this.spawnGhost(t, world);
                 return;
@@ -388,9 +409,9 @@ export class DebugPanel extends Component {
 
         // Tap on settled warrior to cycle level
         for (const w of this.gm.getWarriors()) {
-            if (!w.crossedLine || !w.node?.isValid) continue;
-            const wp = w.node.position;
-            if (Vec2.distance(world, new Vec2(wp.x, wp.y * this.layerScaleY)) <= w.radius + 6) {
+            if (!w.crossedLine || !w.node?.isValid || !w.viewNode?.isValid) continue;
+            const vp = w.viewNode.position;
+            if (Vec2.distance(world, new Vec2(vp.x, vp.y)) <= w.radius * 1.5 + 6) {
                 this.tapWarrior = w;
                 this.tapStart   = world.clone();
                 return;
@@ -409,7 +430,7 @@ export class DebugPanel extends Component {
             }
         }
         if (this.dragWarrior?.node?.isValid) {
-            this.dragWarrior.node.setPosition(world.x, this.layerScaleY > 0 ? world.y / this.layerScaleY : world.y);
+            this.dragWarrior.node.setPosition(world.x, this.toPhysY(world.y));
             return;
         }
         if (this.dragType < 0) return;
@@ -436,10 +457,12 @@ export class DebugPanel extends Component {
         // Palette drag: place warrior on drop inside track
         if (this.dragType >= 0) {
             if (this.ghost?.isValid) { this.ghost.destroy(); this.ghost = null; }
-            if (Math.abs(world.x) <= TRACK_W / 2 && world.y > GAME_OVER_LINE_Y + 20) {
-                this.gm.addDebugWarrior(this.dragType, 1, world.x, this.layerScaleY > 0 ? world.y / this.layerScaleY : world.y);
+            const goalVisualY = this.toVisualY(GAME_OVER_LINE_Y / this.layerScaleY);
+            if (Math.abs(world.x) <= TRACK_W / 2 && world.y > goalVisualY + 20) {
+                this.gm.addDebugWarrior(this.dragType, 1, world.x, this.toPhysY(world.y));
             }
             this.dragType = -1;
+            this.gm.setLauncherBlocked(false);
             return;
         }
 

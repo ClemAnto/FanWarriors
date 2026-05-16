@@ -23,6 +23,7 @@ export class InputController extends Component {
     getWarriors: (() => readonly Warrior[]) | null = null;
     ropeParent: Node | null = null;
     launchEnabled = true;
+    blocked = false;       // set true by DebugPanel while it owns a drag gesture
     showBounds = false;
     showRope   = false;
     initialScale = 1;
@@ -170,7 +171,7 @@ export class InputController extends Component {
     private onMouseUp(e: EventMouse):    void { this.handleDragEnd(this.toWorld(e.getUILocation())); }
 
     private handleDragStart(touch: Vec2): void {
-        if (!this.warrior || this.dragging) return;
+        if (this.blocked || !this.warrior || this.dragging) return;
         if (!this.launchEnabled) {
             const wPos = this.warriorPos();
             const dx   = touch.x - wPos.x;
@@ -186,12 +187,14 @@ export class InputController extends Component {
     }
 
     private handleDragMove(touch: Vec2): void {
+        if (this.blocked) { if (this.dragging) { this.dragging = false; this.clearRope(); } return; }
         if (!this.dragging || !this.warrior) return;
         this.lastTouchPos = touch;
         this.drawRope(touch);
     }
 
     private handleDragEnd(touch: Vec2): void {
+        if (this.blocked) { this.dragging = false; this.clearRope(); return; }
         if (!this.launchEnabled && this.warrior && this.tapStartPos) {
             const dx = touch.x - this.tapStartPos.x;
             const dy = touch.y - this.tapStartPos.y;

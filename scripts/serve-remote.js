@@ -1,20 +1,17 @@
 #!/usr/bin/env node
-// Starts a static server + ngrok tunnel for remote mobile testing.
+// Starts a local static server for quick testing.
 // Usage: npm run serve  (or: node scripts/serve-remote.js [build-dir])
-//        node scripts/serve-remote.js build3/web-mobile
 
 const { spawn } = require('child_process');
-const http      = require('http');
 const fs        = require('fs');
 const path      = require('path');
 
-const PORT     = 8080;
-const ROOT     = path.resolve(__dirname, '..');
+const PORT = 8080;
+const ROOT = path.resolve(__dirname, '..');
 const buildArg = process.argv[2];
 
 function findBuildDir() {
     if (buildArg) return path.join(ROOT, buildArg);
-    // Pick the most recently modified build*/web-mobile with an index.html
     const candidates = fs.readdirSync(ROOT)
         .filter(n => /^build\d*$/.test(n))
         .map(n => path.join(ROOT, n, 'web-mobile'))
@@ -27,57 +24,18 @@ function findBuildDir() {
 const buildDir = findBuildDir();
 console.log(`Serving: ${buildDir}`);
 
-// Inject version into loading screen
 (function injectVersion() {
-    const pkg     = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-    const version = pkg.version ?? '?';
+    const pkg       = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    const version   = pkg.version ?? '?';
     const indexPath = path.join(buildDir, 'index.html');
-    const html = fs.readFileSync(indexPath, 'utf8');
-    const patched = html.replace(/__VERSION__/g, version);
+    const html      = fs.readFileSync(indexPath, 'utf8');
+    const patched   = html.replace(/__VERSION__/g, version);
     if (patched !== html) fs.writeFileSync(indexPath, patched, 'utf8');
 })();
 
-const procs = [];
+console.log(`\n  http://localhost:${PORT}\n`);
 
-function start(cmd, args, opts = {}) {
-    const p = spawn(cmd, args, { stdio: 'inherit', shell: true, ...opts });
-    procs.push(p);
-    return p;
-}
+const server = spawn('python', ['-m', 'http.server', String(PORT)], { stdio: 'inherit', shell: true, cwd: buildDir });
 
-function cleanup() {
-    procs.forEach(p => { try { p.kill(); } catch (_) {} });
-}
-process.on('SIGINT',  cleanup);
-process.on('SIGTERM', cleanup);
-process.on('exit',    cleanup);
-
-// Static server
-start('python', ['-m', 'http.server', String(PORT)], { cwd: buildDir });
-
-// Small delay so the server is up before ngrok connects
-setTimeout(() => {
-    start('ngrok', ['http', String(PORT)]);
-
-    // Poll ngrok API until the tunnel URL appears
-    let attempts = 0;
-    const poll = setInterval(() => {
-        const req = http.get('http://localhost:4040/api/tunnels', res => {
-            let body = '';
-            res.on('data', d => body += d);
-            res.on('end', () => {
-                try {
-                    const url = JSON.parse(body).tunnels[0]?.public_url;
-                    if (url) {
-                        clearInterval(poll);
-                        console.log('\n──────────────────────────────────────');
-                        console.log(`  ${url}`);
-                        console.log('──────────────────────────────────────\n');
-                    }
-                } catch (_) {}
-            });
-        });
-        req.on('error', () => {});
-        if (++attempts > 30) clearInterval(poll);
-    }, 500);
-}, 1500);
+process.on('SIGINT',  () => server.kill());
+process.on('SIGTERM', () => server.kill());

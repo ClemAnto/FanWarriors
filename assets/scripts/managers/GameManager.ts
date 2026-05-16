@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -11,9 +11,9 @@ import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.5.5';
-const DEBUG              = false;  // set true to show debug panel and overlay
-const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const VERSION            = '0.6.2';
+const DEBUG              = true;  // set true to show debug panel and overlay
+const DEBUG_ENGINE       = true;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
@@ -203,7 +203,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         WarriorSpriteCache.preload(() => {
             this.warriors.push(...this.spawnMgr.prefill());
             const firstWarrior = this.createWarrior();
-            this.createHud();
+            this.initHud();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
             this.showTutorial(() => this.activateWarrior(firstWarrior));
@@ -288,6 +288,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const w = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, level, x, y);
         w.crossedLine = true;
         w.fired = true;
+        w.settle();
         w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
         console.log(`[GameManager] debug: placed type=${type} lv=${level} at (${x.toFixed(0)},${y.toFixed(0)})`);
@@ -306,6 +307,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, newLevel, pos.x, pos.y);
         nw.crossedLine  = true;
         nw.fired        = true;
+        nw.settle();
         nw.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(nw);
         console.log(`[GameManager] debug: cycled type=${type} → lv${newLevel}`);
@@ -367,6 +369,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.updateRoundProgress();
         this.updateScoreLabel();
         console.log('[GameManager] debug: state reset');
+    }
+
+    setLauncherBlocked(v: boolean): void {
+        this.inputCtrl.blocked = v;
     }
 
     update(dt: number) {
@@ -725,14 +731,14 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     // --- HUD ---
 
-    private createHud(): void {
+    private initHud(): void {
         const existingHud = this.uiLayer.getChildByName('HUD');
         if (existingHud) {
             this.scoreLabel      = existingHud.getChildByName('ScoreSec')  ?.getChildByName('ScoreValue')  ?.getComponent(Label) ?? null;
             this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
             this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
             this.timerSectionNode = existingHud.getChildByName('TimerSec') ?? null;
-    
+
             const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
             if (versionLabel) versionLabel.string = `v${VERSION}`;
             const menuNode = existingHud.getChildByName('menu');
@@ -774,8 +780,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         hud.setParent(this.uiLayer);
         const vs = view.getVisibleSize();
         hud.addComponent(UITransform).setContentSize(vs.width, vs.height);
-        const MH = 80;   // horizontal margin (left/right)
-        const MV = 40;   // vertical margin   (top/bottom)
+        const MH = 80;
+        const MV = 40;
 
         // ── Top-left: SCORE ───────────────────────────────────────────────
         const scoreSec = this.makeCornerGroup(hud, 'ScoreSec', true, true, MH, MV);
@@ -1301,6 +1307,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         sp.spriteFrame = frame ?? null!;
 
         if (animate) {
+            Tween.stopAllByTarget(this.nextNextWarriorNode);
             this.nextNextWarriorNode.setScale(0.05, 0.05, 1);
             tween(this.nextNextWarriorNode)
                 .to(0.18, { scale: new Vec3(1.22, 1.22, 1) }, { easing: 'quadOut' })
@@ -1326,6 +1333,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         }, 0);
 
         if (this.nextNextWarriorNode?.isValid) {
+            Tween.stopAllByTarget(this.nextNextWarriorNode);
             tween(this.nextNextWarriorNode)
                 .to(0.12, { scale: new Vec3(0, 0, 1) }, { easing: 'quadIn' })
                 .delay(0.18)
@@ -1334,7 +1342,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         } else {
             this.scheduleOnce(() => this.updateNextPreview(true), 0.30);
         }
-
     }
 
     private makeLabel(parent: Node, text: string, x: number, y: number, fontSize: number, color: Color): Label {
