@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+  <title>FunWarriors</title>
+
+  <meta name="viewport"
+        content="width=device-width,user-scalable=no,initial-scale=1,minimum-scale=1,maximum-scale=1,minimal-ui=true"/>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="renderer" content="webkit"/>
+  <meta name="force-rendering" content="webkit"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+  <meta name="msapplication-tap-highlight" content="no">
+  <meta name="full-screen" content="yes"/>
+  <meta name="x5-fullscreen" content="true"/>
+  <meta name="360-fullscreen" content="true"/>
+  <meta name="x5-page-mode" content="app">
+
+  <link rel="stylesheet" type="text/css" href="style.css"/>
+
+  <style>
+    #loading-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s ease;
+    }
+    #loading-screen.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .ls-title {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 2.6em;
+      font-weight: bold;
+      color: #fff;
+      letter-spacing: 5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ls-subtitle {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 0.85em;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 44px;
+    }
+    .ls-version {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 0.72em;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 1px;
+      margin-top: 20px;
+    }
+    .ls-spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(255, 212, 50, 0.2);
+      border-top-color: #ffd432;
+      border-radius: 50%;
+      animation: ls-spin 0.85s linear infinite;
+    }
+    @keyframes ls-spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="loading-screen">
+    <div class="ls-title">FunWarriors</div>
+    <div class="ls-subtitle">Loading</div>
+    <div class="ls-spinner"></div>
+    <div class="ls-version">v0.6.10</div>
+  </div>
+
+  <div id="GameDiv" cc_exact_fit_screen="true">
+    <div id="Cocos3dGameContainer">
+      <canvas id="GameCanvas" oncontextmenu="event.preventDefault()" tabindex="99"></canvas>
+    </div>
+  </div>
+
+<script src="src/polyfills.bundle.js" charset="utf-8"> </script>
+<script src="src/system.bundle.js" charset="utf-8"> </script>
+<script src="src/import-map.json" type="systemjs-importmap" charset="utf-8"> </script>
+
+<script>
+(function () {
+    function hideLoading() {
+        var el = document.getElementById('loading-screen');
+        if (!el) return;
+        el.classList.add('fade-out');
+        setTimeout(function () { el.style.display = 'none'; }, 550);
+    }
+
+    // Poll until cc.director is available, then listen for first scene launch
+    function waitForCC() {
+        if (typeof window.cc !== 'undefined' && window.cc.director) {
+            window.cc.director.once(window.cc.Director.EVENT_AFTER_SCENE_LAUNCH, hideLoading);
+        } else {
+            setTimeout(waitForCC, 100);
+        }
+    }
+    waitForCC();
+
+    System.import('./index.js').catch(function (err) { console.error(err); });
+})();
+</script>
+
+</body>
+</html>
