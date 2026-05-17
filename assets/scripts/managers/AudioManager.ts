@@ -23,6 +23,7 @@ export enum SFX {
     UI_CLICK           = 'audio/sfx/ui_click',
     BOUNCE             = 'audio/sfx/bounce',
     HIT                = 'audio/sfx/hit',
+    DRAW               = 'audio/sfx/draw',
     SPAWN              = 'audio/sfx/spawn',
     MUSIC_MAIN         = 'audio/music/main',
 }
@@ -51,7 +52,11 @@ export class AudioManager extends Component {
     musicVolume  = 0.6;
     sfxMuted     = false;
     musicMuted   = false;
-    private _pauseMuted = false;
+    private _pauseMuted         = false;
+    private _pendingMusicPlay   = false;
+    private _musicStarted       = false;
+    private _gestureUnlockAdded = false;
+    private _preDuckVolume      = 0.6;
 
     onLoad(): void {
         AudioManager._inst = this;
@@ -67,7 +72,11 @@ export class AudioManager extends Component {
         for (const path of Object.values(SFX) as SFX[]) {
             resources.load(path, AudioClip, (err, clip) => {
                 this._clips.set(path, err ? null : clip);
-                if (err) console.warn(`[AudioManager] missing clip: ${path}`);
+                if (err) { console.warn(`[AudioManager] missing clip: ${path}`); return; }
+                if (path === SFX.MUSIC_MAIN && this._pendingMusicPlay) {
+                    this._pendingMusicPlay = false;
+                    this.playMusic();
+                }
             });
         }
     }
@@ -92,10 +101,22 @@ export class AudioManager extends Component {
 
     playMusic(): void {
         const clip = this._clips.get(SFX.MUSIC_MAIN);
-        if (!clip) return;
+        if (!clip) { this._pendingMusicPlay = true; return; }
+        this._pendingMusicPlay   = false;
         this._musicSource.clip   = clip;
         this._musicSource.volume = this.musicMuted ? 0 : this.musicVolume;
         this._musicSource.play();
+        this._musicStarted = true;
+    }
+
+    ensureMusic(): void {
+        if (this._gestureUnlockAdded || !sys.isBrowser) return;
+        this._gestureUnlockAdded = true;
+        const handler = () => {
+            if (!this._musicStarted && !this.musicMuted) this.playMusic();
+            document.removeEventListener('pointerdown', handler);
+        };
+        document.addEventListener('pointerdown', handler);
     }
 
     stopMusic(): void {
@@ -118,6 +139,15 @@ export class AudioManager extends Component {
     setMusicVolume(v: number): void {
         this.musicVolume = Math.max(0, Math.min(1, v));
         if (!this.musicMuted) this._musicSource.volume = this.musicVolume;
+    }
+
+    duckMusicTo(volume: number): void {
+        this._preDuckVolume = this.musicVolume;
+        this.setMusicVolume(volume);
+    }
+
+    unduckMusic(): void {
+        this.setMusicVolume(this._preDuckVolume);
     }
 
     setSfxVolume(v: number): void {

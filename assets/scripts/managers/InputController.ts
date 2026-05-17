@@ -1,6 +1,7 @@
 import { _decorator, Component, Input, input, EventTouch, EventMouse, Vec2, Node, Graphics, Color, sys, view, UITransform } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { LEVEL_CONFIG, WARRIORS } from '../data/WarriorConfig';
+import { AudioManager, SFX } from './AudioManager';
 const { ccclass } = _decorator;
 
 // Base values at design width 720 — multiplied by _scale at runtime
@@ -108,7 +109,7 @@ export class InputController extends Component {
         this.warrior = null;
         this.lastTouchPos = null;
         launched.applyImpulse(dir.multiplyScalar(halfImpulse));
-        this.onLaunch?.(launched, halfImpulse);
+        this.onLaunch?.(launched, 0.5);
         console.log('[InputController] auto-launch');
     }
 
@@ -182,6 +183,7 @@ export class InputController extends Component {
         }
         if (touch.y < 0) {
             this.dragging = true;
+            AudioManager.instance.play(SFX.DRAW, 0.7);
             console.log('[InputController] drag started');
         }
     }
@@ -242,7 +244,7 @@ export class InputController extends Component {
         this.warrior = null;
         launched.applyImpulse(impulse);
         if (sys.isMobile) navigator.vibrate?.(18);
-        this.onLaunch?.(launched, impulse.length());
+        this.onLaunch?.(launched, t);
     }
 
     private drawRope(touch: Vec2): void {
@@ -386,11 +388,11 @@ export class InputController extends Component {
             let dist = phase;
             while (dist < segLen) {
                 const progress = (cumDist + dist) / totalLen;
-                const alpha = Math.max(TRAJ_DOT_ALPHA_END, Math.round(TRAJ_DOT_ALPHA_START * (1 - progress * 0.6)));
+                const alpha = Math.round(TRAJ_DOT_ALPHA_START * (1 - progress));
                 g.fillColor = new Color(dotColor.r, dotColor.g, dotColor.b, alpha);
                 // Convert world dot position to Crossbow-local for drawing
                 const dotL = this.worldToLocal(new Vec2(from.x + ux * dist, from.y + uy * dist));
-                g.circle(dotL.x, dotL.y, dotR);
+                g.ellipse(dotL.x, dotL.y, dotR, dotR * 2);
                 g.fill();
                 dist += step;
             }

@@ -7,11 +7,14 @@ import { AudioManager, SFX } from '../managers/AudioManager';
 const { ccclass } = _decorator;
 
 const MERGE_DELAY      = 0.3;
-const BOUNCE_VOL_MAX   = 150;  // velocity at which volume reaches 1.0
+const BOUNCE_VOL_MAX   = 280;  // velocity at which wall-bounce volume reaches 1.0
+const HIT_VOL_MAX      = 80;   // velocity at which warrior-hit volume reaches 1.0
 
-// Smooth curve: quiet at low speed, full at BOUNCE_VOL_MAX
 function bounceVol(speed: number): number {
     return Math.min(speed / BOUNCE_VOL_MAX, 1.0) ** 0.5;
+}
+function hitVol(speed: number): number {
+    return Math.min(speed / HIT_VOL_MAX, 1.0) ** 0.5;
 }
 
 @ccclass('Warrior')
@@ -36,6 +39,7 @@ export class Warrior extends Component {
     set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
+    private _lastHitSoundMs = 0;
 
     playMergeOutEffect(targetX: number, targetY: number, duration: number): void {
         const rb = this.getComponent(RigidBody2D);
@@ -179,8 +183,11 @@ export class Warrior extends Component {
         // Warrior-warrior — play only on one side to avoid doubling
         const uuidWins = this.node.uuid < otherW.node.uuid;
         console.log(`[Bounce] warrior hit — launched=${this.launched} crossedLine=${this.crossedLine} speed=${speed.toFixed(1)} uuidWins=${uuidWins}`);
-        if ((this.launched || this.crossedLine) && uuidWins) {
-            AudioManager.instance.play(SFX.HIT, bounceVol(speed));
+        const HIT_THROTTLE_MS = 120;
+        const now = Date.now();
+        if ((this.launched || this.crossedLine) && uuidWins && now - this._lastHitSoundMs > HIT_THROTTLE_MS) {
+            this._lastHitSoundMs = now;
+            AudioManager.instance.play(SFX.HIT, hitVol(speed));
         }
 
         if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;

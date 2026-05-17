@@ -12,7 +12,7 @@ import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.6.12';
+const VERSION            = '0.6.13';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -137,6 +137,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     start() {
         AudioManager.instance; // trigger singleton init + asset preload as early as possible
         this.scheduleOnce(() => AudioManager.instance.playMusic(), 0.5);
+        AudioManager.instance.ensureMusic(); // fallback: play on first gesture if browser blocked autoplay
         this._vibrationEnabled = sys.localStorage.getItem('fw_vibration') !== '0';
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
@@ -196,7 +197,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.worldNode;
-        this.inputCtrl.onLaunch     = (w) => this.onWarriorLaunched(w);
+        this.inputCtrl.onLaunch     = (w, forcePct) => this.onWarriorLaunched(w, forcePct);
         this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
         this.inputCtrl.getWarriors  = () => this.warriors;
         this.inputCtrl.showBounds   = DEBUG_ENGINE;
@@ -452,7 +453,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         console.log('[GameManager] warrior activated — ready to launch');
     }
 
-    private onWarriorLaunched(w: Warrior): void {
+    private onWarriorLaunched(w: Warrior, forcePct = 1): void {
         const launchY = w.node.position.y;
         if (launchY >= this.gameOverLineLocal) {
             console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
@@ -461,7 +462,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
         this._lastTickSec = -1;
-        AudioManager.instance.play(SFX.LAUNCH);
+        AudioManager.instance.play(SFX.LAUNCH, Math.max(0.3, forcePct));
         console.log('[GameManager] warrior launched');
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
     }
@@ -673,8 +674,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         retry.string = 'Riprova';
         retry.fontSize = 36;
         retry.color = new Color(255, 255, 255, 255);
-        retryNode.addComponent(UITransform);
-        retryNode.on(Node.EventType.TOUCH_START, () => director.loadScene(this.sceneName), this);
+        retryNode.getComponent(UITransform)?.setContentSize(300, 60);
+        const doRetry = () => director.loadScene(this.sceneName);
+        retryNode.on(Node.EventType.TOUCH_START, doRetry, this);
+        retryNode.on(Node.EventType.MOUSE_DOWN,  doRetry, this);
     }
 
     // --- merge ---
@@ -991,6 +994,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._slowmoTimer = 0;
             this._slowmoScale = 1.0;
             director.getScheduler().setTimeScale(1.0);
+            AudioManager.instance.unduckMusic();
             console.log('[GameManager] slowmo ended');
         }
     }
@@ -1065,7 +1069,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.updateRoundLabel();
         this.roundUpPause = true;
         AudioManager.instance.play(SFX.ROUND_UP);
-        this.activateSlowmo(0.20, 2.5);
+        AudioManager.instance.duckMusicTo(0.15);
+        this.activateSlowmo(0.20, 2.0);
         this.showRoundUpBanner();
         this.scheduleOnce(() => { this.roundUpPause = false; }, 1.5);
         console.log(`[GameManager] round up → round ${this.currentRound}, types=${spawnTypesForRound(this.currentRound)}, timer=${launchTimerForRound(this.currentRound)}s`);
