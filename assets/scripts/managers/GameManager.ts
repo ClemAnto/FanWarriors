@@ -12,7 +12,7 @@ import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.6.10';
+const VERSION            = '0.6.12';
 const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -486,6 +486,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
                 console.log('[GameManager] launched warrior hit established warriors and fell back — game over');
+                w.playGameOverEffect();
                 this.triggerGameOver();
             } else {
                 console.log('[GameManager] launched warrior settled below line — returning with malus');
@@ -523,7 +524,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         let anyDanger = false;
         const gol = this.gameOverLineLocal;
         for (const w of this.warriors) {
-            if (!w.node?.isValid) continue;
+            if (!w.node?.isValid || w.merging) continue;
             const y = w.node.position.y;
 
             if (!w.crossedLine && w.launched) {
@@ -583,6 +584,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const y = w.node?.isValid ? w.node.position.y.toFixed(1) : '?';
         const v = w.velocity.length().toFixed(2);
         console.log(`[GameManager] penaltyExplode — y=${y} v=${v} crossedLine=${w.crossedLine} settled=${w.settled} state=${this.state}`);
+        w.playGameOverEffect();
         this.triggerGameOver();
     }
 
@@ -696,8 +698,6 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this.framesAboveLine.delete(a); this.framesBelowLine.delete(a);
         this.framesAboveLine.delete(b); this.framesBelowLine.delete(b);
-        a.node.destroy();
-        b.node.destroy();
 
         this.totalMerges++;
         this.mergesThisLaunch++;
@@ -708,35 +708,46 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.updateScoreLabel();
         this.updateRoundProgress();
 
-        if (newLevel > maxLevel) {
-            // Both at max level — consume both, free space, no new warrior spawned
-            AudioManager.instance.play(SFX.EXPLOSION_LEGEND);
-            this.flashBurst(midX, midYC, a.type);
-            this._vibrate(120);
+        const MERGE_OUT_DUR = 0.12;
+        a.playMergeOutEffect(midX, midY, MERGE_OUT_DUR);
+        b.playMergeOutEffect(midX, midY, MERGE_OUT_DUR);
+        const aType = a.type;
+
+        this.scheduleOnce(() => {
+            if (a.node.isValid) a.node.destroy();
+            if (b.node.isValid) b.node.destroy();
+
+            if (newLevel > maxLevel) {
+                // Both at max level — consume both, free space, no new warrior spawned
+                AudioManager.instance.play(SFX.EXPLOSION_LEGEND);
+                this.flashBurst(midX, midYC, aType);
+                this._vibrate(120);
+                if (inflightMerged) this.activateAfterInflightMerge();
+                return;
+            }
+
+            const merged = Warrior.spawn(this.box2dLayer, this.warriorsLayer, aType, newLevel, midX, midY);
+            merged.crossedLine = true;
+            merged.fired = true;
+            merged.settle();
+            merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
+            merged.velocity = new Vec2(vx, vy);
+            this.warriors.push(merged);
+            merged.playMergeInEffect(0.35);
+
+            if (newLevel === maxLevel && maxLevel >= 5) {
+                this.triggerSpecialExplosion(merged, newLevel);
+                this._vibrate(120);
+            } else {
+                const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
+                const mergeSfx = mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)];
+                AudioManager.instance.play(mergeSfx);
+                this.vfx.flashMerge(merged.mapper);
+                this._vibrate(40);
+            }
+
             if (inflightMerged) this.activateAfterInflightMerge();
-            return;
-        }
-
-        const merged = Warrior.spawn(this.box2dLayer, this.warriorsLayer, a.type, newLevel, midX, midY);
-        merged.crossedLine = true;
-        merged.fired = true;
-        merged.settle();
-        merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
-        merged.velocity = new Vec2(vx, vy);
-        this.warriors.push(merged);
-
-        if (newLevel === maxLevel && maxLevel >= 5) {
-            this.triggerSpecialExplosion(merged, newLevel);
-            this._vibrate(120);
-        } else {
-            const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
-            const mergeSfx = mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)];
-            AudioManager.instance.play(mergeSfx);
-            this.vfx.flashMerge(merged.mapper);
-            this._vibrate(40);
-        }
-
-        if (inflightMerged) this.activateAfterInflightMerge();
+        }, MERGE_OUT_DUR);
     }
 
     private activateAfterInflightMerge(): void {

@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2, Sprite, SpriteFrame, UITransform } from 'cc';
+import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2, Vec3, Sprite, SpriteFrame, UITransform, UIOpacity, tween } from 'cc';
 import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 import { LAYOUT_SCALE } from './Track';
 import { PerspectiveMapper } from './PerspectiveMapper';
@@ -36,6 +36,47 @@ export class Warrior extends Component {
     set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
+
+    playMergeOutEffect(targetX: number, targetY: number, duration: number): void {
+        const rb = this.getComponent(RigidBody2D);
+        if (rb) { rb.type = ERigidBody2DType.Static; rb.linearVelocity = new Vec2(0, 0); }
+        // Tween physics node — mapper follows naturally, no coordinate conversion needed
+        tween(this.node).to(duration, { position: new Vec3(targetX, targetY, 0) }).start();
+        // Fade out viewNode via UIOpacity
+        if (!this.viewNode?.isValid) return;
+        const sp = this.viewNode.getComponent(Sprite);
+        if (sp) {
+            sp.color = new Color(255, 255, 255, 255);
+            tween(sp).to(duration, { color: new Color(255, 255, 255, 0) }).start();
+        }
+        let op = this.viewNode.getComponent(UIOpacity) ?? this.viewNode.addComponent(UIOpacity);
+        op.opacity = 255;
+        tween(op).to(duration, { opacity: 0 }).start();
+    }
+
+    playGameOverEffect(): void {
+        if (!this.viewNode?.isValid) return;
+        const red = new Color(255, 60, 60, 255);
+        const sp = this.viewNode.getComponent(Sprite);
+        if (sp) { sp.color = red; return; }
+        // fallback for placeholder graphics warriors
+        this.viewNode.children.forEach(c => {
+            const s = c.getComponent(Sprite);
+            if (s) s.color = red;
+        });
+    }
+
+    playMergeInEffect(duration: number): void {
+        if (!this.viewNode?.isValid) return;
+        const sp = this.viewNode.getComponent(Sprite);
+        if (sp) {
+            sp.color = new Color(255, 255, 255, 0);
+            tween(sp).to(duration, { color: new Color(255, 255, 255, 255) }).start();
+        }
+        let op = this.viewNode.getComponent(UIOpacity) ?? this.viewNode.addComponent(UIOpacity);
+        op.opacity = 0;
+        tween(op).to(duration, { opacity: 255 }).start();
+    }
 
     private mergeCallbacks = new Map<Warrior, () => void>();
 
