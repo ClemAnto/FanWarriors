@@ -13,7 +13,7 @@ import { VFXManager } from './VFXManager';
 const { ccclass } = _decorator;
 
 const VERSION            = '0.6.13';
-const DEBUG              = false;  // set true to show debug panel and overlay
+const DEBUG              = true;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
@@ -384,6 +384,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.blocked = v;
     }
 
+    debugWin(): void { this.triggerVictory(); }
+
     update(dt: number) {
         this.vfx.tick(dt);
         this.tickSlowmo(dt);
@@ -632,6 +634,99 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => this.showGameOverScreen(), 0);
     }
 
+    private triggerVictory(): void {
+        if (this.state === GameState.GameOver) return;
+        this.state = GameState.GameOver;
+        this._slowmoTimer = 0;
+        this._slowmoScale = 1.0;
+        director.getScheduler().setTimeScale(1.0);
+        this.inputCtrl.clearWarrior();
+        this.vfx.screenShake(18, 0.6);
+        if (this.score > this.bestScore) {
+            this.bestScore = this.score;
+            sys.localStorage.setItem('fw_best_score', String(this.bestScore));
+        }
+
+        // Cascade-explode all warriors in play, scoring 50×level each
+        const toExplode = this.warriors.filter(w => w.node?.isValid && w.crossedLine);
+        let bonus = 0;
+        toExplode.forEach((w, i) => {
+            bonus += 50 * w.level;
+            this.scheduleOnce(() => {
+                if (!w.node?.isValid) return;
+                const wx  = w.node.position.x;
+                const wyC = this.coords.physToVisual(w.node.position.y);
+                this.vfx.spawnExplosionRings(wx, wyC, w.radius, LEVEL_CONFIG[w.level]?.vfxColor ?? new Color(255, 200, 50, 255));
+                this.vfx.spawnFloatingScore(wx, wyC, 50 * w.level);
+                this.framesAboveLine.delete(w);
+                this.framesBelowLine.delete(w);
+                w.node.destroy();
+            }, i * 0.08);
+        });
+        const explodeSet = new Set(toExplode);
+        this.warriors = this.warriors.filter(w => !explodeSet.has(w));
+        this.score += bonus;
+        this.updateScoreLabel();
+
+        AudioManager.instance.duckMusicTo(0.15);
+        AudioManager.instance.play(SFX.WIN);
+
+        const delay = Math.max(1.0, toExplode.length * 0.08 + 0.6);
+        this.scheduleOnce(() => {
+            AudioManager.instance.unduckMusic();
+            this.showVictoryScreen();
+        }, delay);
+        console.log('[GameManager] victory! bonus=' + bonus);
+    }
+
+    private showVictoryScreen(): void {
+        const panel = new Node('VictoryPanel');
+        panel.setParent(this.uiLayer);
+
+        const bg = panel.addComponent(Graphics);
+        bg.fillColor = new Color(10, 30, 10, 190);
+        const vs = view.getVisibleSize();
+        bg.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
+        bg.fill();
+
+        const titleNode = new Node('Title');
+        titleNode.setParent(panel);
+        titleNode.setPosition(0, 80);
+        const title = titleNode.addComponent(Label);
+        title.string = 'HAI VINTO!';
+        title.fontSize = 72;
+        title.isBold = true;
+        title.color = new Color(255, 220, 50, 255);
+
+        const scoreNode = new Node('FinalScore');
+        scoreNode.setParent(panel);
+        scoreNode.setPosition(0, 10);
+        const scoreLbl = scoreNode.addComponent(Label);
+        scoreLbl.string = `Score: ${this.score}`;
+        scoreLbl.fontSize = 32;
+        scoreLbl.color = new Color(255, 220, 50, 255);
+
+        const bestNode = new Node('BestScore');
+        bestNode.setParent(panel);
+        bestNode.setPosition(0, -30);
+        const bestLbl = bestNode.addComponent(Label);
+        bestLbl.string = `Best: ${this.bestScore}`;
+        bestLbl.fontSize = 22;
+        bestLbl.color = new Color(160, 210, 255, 255);
+
+        const retryNode = new Node('NewGame');
+        retryNode.setParent(panel);
+        retryNode.setPosition(0, -90);
+        const retry = retryNode.addComponent(Label);
+        retry.string = 'Nuova partita';
+        retry.fontSize = 36;
+        retry.color = new Color(255, 255, 255, 255);
+        retryNode.getComponent(UITransform)?.setContentSize(340, 60);
+        const doNew = () => director.loadScene(this.sceneName);
+        retryNode.on(Node.EventType.TOUCH_START, doNew, this);
+        retryNode.on(Node.EventType.MOUSE_DOWN,  doNew, this);
+    }
+
     private showGameOverScreen(): void {
         const panel = new Node('GameOverPanel');
         panel.setParent(this.uiLayer);
@@ -725,6 +820,10 @@ export class GameManager extends Component implements IGameManagerDebug {
                 AudioManager.instance.play(SFX.EXPLOSION_LEGEND);
                 this.flashBurst(midX, midYC, aType);
                 this._vibrate(120);
+                if (WARRIORS[aType]?.type === 'dragon') {
+                    this.scheduleOnce(() => this.triggerVictory(), 0.5);
+                    return;
+                }
                 if (inflightMerged) this.activateAfterInflightMerge();
                 return;
             }

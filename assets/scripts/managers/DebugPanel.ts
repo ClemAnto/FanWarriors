@@ -22,6 +22,12 @@ const BTN_PAUSE_H = 26;
 const DIV1_Y = 12;   // PAUSE  ↔ ROUND
 const DIV2_Y = -78;  // MERGES ↔ SAVE/LOAD/RESET
 const DIV3_Y = -110; // SAVE   ↔ PALETTE
+const DIV4_Y = -302; // PALETTE ↔ WIN
+
+// WIN button
+const WIN_BTN_Y = -322;
+const WIN_BTN_W = 170;
+const WIN_BTN_H =  26;
 
 // Round row
 const ROUND_LBL_Y  =   2;
@@ -71,6 +77,7 @@ export interface IGameManagerDebug {
     loadDebugState(): void;
     resetDebugState(): void;
     setLauncherBlocked(v: boolean): void;
+    debugWin(): void;
 }
 
 @ccclass('DebugPanel')
@@ -85,6 +92,8 @@ export class DebugPanel extends Component {
     private loadLbl!: Label;
     private resetLbl!: Label;
     private pressedAction: 'save' | 'load' | 'reset' | null = null;
+    private winPressed = false;
+    private winLbl!: Label;
     private pauseFlash = false;
     private ghost: Node | null = null;
     private dragType = -1;
@@ -156,6 +165,9 @@ export class DebugPanel extends Component {
             this.lbl('1',       CX,              y, 11, new Color(255, 255, 255, 210));
             this.lbl(String(t), CX + ICON_R + 12, y, 10, WARRIORS[t]?.color ?? new Color(200, 200, 200));
         }
+
+        // WIN button
+        this.winLbl = this.lbl('🏆 WIN!', CX, WIN_BTN_Y, 14, new Color(255, 220, 50, 255));
     }
 
     private drawPanel(): void {
@@ -172,7 +184,7 @@ export class DebugPanel extends Component {
         g.stroke();
 
         // Section dividers
-        for (const dy of [DIV1_Y, DIV2_Y, DIV3_Y]) {
+        for (const dy of [DIV1_Y, DIV2_Y, DIV3_Y, DIV4_Y]) {
             g.strokeColor = new Color(55, 55, 80, 130);
             g.lineWidth = 0.5;
             g.moveTo(CX - PANEL_HALF + 12, dy);
@@ -241,6 +253,15 @@ export class DebugPanel extends Component {
         g.strokeColor = resetPressed ? new Color(255, 210, 130, 255) : new Color(220, 140, 60, 180);
         g.lineWidth = resetPressed ? 2 : 1;
         g.rect(RESET_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H);
+        g.stroke();
+
+        // WIN button
+        g.fillColor   = this.winPressed ? new Color(255, 220, 50, 255) : new Color(80, 50, 10, 230);
+        g.strokeColor = this.winPressed ? new Color(255, 255, 180, 255) : new Color(200, 150, 20, 200);
+        g.lineWidth   = this.winPressed ? 2.5 : 1.5;
+        g.rect(CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
+        g.fill();
+        g.rect(CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
         g.stroke();
 
         // Palette icons (7 types, level 1)
@@ -375,6 +396,15 @@ export class DebugPanel extends Component {
         // RESET
         if (this.inRect(p, RESET_X - ACTION_W / 2, ACTION_Y - ACTION_H / 2, ACTION_W, ACTION_H)) {
             this.flashAction('reset', this.resetLbl, 'RESET', () => { this.gm.resetDebugState(); this.refresh(); });
+            return;
+        }
+
+        // WIN
+        if (this.inRect(p, CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H)) {
+            this.winPressed = true;
+            this.drawPanel();
+            this.scheduleOnce(() => { this.winPressed = false; this.drawPanel(); }, 0.18);
+            this.gm.debugWin();
             return;
         }
 

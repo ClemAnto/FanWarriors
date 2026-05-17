@@ -24,6 +24,7 @@ export enum SFX {
     BOUNCE             = 'audio/sfx/bounce',
     HIT                = 'audio/sfx/hit',
     DRAW               = 'audio/sfx/draw',
+    WIN                = 'audio/sfx/win',
     SPAWN              = 'audio/sfx/spawn',
     MUSIC_MAIN         = 'audio/music/main',
 }
