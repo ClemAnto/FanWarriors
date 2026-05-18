@@ -12,8 +12,8 @@ import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.6.13';
-const DEBUG              = true;  // set true to show debug panel and overlay
+const VERSION            = '0.6.15';
+const DEBUG              = false;  // set true to show debug panel and overlay
 const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
@@ -75,10 +75,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private waitForSettling = false;
     private sceneName = '';
     private track: Track | null = null;
-    private suctionCenter: Vec2 | null = null;
-    private suctionTimeLeft: number = 0;
-    private suctionDuration: number = 0;
-    private suctionPeakForce: number = 0;
+    private implosionCenter: Vec2 | null = null;
+    private implosionTimeLeft: number = 0;
+    private implosionDuration: number = 0;
+    private implosionPeakForce: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
     private _lastTickSec = -1;
@@ -188,7 +188,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             })();
         // Ensure uiLayer renders on top of all game-world nodes
         this.uiLayer.setSiblingIndex(canvas.children.length - 1);
-        this.vfx = new VFXManager(this.vfxLayer, this.uiLayer, this.worldNode);
+        this.vfx = new VFXManager(this.vfxLayer, this.uiLayer, this.worldNode, this.warriorsLayer);
+        this.vfx.preloadSparkle();
 
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
@@ -208,7 +209,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
 
+        const loadingSpinner = this._showLoadingSpinner();
+
         WarriorSpriteCache.preload(() => {
+            if (loadingSpinner.isValid) loadingSpinner.destroy();
             this.warriors.push(...this.spawnMgr.prefill());
             const firstWarrior = this.createWarrior();
             this.initHud();
@@ -389,7 +393,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     update(dt: number) {
         this.vfx.tick(dt);
         this.tickSlowmo(dt);
+        this._sortWarriorLayerByY();
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
+        this._checkProximityMerge();
         if (this.debugOverlay) {
             const g = this.debugOverlay;
             g.clear();
@@ -423,7 +429,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.applyUpwardDrift();
             }
             if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
-            if (this.suctionCenter) this.applyVortexSuction(dt);
+            if (this.implosionCenter) this.applyVortexImplosion(dt);
             this.checkLineLogic(dt);
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
@@ -656,7 +662,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 if (!w.node?.isValid) return;
                 const wx  = w.node.position.x;
                 const wyC = this.coords.physToVisual(w.node.position.y);
-                this.vfx.spawnExplosionRings(wx, wyC, w.radius, LEVEL_CONFIG[w.level]?.vfxColor ?? new Color(255, 200, 50, 255));
+                this.vfx.spawnBlackhole(wx, wyC, w.radius, LEVEL_CONFIG[w.level]?.vfxColor ?? new Color(255, 200, 50, 255));
                 this.vfx.spawnFloatingScore(wx, wyC, 50 * w.level);
                 this.framesAboveLine.delete(w);
                 this.framesBelowLine.delete(w);
@@ -809,17 +815,48 @@ export class GameManager extends Component implements IGameManagerDebug {
         const MERGE_OUT_DUR = 0.12;
         a.playMergeOutEffect(midX, midY, MERGE_OUT_DUR);
         b.playMergeOutEffect(midX, midY, MERGE_OUT_DUR);
-        const aType = a.type;
+        const aType       = a.type;
+        const ghostFrame  = a.viewNode?.isValid ? a.viewNode.getComponent(Sprite)?.spriteFrame ?? null : null;
+        const ghostSize   = a.viewNode?.isValid ? (a.viewNode.getComponent(UITransform)?.contentSize.width ?? 0) : 0;
+        const ghostX      = a.viewNode?.isValid && b.viewNode?.isValid
+            ? (a.viewNode.worldPosition.x + b.viewNode.worldPosition.x) / 2 : midX;
+        const ghostY      = a.viewNode?.isValid && b.viewNode?.isValid
+            ? (a.viewNode.worldPosition.y + b.viewNode.worldPosition.y) / 2 : midYC;
 
         this.scheduleOnce(() => {
             if (a.node.isValid) a.node.destroy();
             if (b.node.isValid) b.node.destroy();
 
             if (newLevel > maxLevel) {
-                // Both at max level — consume both, free space, no new warrior spawned
-                AudioManager.instance.play(SFX.EXPLOSION_LEGEND);
-                this.flashBurst(midX, midYC, aType);
+                // Both at max level — blackhole, no new warrior spawned
+                const lvConf  = LEVEL_CONFIG[maxLevel];
+                const color   = lvConf?.vfxColor ?? new Color(255, 200, 50, 255);
+                const bonus   = lvConf?.bonus ?? 0;
+                const tier    = Math.max(1, Math.min(3, maxLevel - 2)) as 1 | 2 | 3;
+
+                const bhSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4, SFX.MERGE_5, SFX.MERGE_6];
+                AudioManager.instance.play(bhSfxs[Math.min(maxLevel, bhSfxs.length - 1)]);
+                const expSfx = newLevel >= 7 ? SFX.EXPLOSION_3 : newLevel >= 6 ? SFX.EXPLOSION_2 : SFX.EXPLOSION_1;
+                this.scheduleOnce(() => AudioManager.instance.play(expSfx), 0.25);
+
+                this.vfx.screenShake(tier >= 3 ? 20 : tier >= 2 ? 14 : 8, tier >= 3 ? 0.50 : tier >= 2 ? 0.40 : 0.28);
+                this.activateSlowmo(tier >= 3 ? 0.15 : tier >= 2 ? 0.25 : 0.40, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
+
+                this.score += bonus;
+                this.updateScoreLabel();
+                if (bonus > 0) this.vfx.spawnFloatingScore(midX, midYC + 30, bonus);
+                if (ghostFrame && ghostSize > 0) this.vfx.flashMergeGhost(ghostX, ghostY, ghostFrame, ghostSize);
+                this.vfx.spawnBlackhole(midX, midYC + a.radius * 0.9, a.radius, color, tier, maxLevel);
+                this.vfx.spawnImplosionVFX(midX, midYC, color, tier / 3, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
+                const impDur   = tier >= 3 ? 2.5 : tier >= 2 ? 2.0 : 1.5;
+                const impForce = (200 + tier * 60) * LAYOUT_SCALE;
+                this.implosionCenter    = new Vec2(midX, midY);
+                this.implosionDuration  = impDur;
+                this.implosionTimeLeft  = impDur;
+                this.implosionPeakForce = impForce;
+                this.vfx.spawnExplosionLabel(midX, midYC + 10, lvConf?.label ?? '', color);
                 this._vibrate(120);
+
                 if (WARRIORS[aType]?.type === 'dragon') {
                     this.scheduleOnce(() => this.triggerVictory(), 0.5);
                     return;
@@ -837,16 +874,11 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.warriors.push(merged);
             merged.playMergeInEffect(0.35);
 
-            if (newLevel === maxLevel && maxLevel >= 5) {
-                this.triggerSpecialExplosion(merged, newLevel);
-                this._vibrate(120);
-            } else {
-                const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
-                const mergeSfx = mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)];
-                AudioManager.instance.play(mergeSfx);
-                this.vfx.flashMerge(merged.mapper);
-                this._vibrate(40);
-            }
+            const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
+            AudioManager.instance.play(mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)]);
+            this.vfx.flashMerge(merged.mapper);
+            this.vfx.spawnMergeSparks(midX, midYC, newLevel);
+            this._vibrate(40);
 
             if (inflightMerged) this.activateAfterInflightMerge();
         }, MERGE_OUT_DUR);
@@ -1015,6 +1047,33 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? new Color(255, 255, 255, 220) : new Color(100, 100, 100, 150);
     }
 
+    private _checkProximityMerge(): void {
+        for (let i = 0; i < this.warriors.length; i++) {
+            const a = this.warriors[i];
+            if (!a.node?.isValid || !a.crossedLine || a.merging || !a.onMergeReady) continue;
+            for (let j = i + 1; j < this.warriors.length; j++) {
+                const b = this.warriors[j];
+                if (!b.node?.isValid || !b.crossedLine || b.merging) continue;
+                if (a.type !== b.type || a.level !== b.level) continue;
+                const dx   = a.node.position.x - b.node.position.x;
+                const dy   = a.node.position.y - b.node.position.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < (a.radius + b.radius) * 0.85) {
+                    a.merging = true;
+                    b.merging = true;
+                    a.onMergeReady(a, b);
+                    return;
+                }
+            }
+        }
+    }
+
+    private _sortWarriorLayerByY(): void {
+        const sorted = [...this.warriorsLayer.children]
+            .sort((a, b) => b.worldPosition.y - a.worldPosition.y);
+        sorted.forEach((child, i) => child.setSiblingIndex(i));
+    }
+
     private _vibrate(ms: number): void {
         if (!this._vibrationEnabled || !sys.isBrowser) return;
         (navigator as any).vibrate?.(ms);
@@ -1175,76 +1234,27 @@ export class GameManager extends Component implements IGameManagerDebug {
         console.log(`[GameManager] round up → round ${this.currentRound}, types=${spawnTypesForRound(this.currentRound)}, timer=${launchTimerForRound(this.currentRound)}s`);
     }
 
-    private triggerSpecialExplosion(w: Warrior, level: number): void {
-        const lvConf = LEVEL_CONFIG[level];
-        const bonus = lvConf?.bonus ?? 0;
-        const color = lvConf?.vfxColor ?? new Color(255, 255, 255, 255);
-        const expSfx = level >= 7 ? SFX.EXPLOSION_LEGEND : level >= 6 ? SFX.EXPLOSION_HERO : SFX.EXPLOSION_CHAMPION;
-        AudioManager.instance.play(expSfx);
-        this.vfx.screenShake(level >= 7 ? 20 : level >= 6 ? 14 : 8, level >= 7 ? 0.50 : level >= 6 ? 0.40 : 0.28);
-        this.activateSlowmo(level >= 7 ? 0.15 : level >= 6 ? 0.25 : 0.40, level >= 7 ? 1.0 : level >= 6 ? 0.7 : 0.5);
-        const mx  = w.node.position.x;
-        const myC = this.coords.physToVisual(w.node.position.y);
-        const r   = w.radius;
 
-        this.warriors = this.warriors.filter(wr => wr !== w);
-        this.framesAboveLine.delete(w);
-        this.framesBelowLine.delete(w);
-        w.node.destroy();
+    // --- vortex implosion ---
 
-        this.score += bonus;
-        this.updateScoreLabel();
-        if (bonus > 0) this.vfx.spawnFloatingScore(mx, myC + 30, bonus);
-        this.vfx.spawnExplosionRings(mx, myC, r, color);
-        this.vfx.spawnExplosionLabel(mx, myC + 10, lvConf?.label ?? '', color);
-        console.log(`[GameManager] ${lvConf?.label ?? ''} explosion — bonus +${bonus}pts`);
-    }
 
-    // --- vortex suction ---
-
-    private activateSuction(cx: number, cy: number, ringColor: Color, strength = 1): void {
-        const BASE_DURATION = 3;
-        const BASE_FORCE    = 240;
-        this.suctionCenter    = new Vec2(cx, cy);
-        this.suctionDuration  = BASE_DURATION * strength;
-        this.suctionTimeLeft  = this.suctionDuration;
-        this.suctionPeakForce = BASE_FORCE * strength;
-        this.cohesionTimeLeft = this.suctionDuration + 2;
-
-        // C — pulse di scala sui warrior vicini al punto di merge
-        const pulseRadius = 300 * strength;
-        for (const w of this.warriors) {
-            if (!w.node?.isValid || !w.mapper || !w.crossedLine) continue;
-            const dx = w.node.position.x - cx;
-            const dy = w.node.position.y - cy;
-            if (Math.sqrt(dx * dx + dy * dy) > pulseRadius) continue;
-            const squeeze = 1 - 0.18 * strength;
-            tween(w.mapper)
-                .to(0.10, { animScale: squeeze }, { easing: 'quadIn' })
-                .to(0.20, { animScale: 1.0 },    { easing: 'quadOut' })
-                .start();
-        }
-
-        this.vfx.spawnSuctionVFX(cx, this.coords.physToVisual(cy), ringColor, strength, this.suctionDuration);
-    }
-
-    private applyVortexSuction(dt: number): void {
-        this.suctionTimeLeft -= dt;
-        if (this.suctionTimeLeft <= 0) {
-            this.suctionCenter = null;
+    private applyVortexImplosion(dt: number): void {
+        this.implosionTimeLeft -= dt;
+        if (this.implosionTimeLeft <= 0) {
+            this.implosionCenter = null;
             return;
         }
 
         // Curva a campana: 0 → picco a metà → 0, sempre inward
-        const elapsed  = this.suctionDuration - this.suctionTimeLeft;
-        const progress = Math.sin(Math.PI * elapsed / this.suctionDuration);
-        const force    = this.suctionPeakForce * progress;
+        const elapsed  = this.implosionDuration - this.implosionTimeLeft;
+        const progress = Math.sin(Math.PI * elapsed / this.implosionDuration);
+        const force    = this.implosionPeakForce * progress;
 
-        const cx = this.suctionCenter!.x;
-        const cy = this.suctionCenter!.y;
+        const cx = this.implosionCenter!.x;
+        const cy = this.implosionCenter!.y;
         for (const w of this.warriors) {
             if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
-            // Only pull warriors that are below the suction center — they all get pulled upward
+            // Only pull warriors that are below the implosion center — they all get pulled upward
             if (w.node.position.y >= cy) continue;
             const dx = cx - w.node.position.x;
             const dy = cy - w.node.position.y;
@@ -1486,12 +1496,33 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private flashBurst(x: number, yCanvas: number, type: number): void {
-        const burstColor = WARRIORS[type]?.color ?? new Color(200, 200, 200);
-        this.vfx.spawnBurstRing(x, yCanvas, (LEVEL_CONFIG[4]?.radius ?? 42) * LAYOUT_SCALE, burstColor);
-        this.vfx.screenShake(14, 0.40);
-        this.activateSlowmo(0.15, 1.0);
-        this.activateSuction(x, this.coords.visualToPhys(yCanvas), burstColor);
+
+    private _showLoadingSpinner(): Node {
+        const spinner = new Node('LoadingSpinner');
+        spinner.setParent(this.uiLayer);
+
+        const arc = new Node('Arc');
+        arc.setParent(spinner);
+        const g = arc.addComponent(Graphics);
+        g.lineWidth   = 8;
+        g.strokeColor = new Color(255, 220, 50, 230);
+        g.arc(0, 0, 36, 0, Math.PI * 1.5, false);
+        g.stroke();
+
+        const dot = new Node('Dot');
+        dot.setParent(spinner);
+        const dg = dot.addComponent(Graphics);
+        dg.fillColor = new Color(255, 220, 50, 230);
+        dg.circle(0, -36, 5);
+        dg.fill();
+
+        const spin = () => {
+            if (!arc.isValid) return;
+            tween(arc).by(0.65, { angle: -360 }).call(spin).start();
+            tween(dot).by(0.65, { angle: -360 }).start();
+        };
+        spin();
+        return spinner;
     }
 
     private createDebugLabel(): Label {

@@ -39,8 +39,9 @@ export function initLayout(funnelPct?: number): void {
 
 @ccclass('Track')
 export class Track extends Component {
-    private readonly funnelPercentage = 75;
-    private readonly wallThickness    = 6;
+    private readonly funnelPercentage   = 75;
+    private readonly wallThickness      = 6;
+    private readonly topWallThickness   = 40;
     private _walls: Node[] = [];
     private _lineOpacity: UIOpacity | null = null;
     private _linePulseActive = false;
@@ -131,6 +132,7 @@ export class Track extends Component {
 
         // wall thickness = wallThickness% of sprite width
         const t    = this.wallThickness / 100 * fullW;
+        const tTop = this.topWallThickness / 100 * fullW;
         // funnel top edge (centered, narrower)
         const topW  = this.funnelPercentage / 100 * fullW;
         const topL  = centerX - topW / 2;
@@ -142,10 +144,10 @@ export class Track extends Component {
         WALL_RB.set(right - t,      bot);
         WALL_RT.set(topR  - t,      top);
 
-        console.log(`[Track] buildWalls — sprite ${w}x${h} @ (${px},${py}) scale(${scx},${scy}) anchor(${ax},${ay}) → L=${left} R=${right} B=${bot} T=${top} t=${t.toFixed(1)}`);
+        console.log(`[Track] buildWalls — sprite ${w}x${h} @ (${px},${py}) scale(${scx},${scy}) anchor(${ax},${ay}) → L=${left} R=${right} B=${bot} T=${top} t=${t.toFixed(1)} tTop=${tTop.toFixed(1)}`);
 
-        this.spawnBoxWall('WallBottom', centerX, bot + t / 2,  fullW, t, 0.0, 0.0);
-        this.spawnBoxWall('WallTop',    centerX, top - t / 2,  topW,  t, 0.0, 1.0);
+        this.spawnBoxWall('WallBottom', centerX, bot + t    / 2, fullW, t,    0.0, 0.0);
+        this.spawnBoxWall('WallTop',    centerX, top - tTop / 2, topW,  tTop, 0.0, 1.0);
 
         this.spawnFunnelWall('WallLeft', [
             new Vec2(left,      bot),
