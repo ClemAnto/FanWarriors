@@ -8,7 +8,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 
 ## 2. Pitch (per Poki/CrazyGames)
 
-> Lancia i tuoi animaletti-guerrieri sulla pista del torneo! Quando due eroi uguali si toccano, si fondono in un guerriero più forte. Riempi la pista di evoluzioni, raggiungi il livello 5 per scatenare un'esplosione di punti, ma attento: se un personaggio supera il nastro rosso, è game over!
+> Lancia i tuoi animaletti-guerrieri sulla pista del torneo! Quando due eroi uguali si toccano, si fondono in un guerriero più forte. Riempi la pista di evoluzioni, raggiungi il livello massimo della specie per scatenare un'esplosione di punti, ma attento: se un personaggio supera il nastro rosso, è game over!
 
 ## 3. Riferimenti
 
@@ -46,7 +46,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 
 ### Catena per ogni specie
 
-Ogni specie animale condivide la stessa catena evolutiva a **6 livelli**. I livelli 5 e 6 sono disponibili solo per alcune specie selezionate.
+Ogni specie ha una catena evolutiva a **4 livelli base**. Leone e Drago proseguono rispettivamente fino al livello 5 e al livello 6; quando una fusione supera il livello massimo della specie, la creatura **esplode** con bonus punti.
 
 | Livello | Nome | Equipaggiamento | Raggio | Note |
 |---------|------|-----------------|--------|------|
@@ -54,23 +54,20 @@ Ogni specie animale condivide la stessa catena evolutiva a **6 livelli**. I live
 | 2 | **Apprendista** | Arma e scudo di legno | 28px | Prima trasformazione |
 | 3 | **Soldato** | Arma vera (piccola) | 36px | Aspetto da combattente |
 | 4 | **Guerriero** | Elmetto/copricapo + arma più imponente | 42px | Presenza sul campo |
-| 5 | **Campione** | Elmetto/copricapo + stivali + arma rara | 48px | *Solo alcune specie* — al raggiungimento **esplode** dando bonus di punti e liberando spazio |
-| 6 | **Eroe** | Armatura completa + arma epica | 54px | *Solo alcune specie* — al raggiungimento **esplode** dando bonus alto di punti e liberando spazio |
-| 7 | **Leggenda** | Armatura e arma leggendaria | 60px | *Solo 1 specie* — il culmine assoluto della catena |
 
 ### Specie disponibili (7 totali)
 
-| # | Specie | Colore | Stile | Arma | Livello max | Introdotta al round |
-|---|--------|--------|-------|------|-------------|---------------------|
-| 1 | Rana | Verde | Agile | Pugnale | 4 — Guerriero | 1 |
-| 2 | Gatto | Arancione | Agile | Spada | 4 — Guerriero | 1 |
-| 3 | Gallina | Bianca | Comica | Lancia | 4 — Guerriero | 1 |
-| 4 | Lupo | Grigio | Robusto | Ascia | 5 — Campione 💥 | 3 |
-| 5 | Aquila | Marrone | Fiera | Arco | 5 — Campione 💥 | 5 |
-| 6 | Leone | Dorato | Regale | Mazza | 6 — Eroe 💥 | 7 |
-| 7 | Drago | Viola | Maestoso | Scettro di fuoco | 7 — Leggenda 💥 | 9 |
+| # | Specie | Colore | Stile | Arma | Livello max 💥 | Introdotta al round |
+|---|--------|--------|-------|------|----------------|---------------------|
+| 1 | Rana | Verde | Agile | Pugnale | 3 — Soldato | 1 |
+| 2 | Gatto | Arancione | Agile | Spada | 3 — Soldato | 1 |
+| 3 | Gallina | Bianca | Comica | Lancia | 3 — Soldato | 1 |
+| 4 | Lupo | Grigio | Robusto | Ascia | 4 — Guerriero | 3 |
+| 5 | Aquila | Marrone | Fiera | Arco | 4 — Guerriero | 5 |
+| 6 | Leone | Dorato | Regale | Mazza | 5 | 7 |
+| 7 | Drago | Viola | Maestoso | Scettro di fuoco | 6 (vittoria) | 9 |
 
-> 💥 = al raggiungimento del livello max la creatura esplode con bonus punti.
+> 💥 = quando due warrior dello stesso tipo al livello max si fondono, la creatura risultante esplode con bonus punti (anziché restare in gioco).
 > L'ordine 1→7 riflette la scala di rarità/potenza percepita, introdotta col progredire dei round.
 
 ### Regole di merge
@@ -124,13 +121,15 @@ Punti = 10 × 2^(livello_creatura - 1) × round_corrente × 2^(merge_nello_stess
 - Merge livello 2, round 5, secondo del lancio: `10 × 2¹ × 5 × 2 = 200 pt`
 - Merge livello 1, round 1, terzo del lancio: `10 × 1 × 1 × 4 = 40 pt`
 
-> **Punteggio massimo per merge singolo (senza combo):** il merge più alto è livello 6→7 (Leggenda), che vale `10 × 2⁵ = 320 pt` base. Moltiplicato per il round corrente, il massimo teorico è **320 × round** — senza cap. Al round 11 (primo tier a timer minimo) vale già **3.520 pt**, che attiva il feedback di massima enfasi (≥ 1000 pt).
+> **Punteggio massimo per merge singolo (senza combo):** il merge più alto è livello 6→7 (Drago — vittoria), che vale `10 × 2⁵ = 320 pt` base. Moltiplicato per il round corrente, il massimo teorico è **320 × round** — senza cap. Al round 11 (primo tier a timer minimo) vale già **3.520 pt**, che attiva il feedback di massima enfasi (≥ 1000 pt).
 
 ### Bonus speciali
 
-- **Esplosione Campione (livello 5)**: +500 pt bonus fisso *(solo specie con Campione)*
-- **Esplosione Eroe (livello 6)**: +1000 pt bonus fisso *(solo specie con Eroe)*
-- **Esplosione Leggenda (livello 7)**: +2000 pt bonus fisso *(solo specie con Leggenda)*
+I bonus si attivano quando la fusione supera il livello max della specie (la creatura esplode):
+
+- **Esplosione lv5** (Lupo, Aquila): +500 pt bonus fisso
+- **Esplosione lv6** (Leone): +1000 pt bonus fisso
+- **Esplosione lv7** (Drago — vittoria): +2000 pt bonus fisso
 
 ### Feedback visivo del punteggio
 
@@ -152,7 +151,7 @@ Tutti gli FX sono implementabili nativamente in Cocos Creator: particelle (`Part
 | 5 | 4000–11999 pt | enorme | oro con outline | esplosione + coriandoli + shake + lampo + slowmo leggero (×0.8 da 10.000 pt) |
 | 6 | ≥ 12000 pt | massivo, pulsante | arcobaleno | esplosione max + coriandoli + shake forte + lampo + slowmo (×0.5) |
 
-> Riferimento: merge Leggenda (livello 6→7) al round 11 vale 3.520 pt senza combo. Con 2 combo consecutivi ~7.040 pt, con 3 ~14.080 pt — quindi la fascia ≥ 10.000 pt è reale ma rara.
+> Riferimento: merge Drago lv6→7 (vittoria) al round 11 vale 3.520 pt senza combo. Con 2 combo consecutivi ~7.040 pt, con 3 ~14.080 pt — quindi la fascia ≥ 10.000 pt è reale ma rara.
 
 Il floating score sale verso l'alto e svanisce in ~1s. Punteggi ≥ 1000 pt restano visibili ~2s; punteggi ≥ 4000 pt restano visibili ~3s.
 
@@ -310,17 +309,22 @@ Ad ogni merge il punteggio nel HUD non salta al valore finale, ma **si increment
 ## 14. Asset necessari (stima)
 
 ### Sprite personaggi
-- **7 specie × 4 livelli base** (Cucciolo, Apprendista, Soldato, Guerriero) = **28 sprite**
-- **Campione** (livello 5 — Lupo, Aquila, Leone, Drago): 4 sprite
-- **Eroe** (livello 6 — Leone, Drago): 2 sprite
-- **Leggenda** (livello 7 — Drago): 1 sprite
-- **Totale: 35 sprite**
+
+Tutti gli sprite sono già presenti in `assets/warriors/`.
+
+| Specie | Livelli | Sprite |
+|--------|---------|--------|
+| Rana, Gatto, Gallina | lv1–3 | 3 × 3 = 9 |
+| Lupo, Aquila | lv1–4 | 2 × 4 = 8 |
+| Leone | lv1–5 | 5 |
+| Drago | lv1–6 | 6 |
+| **Totale** | | **28** |
 
 ### Animazioni personaggi
 - Idle (respiro leggero) — per ogni sprite
 - Squash on landing
 - Pop on merge
-- Esplosione bonus — varianti per Campione, Eroe, Leggenda (3 animazioni distinte)
+- Esplosione bonus — 1 animazione base (blackhole VFX), parametri scalati per tier
 - Esplosione malus (rimbalzo oltre la linea)
 
 ### VFX particellari
@@ -360,9 +364,9 @@ Ad ogni merge il punteggio nel HUD non salta al valore finale, ma **si increment
 | Landing | Thud morbido all'arresto |
 | Magnetismo | Click magnetico |
 | Merge (×6) | Chime ascendente, una variante per livello evolutivo |
-| Esplosione Campione | Boom medio + cheer |
-| Esplosione Eroe | Boom grande + cheer |
-| Esplosione Leggenda | Boom epico + cheer lungo |
+| Esplosione lv5 (Lupo/Aquila) | Boom medio |
+| Esplosione lv6 (Leone) | Boom grande |
+| Esplosione lv7 (Drago — vittoria) | Boom epico |
 | Malus | Suono negativo (buzz/clang) |
 | Ticchettio timer | Tick sincronizzato, ultimi 5s |
 | Avvicinamento game over | Heartbeat sottile |
@@ -372,11 +376,53 @@ Ad ogni merge il punteggio nel HUD non salta al valore finale, ma **si increment
 - **Totale SFX: ~17** (escludendo varianti merge)
 - **Musica**: 1–2 loop tematici (medievale-festivo)
 
-## 15. Out of scope per la v1
+## 15. LevelBoost Powerup
+
+Ogni warrior lanciato porta con sé un'**aura energetica** (anello dorato + scintille) che si attiva automaticamente al lancio.
+
+### Meccanica
+
+- Il warrior lanciato ha un parametro `energy` (default 2)
+- Quando (energy > 0) il warrior tocca fisicamente un altro warrior (contatto Box2D), il target:
+  1. Riceve un'animazione gold flash + scale bump (0.27s)
+  2. Avanza di un livello (`level+1`)
+  3. Riceve una nuova aura con `energy = sourceEnergy - 1` — innescando una **catena**
+- Un warrior con energy = 0 mantiene l'aura visiva ma non trasmette nulla al contatto
+- L'aura si spegne 1s dopo che il warrior si è fermato (velocità < soglia)
+- Al lancio del warrior successivo, se il target appena ricevuto l'aura ha vicini già in contatto fisico, il boost si propaga immediatamente (`_checkAuraImmediateContacts`, range `(rA+rB)×2.0`)
+
+### Regole anti-double-boost
+
+- Un warrior non può ricevere più di un boost per turno (`_boostedThisTurn`)
+- Un warrior che ha **trasmesso** un'aura non può **ricevere** boost nello stesso turno
+- Al lancio successivo `_boostedThisTurn` viene resettato
+
+### Swap Next↔Launcher
+
+Quando il giocatore fa tap sul NEXT preview, l'energia dell'aura **segue il warrior**: se il warrior in rampa aveva aura(N) e il next aveva energia -1 (nessuna), dopo lo swap il nuovo warrior in rampa ha aura(N) e il precedente launcher non ha aura.
+
+### Parametri tecnici
+
+| Parametro | Valore | File |
+|-----------|--------|------|
+| Energia iniziale per lancio | 2 | GameManager.ts `activateWarrior` |
+| `AURA_SETTLE_CD` | 1.0s | GameManager.ts |
+| `SETTLE_VELOCITY` | 0.4 | GameManager.ts |
+| Range check immediato (`_checkAuraImmediateContacts`) | `(rA+rB)×2.0` | GameManager.ts |
+| Animazione pre-boost | 0.27s (gold flash + scale) | GameManager.ts `_playBoostReceiveAnim` |
+
+### VFX
+
+- Aura outer: sprite `particles/aura`, size r×3.4, colore (255,195,40), opacità 75 — con pulse
+- Aura inner: sprite `particles/aura`, size r×2.2, colore (255,235,120), opacità 120
+- Scintille dorate: sprite `particles/stardust`, emesse ogni 0.13s attorno al warrior
+
+---
+
+## 16. Out of scope per la v1
 
 Per mantenere lo scope realistico, **NON** includiamo nella v1:
 - Multiplayer
-- Power-up speciali
 - Skin/cosmetics
 - Achievements/leaderboard cloud
 - Eventi stagionali
@@ -386,13 +432,13 @@ Per mantenere lo scope realistico, **NON** includiamo nella v1:
 
 > Tutte queste sono ottime feature per una v2 dopo aver validato il core.
 
-## 16. Monetizzazione
+## 17. Monetizzazione
 
 - **Revenue share Poki/CrazyGames** via SDK ufficiale
 - Banner ad + interstitial tra partite (frequenza moderata, mai durante il gameplay)
 - Nessuna IAP nella v1
 
-## 17. Metriche di successo
+## 18. Metriche di successo
 
 KPI da monitorare dopo il lancio:
 - **D1 retention**: target >35% (media Poki ~30%)

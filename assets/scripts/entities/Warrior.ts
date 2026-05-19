@@ -1,10 +1,17 @@
-import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2, Vec3, Sprite, SpriteFrame, UITransform, UIOpacity, tween } from 'cc';
+import { _decorator, Component, Node, Label, RigidBody2D, ERigidBody2DType, CircleCollider2D, Collider2D, Contact2DType, Color, Graphics, Vec2, Vec3, Sprite, SpriteFrame, UITransform, UIOpacity, tween, Tween } from 'cc';
 import { WARRIORS, LEVEL_CONFIG } from '../data/WarriorConfig';
 import { LAYOUT_SCALE } from './Track';
 import { PerspectiveMapper } from './PerspectiveMapper';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { AudioManager, SFX } from '../managers/AudioManager';
 const { ccclass } = _decorator;
+
+export interface ILevelBoost {
+    readonly energy: number;
+    readonly activationMs: number;
+    detach(): void;
+    resetActivation(): void;
+}
 
 const MERGE_DELAY      = 0.3;
 const BOUNCE_VOL_MAX   = 280;  // velocity at which wall-bounce volume reaches 1.0
@@ -39,23 +46,42 @@ export class Warrior extends Component {
     set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
+    onAuraContact: ((source: Warrior, target: Warrior) => void) | null = null;
+    levelBoost: ILevelBoost | null = null;
     private _lastHitSoundMs = 0;
+
+    // Upgrade level in-place (sprite + mapper, physics collider not resized at runtime)
+    levelUpInPlace(newLevel: number): void {
+        this.level = newLevel;
+        if (this.mapper) this.mapper.yOffset = this.radius * Warrior.viewYOffset;
+        if (!this.viewNode?.isValid) return;
+        const r = this.radius;
+        const uit = this.viewNode.getComponent(UITransform);
+        if (uit) uit.setContentSize(r * 4, r * 4);
+        const sp = this.viewNode.getComponent(Sprite);
+        if (sp) {
+            const frame = WarriorSpriteCache.get(WARRIORS[this.type]?.type ?? '', newLevel);
+            if (frame) sp.spriteFrame = frame;
+        }
+    }
 
     playMergeOutEffect(targetX: number, targetY: number, duration: number): void {
         const rb = this.getComponent(RigidBody2D);
         if (rb) { rb.type = ERigidBody2DType.Static; rb.linearVelocity = new Vec2(0, 0); }
-        // Tween physics node — mapper follows naturally, no coordinate conversion needed
         tween(this.node).to(duration, { position: new Vec3(targetX, targetY, 0) }).start();
-        // Fade out viewNode via UIOpacity
+        if (this.mapper) {
+            Tween.stopAllByTarget(this.mapper);
+            tween(this.mapper)
+                .to(duration * 0.45, { animScale: 0.78 }, { easing: 'quadOut' })
+                .to(duration * 0.55, { animScale: 1.25 }, { easing: 'quadIn'  })
+                .start();
+        }
         if (!this.viewNode?.isValid) return;
         const sp = this.viewNode.getComponent(Sprite);
         if (sp) {
             sp.color = new Color(255, 255, 255, 255);
-            tween(sp).to(duration, { color: new Color(255, 255, 255, 0) }).start();
+            tween(sp).to(duration, { color: new Color(255, 255, 255, 255) }).start();
         }
-        let op = this.viewNode.getComponent(UIOpacity) ?? this.viewNode.addComponent(UIOpacity);
-        op.opacity = 255;
-        tween(op).to(duration, { opacity: 0 }).start();
     }
 
     playGameOverEffect(): void {
@@ -173,16 +199,25 @@ export class Warrior extends Component {
         const speed  = this.getComponent(RigidBody2D)!.linearVelocity.length();
 
         if (!otherW) {
-            console.log(`[Bounce] wall hit — launched=${this.launched} crossedLine=${this.crossedLine} speed=${speed.toFixed(1)}`);
             if (this.launched || this.crossedLine) {
                 AudioManager.instance.play(SFX.BOUNCE, bounceVol(speed));
+                if (this.mapper && this.launched) {
+                    const vel = this.getComponent(RigidBody2D)!.linearVelocity;
+                    if (Math.abs(vel.x) > speed * 0.25) {
+                        Tween.stopAllByTarget(this.mapper);
+                        tween(this.mapper)
+                            .to(0.04, { squashX: 0.68 })
+                            .to(0.13, { squashX: 1.18 })
+                            .to(0.09, { squashX: 1.0 })
+                            .start();
+                    }
+                }
             }
             return;
         }
 
         // Warrior-warrior — play only on one side to avoid doubling
         const uuidWins = this.node.uuid < otherW.node.uuid;
-        console.log(`[Bounce] warrior hit — launched=${this.launched} crossedLine=${this.crossedLine} speed=${speed.toFixed(1)} uuidWins=${uuidWins}`);
         const HIT_THROTTLE_MS = 120;
         const now = Date.now();
         if ((this.launched || this.crossedLine) && uuidWins && now - this._lastHitSoundMs > HIT_THROTTLE_MS) {
@@ -191,6 +226,14 @@ export class Warrior extends Component {
         }
 
         if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;
+
+        // AURA contact — fire from the side that owns the AURA
+        if (this.levelBoost && this.crossedLine && otherW) {
+            const src = this, tgt = otherW;
+            this.scheduleOnce(() => {
+                if (src.node?.isValid && tgt.node?.isValid) src.onAuraContact?.(src, tgt);
+            }, 0);
+        }
 
         if (otherW.type !== this.type || otherW.level !== this.level) return;
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
@@ -203,7 +246,6 @@ export class Warrior extends Component {
         rbA.linearVelocity = new Vec2(avgX, avgY);
         rbB.linearVelocity = new Vec2(avgX, avgY);
 
-        console.log(`[Warrior] contact begin — type=${this.type} lv=${this.level}, scheduling merge in ${MERGE_DELAY}s`);
 
         const cb = () => {
             if (!this.node.isValid || !otherW.node.isValid) return;
@@ -211,7 +253,6 @@ export class Warrior extends Component {
             if (!this.onMergeReady) return;
             this.merging = true;
             otherW.merging = true;
-            console.log(`[Warrior] merge triggered — type=${this.type} lv${this.level}`);
             this.onMergeReady(this, otherW);
         };
         this.mergeCallbacks.set(otherW, cb);
@@ -225,7 +266,6 @@ export class Warrior extends Component {
         if (cb) {
             this.unschedule(cb);
             this.mergeCallbacks.delete(otherW);
-            console.log(`[Warrior] contact end — merge cancelled`);
         }
     }
 

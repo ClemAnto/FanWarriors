@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -10,11 +10,12 @@ import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
+import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.6.15';
-const DEBUG              = false;  // set true to show debug panel and overlay
-const DEBUG_ENGINE       = false;  // set true to overlay Box2D collider shapes (circles + track walls) on top of visuals
+const VERSION            = '0.7.0';
+const DEBUG              = false;
+const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
@@ -28,6 +29,7 @@ const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warri
 const FAILED_LAUNCH_MALUS  = 50;    // score penalty when launched warrior fails to cross the line
 const CROSS_LINE_FRAMES    = 3;     // consecutive frames above gol before crossedLine is committed (prevents grazing false-positive)
 const GAME_OVER_FRAMES     = 3;     // consecutive frames below gol before game over triggers (prevents physics-jitter false-positive)
+const AURA_SETTLE_CD         = 1.0;  // seconds after warrior settles before AURA expires
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
@@ -85,6 +87,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _dangerCooldown = 0;
     private _slowmoTimer    = 0;
     private _slowmoScale    = 1.0;
+    private _boostedThisTurn: Set<Warrior> = new Set();
+    private _powerupSettleCds = new Map<Warrior, number>();
+    private _nextSlotBoostEnergy  = -1;   // powerup energy stored in the "next" slot (-1 = none)
+    private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
     private vfx!: VFXManager;
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
@@ -130,7 +136,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     private roundProgressLabel: Label | null = null;
     private nextPreviewNode: Node | null = null;
     private nextNextWarriorNode: Node | null = null;
+    private _nextPreviewAuraNode: Node | null = null;
     private nextLaunchWarrior: Warrior | null = null;
+    private _activeLauncherWarrior: Warrior | null = null;
     private timerLabel: Label | null = null;
     private timerSectionNode: Node | null = null;
 
@@ -143,7 +151,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         view.resizeWithBrowserSize(true);
         initLayout();
         this.sceneName = director.getScene()?.name || 'GameScene';
-        console.log('[GameManager] start');
         Warrior.linearDamping   = WARRIOR_LINEAR_DAMPING;
         Warrior.settledDamping  = WARRIOR_SETTLED_DAMPING;
         Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
@@ -200,6 +207,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.ropeParent = this.worldNode;
         this.inputCtrl.onLaunch     = (w, forcePct) => this.onWarriorLaunched(w, forcePct);
         this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
+        this.inputCtrl.onSwapNext   = () => this.swapNextWithLauncher();
         this.inputCtrl.getWarriors  = () => this.warriors;
         this.inputCtrl.showBounds   = DEBUG_ENGINE;
         this.inputCtrl.initialScale = LAYOUT_SCALE;
@@ -270,7 +278,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (!w.crossedLine || !w.node?.isValid) continue;
             w.onMergeReady = v ? null : (a, b) => this.mergeWarriors(a, b);
         }
-        console.log(`[GameManager] debug: pause=${v}`);
     }
 
     pauseGrabWarrior(w: Warrior): void { w.setDragMode(true); }
@@ -284,7 +291,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.updateRoundLabel();
-        console.log(`[GameManager] debug: round → ${this.currentRound}`);
     }
 
     getTotalMerges(): number { return this.totalMerges; }
@@ -292,7 +298,6 @@ export class GameManager extends Component implements IGameManagerDebug {
     setTotalMerges(n: number): void {
         this.totalMerges = Math.max(0, n);
         this.updateRoundProgress();
-        console.log(`[GameManager] debug: totalMerges → ${this.totalMerges}`);
     }
 
     getWarriors(): readonly Warrior[] { return this.warriors; }
@@ -304,7 +309,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         w.settle();
         w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
-        console.log(`[GameManager] debug: placed type=${type} lv=${level} at (${x.toFixed(0)},${y.toFixed(0)})`);
     }
 
     cycleDebugWarriorLevel(w: Warrior): void {
@@ -323,7 +327,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         nw.settle();
         nw.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(nw);
-        console.log(`[GameManager] debug: cycled type=${type} → lv${newLevel}`);
     }
 
     saveDebugState(): void {
@@ -335,7 +338,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             totalMerges: this.totalMerges,
         };
         sys.localStorage.setItem('fw_debug_state', JSON.stringify(state));
-        console.log(`[GameManager] debug: state saved (${state.warriors.length} warriors, round ${state.round})`);
     }
 
     loadDebugState(): void {
@@ -359,7 +361,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.updateRoundLabel();
         this.updateRoundProgress();
-        console.log(`[GameManager] debug: state loaded (${state.warriors.length} warriors, round ${this.currentRound})`);
     }
 
     resetDebugState(): void {
@@ -381,7 +382,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.updateRoundLabel();
         this.updateRoundProgress();
         this.updateScoreLabel();
-        console.log('[GameManager] debug: state reset');
     }
 
     setLauncherBlocked(v: boolean): void {
@@ -431,6 +431,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
             if (this.implosionCenter) this.applyVortexImplosion(dt);
             this.checkLineLogic(dt);
+            this._tickPowerupExpiry(dt);
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
             this.updateDebugLabel();
@@ -453,12 +454,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private activateWarrior(w: Warrior): void {
+        this._activeLauncherWarrior = w;
         this.inputCtrl.setWarrior(w);
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.mergesThisLaunch = 0;
         this.state = GameState.Aiming;
         this.updateTimerLabel();
-        console.log('[GameManager] warrior activated — ready to launch');
+
+        this._boostedThisTurn.clear();
+
+        this._nextSlotBoostEnergy = -1;
+
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
@@ -470,8 +476,18 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
         this._lastTickSec = -1;
+
+        if (!this._firstLaunchSpecies.has(w.type)) {
+            this._firstLaunchSpecies.add(w.type);
+            const energy = w.type - 2;
+            if (energy > 0) {
+                const lb = LevelBoostPowerup.attach(w, energy, this.vfx.sparkleFrame, this.vfx.auraFrame);
+                w.levelBoost = lb;
+                w.onAuraContact = (s, t) => this._onAuraContact(s, t);
+            }
+        }
+
         AudioManager.instance.play(SFX.LAUNCH, Math.max(0.3, forcePct));
-        console.log('[GameManager] warrior launched');
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
     }
 
@@ -480,7 +496,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         inPlay.forEach(w => { if (w.velocity.length() < SETTLE_VELOCITY) w.forceStop(); });
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
 
-        console.log('[GameManager] all warriors settled');
         AudioManager.instance.play(SFX.LAND, 0.5);
         if (this.roundUpPause) return;
         this.activateWarrior(this.createWarrior());
@@ -494,11 +509,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (w.node.position.y >= this.gameOverLineLocal) return;
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
-                console.log('[GameManager] launched warrior hit established warriors and fell back — game over');
                 w.playGameOverEffect();
                 this.triggerGameOver();
             } else {
-                console.log('[GameManager] launched warrior settled below line — returning with malus');
                 this.penaliseAndReturn(w);
             }
         } else {
@@ -546,7 +559,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                         this.framesBelowLine.delete(w);
                         w.crossedLine = true;
                         w.settled = true;
-                        console.log(`[GameManager] warrior crossed line (${n} frames above) — in play`);
+                        w.levelBoost?.resetActivation();
                         if (this.state === GameState.Inflight) {
                             if (this.waitForSettling) {
                                 this.state = GameState.Settling;
@@ -567,7 +580,6 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this.framesBelowLine.set(w, n);
                     if (n >= GAME_OVER_FRAMES) {
                         this.framesBelowLine.delete(w);
-                        console.log(`[GameManager] warrior below line ${n} frames (y=${y.toFixed(1)} gol=${gol.toFixed(1)}) — game over`);
                         this.penaltyExplode(w);
                         return;
                     }
@@ -592,7 +604,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this.timerPaused) return;
         const y = w.node?.isValid ? w.node.position.y.toFixed(1) : '?';
         const v = w.velocity.length().toFixed(2);
-        console.log(`[GameManager] penaltyExplode — y=${y} v=${v} crossedLine=${w.crossedLine} settled=${w.settled} state=${this.state}`);
         w.playGameOverEffect();
         this.triggerGameOver();
     }
@@ -619,7 +630,58 @@ export class GameManager extends Component implements IGameManagerDebug {
                 .call(() => { if (this.nextLaunchWarrior === nw) this.nextLaunchWarrior = null; })
                 .start();
         }
-        console.log(`[GameManager] debug: launcher lv${w.level} → lv${newLevel}`);
+    }
+
+    private swapNextWithLauncher(): void {
+        if (this.state !== GameState.Aiming || !this.inputCtrl.launchEnabled) return;
+        const cur = this._activeLauncherWarrior;
+        if (!cur?.node?.isValid) return;
+
+        const curType  = cur.type;
+        const curLevel = cur.level;
+        const { type: nextType, level: nextLevel } = this.spawnMgr.next;
+
+        const spawnX = cur.node.position.x;
+        const spawnY = cur.node.position.y;
+
+        // Bidirectional swap: launcher energy → next slot, next slot energy → new launcher
+        const curEnergy  = cur.levelBoost?.energy ?? -1;
+        const nextEnergy = this._nextSlotBoostEnergy;
+        cur.levelBoost = null;
+        this._nextSlotBoostEnergy = curEnergy;
+
+        this.warriors = this.warriors.filter(w => w !== cur);
+        this.framesAboveLine.delete(cur);
+        this.framesBelowLine.delete(cur);
+        cur.node.destroy();
+        const nw = Warrior.spawn(this.box2dLayer, this.warriorsLayer, nextType, nextLevel, spawnX, spawnY);
+        nw.onMergeReady = (a, b) => this.mergeWarriors(a, b);
+        if (nw.mapper) nw.mapper.animScale = 0;
+        if (nw.viewNode?.isValid) nw.viewNode.setScale(0, 0, 1);
+        this.warriors.push(nw);
+        this._activeLauncherWarrior = nw;
+        this.nextLaunchWarrior = nw;
+
+        if (nextEnergy >= 0) {
+            const lb = LevelBoostPowerup.attach(nw, nextEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
+            nw.levelBoost = lb;
+            nw.onAuraContact = (s, t) => this._onAuraContact(s, t);
+        }
+
+        this.inputCtrl.setWarrior(nw);
+
+        if (nw.mapper) {
+            tween(nw.mapper)
+                .to(0.15, { animScale: 1.15 }, { easing: 'quadOut' })
+                .to(0.07, { animScale: 0.9 })
+                .to(0.06, { animScale: 1.0 })
+                .call(() => { if (this.nextLaunchWarrior === nw) this.nextLaunchWarrior = null; })
+                .start();
+        }
+
+        this.spawnMgr.setNext(curType, curLevel);
+        this.updateNextPreview(true);
+        AudioManager.instance.play(SFX.SPAWN, 0.6);
     }
 
     private triggerGameOver(): void {
@@ -629,10 +691,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
         this.vfx.screenShake(12, 0.35);
+        this._activeLauncherWarrior = null;
         this.inputCtrl.clearWarrior();
         AudioManager.instance.stopMusic();
         AudioManager.instance.play(SFX.GAME_OVER);
-        console.log('[GameManager] game over');
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
             sys.localStorage.setItem('fw_best_score', String(this.bestScore));
@@ -648,6 +710,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         director.getScheduler().setTimeScale(1.0);
         this.inputCtrl.clearWarrior();
         this.vfx.screenShake(18, 0.6);
+        this._activeLauncherWarrior = null;
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
             sys.localStorage.setItem('fw_best_score', String(this.bestScore));
@@ -682,7 +745,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             AudioManager.instance.unduckMusic();
             this.showVictoryScreen();
         }, delay);
-        console.log('[GameManager] victory! bonus=' + bonus);
     }
 
     private showVictoryScreen(): void {
@@ -798,7 +860,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         const maxLevel = WARRIORS[a.type]?.maxLevel ?? 7;
         const vx = (a.velocity.x + b.velocity.x) * 0.5 * 0.75;
         const vy = (a.velocity.y + b.velocity.y) * 0.5 * 0.75;
-        console.log(`[GameManager] merge! type=${a.type} lv${a.level}+lv${b.level} → lv${newLevel} (max=${maxLevel}) v=(${vx.toFixed(1)},${vy.toFixed(1)})`);
 
         this.framesAboveLine.delete(a); this.framesBelowLine.delete(a);
         this.framesAboveLine.delete(b); this.framesBelowLine.delete(b);
@@ -872,6 +933,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             merged.onMergeReady = (x, y) => this.mergeWarriors(x, y);
             merged.velocity = new Vec2(vx, vy);
             this.warriors.push(merged);
+            if (merged.mapper) merged.mapper.animScale = 0;
             merged.playMergeInEffect(0.35);
 
             const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
@@ -884,8 +946,157 @@ export class GameManager extends Component implements IGameManagerDebug {
         }, MERGE_OUT_DUR);
     }
 
+    // --- level-boost powerup ---
+
+    private _onAuraContact(source: Warrior, target: Warrior): void {
+        if (!source.levelBoost || source.levelBoost.energy <= 0 || !source.crossedLine) return;
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        if (this._boostedThisTurn.has(target)) return;
+        this.applyLevelBoost(source, target);
+    }
+
+    private _checkAuraImmediateContacts(source: Warrior): void {
+        if (!source.levelBoost || source.levelBoost.energy <= 0 || !source.node?.isValid) return;
+        const sp = source.node.position;
+        for (const w of this.warriors) {
+            if (w === source || !w.node?.isValid) continue;
+            if (this._boostedThisTurn.has(w)) continue;
+            const wp = w.node.position;
+            const dx = sp.x - wp.x;
+            const dy = sp.y - wp.y;
+            const touchDist = (source.radius + w.radius) * 2.0;
+            if (dx * dx + dy * dy <= touchDist * touchDist) {
+                this._onAuraContact(source, w);
+            }
+        }
+    }
+
+    private _tickPowerupExpiry(dt: number): void {
+        for (const w of this.warriors) {
+            if (!w.levelBoost || !w.crossedLine || !w.node?.isValid) {
+                this._powerupSettleCds.delete(w);
+                continue;
+            }
+            if (w.velocity.length() >= SETTLE_VELOCITY) {
+                this._powerupSettleCds.delete(w);
+                continue;
+            }
+            const cd = (this._powerupSettleCds.get(w) ?? AURA_SETTLE_CD) - dt;
+            if (cd <= 0) {
+                w.levelBoost.detach();
+                w.levelBoost = null;
+                this._powerupSettleCds.delete(w);
+            } else {
+                this._powerupSettleCds.set(w, cd);
+            }
+        }
+    }
+
+    private applyLevelBoost(source: Warrior, target: Warrior): void {
+        if (this.timerPaused) return;
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        if (this._boostedThisTurn.has(target)) return;
+        this._boostedThisTurn.add(target);
+        this._boostedThisTurn.add(source);
+
+        const chainEnergy = (source.levelBoost?.energy ?? 1) - 1;
+
+        this._playBoostReceiveAnim(target, () => {
+            if (!target.node?.isValid) return;
+
+            const maxLevel = WARRIORS[target.type]?.maxLevel ?? 7;
+            const newLevel = target.level + 1;
+            const pts = 5 * newLevel * this.currentRound;
+            this.score += pts;
+            this.updateScoreLabel();
+
+            if (newLevel > maxLevel) {
+                this.vfx.spawnFloatingScore(target.node.position.x,
+                    this.coords.physToVisual(target.node.position.y), pts);
+                this._explodeWarriorByBoost(target);
+            } else {
+                target.levelUpInPlace(newLevel);
+                this.vfx.playLevelUpBounce(target.mapper, target.viewNode);
+                this.vfx.spawnMergeSparks(target.node.position.x,
+                    this.coords.physToVisual(target.node.position.y), newLevel);
+                this.vfx.spawnFloatingScore(target.node.position.x,
+                    this.coords.physToVisual(target.node.position.y) + 60, pts);
+                AudioManager.instance.play(SFX.MERGE_1, 0.6);
+                this._vibrate(30);
+
+                if (chainEnergy >= 0) {
+                    target.levelBoost?.detach();
+                    const clb = LevelBoostPowerup.attach(target, chainEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
+                    target.levelBoost = clb;
+                    target.onAuraContact = (s, t) => this._onAuraContact(s, t);
+                    this.scheduleOnce(() => this._checkAuraImmediateContacts(target), 0);
+                }
+            }
+        });
+    }
+
+    private _playBoostReceiveAnim(target: Warrior, onComplete: () => void): void {
+        const sp = target.viewNode?.isValid ? target.viewNode.getComponent(Sprite) : null;
+        if (!sp || !target.mapper) { onComplete(); return; }
+
+        // Gold flash on sprite colour
+        const origColor = sp.color.clone();
+        sp.color = new Color(255, 230, 80, 255);
+        tween(sp).to(0.22, { color: origColor }).start();
+
+        // Scale bump then callback
+        tween(target.mapper)
+            .to(0.09, { animScale: 1.38 }, { easing: 'quadOut' })
+            .to(0.11, { animScale: 0.90 }, { easing: 'quadIn'  })
+            .to(0.07, { animScale: 1.00 })
+            .call(onComplete)
+            .start();
+    }
+
+    private _explodeWarriorByBoost(w: Warrior): void {
+        const x       = w.node.position.x;
+        const y       = w.node.position.y;
+        const yC      = this.coords.physToVisual(y);
+        const maxLevel = WARRIORS[w.type]?.maxLevel ?? 7;
+        const tier    = Math.max(1, Math.min(3, maxLevel - 2)) as 1 | 2 | 3;
+        const lvConf  = LEVEL_CONFIG[maxLevel];
+        const color   = lvConf?.vfxColor ?? new Color(255, 200, 50, 255);
+        const bonus   = lvConf?.bonus ?? 0;
+
+        if (bonus > 0) {
+            this.score += bonus;
+            this.updateScoreLabel();
+            this.vfx.spawnFloatingScore(x, yC + 30, bonus, true);
+        }
+
+        const expSfx = maxLevel >= 7 ? SFX.EXPLOSION_3 : maxLevel >= 6 ? SFX.EXPLOSION_2 : SFX.EXPLOSION_1;
+        AudioManager.instance.play(expSfx, 0.85);
+        this.vfx.screenShake(tier >= 3 ? 18 : tier >= 2 ? 12 : 7, 0.28);
+        this.activateSlowmo(tier >= 3 ? 0.18 : tier >= 2 ? 0.28 : 0.42, tier >= 3 ? 0.9 : tier >= 2 ? 0.65 : 0.45);
+        this.vfx.spawnBlackhole(x, yC + w.radius * 0.9, w.radius, color, tier, maxLevel);
+        this.vfx.spawnImplosionVFX(x, yC, color, tier / 3, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
+        this.vfx.spawnExplosionLabel(x, yC + 10, lvConf?.label ?? '', color);
+
+        const impDur   = tier >= 3 ? 2.5 : tier >= 2 ? 2.0 : 1.5;
+        const impForce = (200 + tier * 60) * LAYOUT_SCALE;
+        this.implosionCenter    = new Vec2(x, y);
+        this.implosionDuration  = impDur;
+        this.implosionTimeLeft  = impDur;
+        this.implosionPeakForce = impForce;
+
+        const wType = w.type;
+        this.warriors = this.warriors.filter(ww => ww !== w);
+        this.framesAboveLine.delete(w);
+        this.framesBelowLine.delete(w);
+        w.node.destroy();
+        this._vibrate(90);
+
+        if (WARRIORS[wType]?.type === 'dragon') {
+            this.scheduleOnce(() => this.triggerVictory(), 0.5);
+        }
+    }
+
     private activateAfterInflightMerge(): void {
-        console.log('[GameManager] inflight warrior merged before crossing line — activating next');
         if (this.waitForSettling) {
             this.state = GameState.Settling;
         } else {
@@ -1140,7 +1351,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._slowmoTimer <= 0 || scale < this._slowmoScale) {
             this._slowmoScale = scale;
             director.getScheduler().setTimeScale(scale);
-            console.log(`[GameManager] slowmo: ×${scale} for ${duration}s`);
         }
         this._slowmoTimer = Math.max(this._slowmoTimer, duration);
     }
@@ -1153,7 +1363,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._slowmoScale = 1.0;
             director.getScheduler().setTimeScale(1.0);
             AudioManager.instance.unduckMusic();
-            console.log('[GameManager] slowmo ended');
         }
     }
 
@@ -1231,7 +1440,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.activateSlowmo(0.20, 2.0);
         this.showRoundUpBanner();
         this.scheduleOnce(() => { this.roundUpPause = false; }, 1.5);
-        console.log(`[GameManager] round up → round ${this.currentRound}, types=${spawnTypesForRound(this.currentRound)}, timer=${launchTimerForRound(this.currentRound)}s`);
     }
 
 
@@ -1374,10 +1582,39 @@ export class GameManager extends Component implements IGameManagerDebug {
             icon.setParent(this.nextPreviewNode);
             icon.addComponent(UITransform).setContentSize(100, 100);
             this.nextNextWarriorNode = icon;
+            this._nextPreviewAuraNode = null;
         }
         const sp = this.nextNextWarriorNode.getComponent(Sprite) ?? this.nextNextWarriorNode.addComponent(Sprite);
         sp.sizeMode = Sprite.SizeMode.CUSTOM;
         sp.spriteFrame = frame ?? null!;
+
+        // Aura glow on next preview when a pending boost is waiting
+        if (this._nextSlotBoostEnergy >= 0 && this.vfx.auraFrame) {
+            if (!this._nextPreviewAuraNode?.isValid) {
+                const aura = new Node('PreviewAura');
+                aura.setParent(this.nextNextWarriorNode);
+                aura.setSiblingIndex(0);
+                aura.addComponent(UITransform).setContentSize(148, 148);
+                const auraSp = aura.addComponent(Sprite);
+                auraSp.sizeMode    = Sprite.SizeMode.CUSTOM;
+                auraSp.spriteFrame = this.vfx.auraFrame;
+                auraSp.color       = new Color(255, 200, 50, 255);
+                const op = aura.addComponent(UIOpacity);
+                op.opacity = 0;
+                tween(op).to(0.6, { opacity: 90 }).start();
+                tween(aura)
+                    .repeatForever(tween<Node>()
+                        .to(0.7, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'sineInOut' })
+                        .to(0.7, { scale: new Vec3(1.0,  1.0,  1) }, { easing: 'sineInOut' }))
+                    .start();
+                this._nextPreviewAuraNode = aura;
+            }
+        } else {
+            if (this._nextPreviewAuraNode?.isValid) {
+                this._nextPreviewAuraNode.destroy();
+            }
+            this._nextPreviewAuraNode = null;
+        }
 
         if (animate) {
             Tween.stopAllByTarget(this.nextNextWarriorNode);

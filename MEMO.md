@@ -30,7 +30,7 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 | Top (BoxCollider2D) | 0.0 | 1.0 | Larghezza = `funnelPercentage`% della larghezza sprite |
 | Bottom (BoxCollider2D) | 0.0 | 0.0 | Larghezza = larghezza sprite |
 
-I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UITransform + position + scale + anchor) — non dalle costanti `TRACK_W`/`TRACK_BOTTOM_Y`. Si rigenerano automaticamente su `SIZE_CHANGED` / `TRANSFORM_CHANGED`. Spessore = `wallThickness`% della larghezza sprite (default 4%).
+I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UITransform + position + scale + anchor) — non dalle costanti `TRACK_W`/`TRACK_BOTTOM_Y`. Si rigenerano automaticamente su `SIZE_CHANGED` / `TRANSFORM_CHANGED`. Spessore = `wallThickness`% della larghezza sprite (default 12% — raddoppiato da 6% in v0.6.14).
 
 
 **CRITICO — `worldPosition.y` in CC3 2D restituisce la Y LOCALE** (senza applicare la scala del parent). Confermato da `PerspectiveMapper` che moltiplica manualmente `wp.y * sy` per ottenere la Y canvas. Per convertire in canvas-space: `localY * parentScaleY`. Il confronto con `GAME_OVER_LINE_Y` (canvas space) deve quindi essere fatto in spazio locale: `w.node.position.y >= GAME_OVER_LINE_Y / box2dLayer.scaleY`.
@@ -49,7 +49,13 @@ I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UIT
 
 **Balestra — angolo post-lancio**: la `snapAnim` non reimposta più l'angolo a 0. Il `launcherNode` rimane all'angolo del lancio fino al `clearWarrior()` (chiamato quando viene caricato il warrior successivo), che lo riporta a 0.
 
+**Swap Next (v0.6.16)** — `onSwapNext: (() => void) | null` in InputController. Meccanismo: in `handleDragStart`, se il tocco è fuori dai limiti orizzontali del track (`touch.x < _lwA.x - 20` o `> _rwA.x + 20`) il drag NON parte e viene salvata `_swapTapStart`. In `handleDragEnd`, se `_swapTapStart` è impostato e il tocco non si è spostato più di `MIN_DRAG`, viene chiamato `onSwapNext()`. GameManager collega `inputCtrl.onSwapNext = () => this.swapNextWithLauncher()`.
+
+**CRITICO — perché NON usare node-level touch events sul NextPreview**: il nodo NextPreview sta a y < 0 (zona inferiore schermo), quindi `handleDragStart` in InputController (listener globale) vede il tocco come drag valido. Al rilascio, la distanza release→warrior è ~295px >> `maxDrag` → il warrior viene **lanciato a piena forza** prima che il listener sul nodo possa attivarsi. Usare sempre l'approccio `onSwapNext` via InputController per tap in zone di gioco.
+
 **Traiettoria — collisione disco-disco**: `rayCircleT` usa `w.radius + this.warrior.radius` come raggio di collisione. Il raggio da solo (`w.radius`) causa stop anticipato — il corretto punto di stop è quando le superfici si toccano.
+
+**Traiettoria — collisione disco-parete**: le pareti vengono spostate verso l'interno di `warrior.radius` prima del ray-cast, così il bounce point corrisponde alla posizione del centro quando il cerchio tocca la parete. Attenzione: la normale della parete destra `(rwNu, rwNv)` punta verso destra (fuori dal track) quindi l'offset è `-radius * (rwNu, rwNv)`; la parete sinistra ha normale verso destra (dentro) quindi `+radius * (lwNu, lwNv)`. Anche il `trackTopY` viene abbassato di `radius`.
 
 **`showBounds`**: impostato a `DEBUG_ENGINE` (non più hardcoded `true`). Mostra i bound della pista sovrapposti alla traiettoria.
 
@@ -276,14 +282,119 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 ---
 
-## Cosa NON è ancora implementato (stato Fase 2)
+## Blackhole VFX (v0.6.14)
+
+`VFXManager.spawnBlackhole()` — particelle a spirale + stardust + ghost creatura.
+
+**Particelle spirale** (count/size/raggio scalano con `level`):
+- Count: `8 + level * 5`
+- Size: `(66 + rnd * 200) * (0.6 + level * 0.15)`
+- Spawn radius: `(80 + level * 20) + radius * 0.70`
+- Perspective: Y × 0.5 (allineato a `box2dLayer.scaleY`)
+- Scale: `sin(t * π)` — cresce e si riduce; niente alpha tween
+- NO alpha manipulation — solo scale
+
+**Stardust** (due dischi sfasati):
+- Parent `StardustDisc`: `scaleY = 0.5`, flicker opacity, si restringe verso il centro
+- Child `Stardust`: `scale(1,1,1)`, rotazione continua `by(dur, {angle: ±540°})`
+- Entrambi con anchor al centro; solo il padre ha `scaleY` schiacciato
+- Due istanze: delay 0.2s e 0.4s, rotazioni opposte, secondo più piccolo (×0.8)
+
+**Merge ghost** (solo su blackhole merge):
+- Copia `spriteFrame` della creatura A; nodo in `warriorsLayer`
+- Tinta nera `(0,0,0,255)`, shrink da 100% → 5% in 2s con `quadIn` + fade opacity
+- `node.layer = warriorsLayer.layer` — CRITICO per il rendering
+- Posizione: media delle `worldPosition` dei due viewNode
+
+**Implosione fisica**:
+- Forza `sin(π * elapsed / duration)` (bell-curve) verso il centro del merge
+- `impForce = (200 + tier * 60) * LAYOUT_SCALE`, durata 1.5–2.5s per tier
+- Fallback proximity merge: `_checkProximityMerge()` ogni frame — gestisce il caso Box2D `END_CONTACT` che annulla il merge su warriors sovrapposti
+
+---
+
+## LevelBoost Powerup (v0.6.16)
+
+### Architettura
+- `LevelBoostPowerup` — Component attaccato a `warrior.viewNode`, classe dedicata per il solo effetto (regola: ogni VFX ha la propria classe)
+- Interfaccia `ILevelBoost` in `Warrior.ts` — evita import circolare; espone `energy`, `activationMs`, `detach`, `resetActivation`
+- VFX: Sprite `aura.png` (additive blend) con `UIOpacity` per fade-in/out — **mai usare Graphics per VFX** (UIOpacity non ha effetto su Graphics in CC3)
+
+### Parametri chiave
+| Costante | Valore | File | Note |
+|----------|--------|------|------|
+| Energia iniziale per lancio | 2 | GameManager.ts `activateWarrior` | |
+| `AURA_SETTLE_CD` | 1.0s | GameManager.ts | countdown post-settle prima del detach |
+| `SETTLE_VELOCITY` | 0.4 | GameManager.ts | soglia velocità Box2D per considerare il warrior fermo |
+| Range check immediato | `(rA+rB)×2.0` | GameManager.ts `_checkAuraImmediateContacts` | per warrior già in contatto al momento dell'attach |
+| Fade-in aura | 1.2s outer / 0.9s inner | LevelBoostPowerup.ts | opacity 75 / 120 |
+| Pre-upgrade anim | 0.27s | GameManager.ts | gold flash sprite + scale bump 1.38→0.90→1.0 |
+
+### Flusso per turno
+1. `activateWarrior` → `LevelBoostPowerup.attach(w, energy=2)` + `w.onAuraContact = _onAuraContact` + `_boostedThisTurn.clear()`
+2. Warrior lanciato attraversa la linea → `w.levelBoost.resetActivation()` (timer expiry parte da qui, non dal lancio)
+3. Contatto fisico Box2D: `Warrior.onBeginContact` → se `this.levelBoost && crossedLine` → `scheduleOnce(0)` → `onAuraContact(source, target)`
+4. `_onAuraContact` — guard energy>0 + crossedLine + non in `_boostedThisTurn` → `applyLevelBoost`
+5. `applyLevelBoost` — aggiunge source+target a `_boostedThisTurn`; anima; upgradie livello; se `chainEnergy >= 0`: attach AURA(chainEnergy) al target + `_checkAuraImmediateContacts`
+6. `_checkAuraImmediateContacts` — proximity check range `(rA+rB)×2.0` sui warrior già fisicamente vicini al nuovo portatore di AURA
+7. Expiry: `_tickPowerupExpiry` — quando `velocity < SETTLE_VELOCITY`, countdown `AURA_SETTLE_CD`; poi detach
+
+### Regole anti-doppio-boost
+- `_boostedThisTurn: Set<Warrior>` — svuotato in `activateWarrior`; aggiunge sia source che target al primo boost; impedisce upgrade multipli per turno
+- Un warrior che ha trasmesso non può più ricevere nello stesso turno (source aggiunto al set)
+
+### Swap launcher ↔ next
+- `_nextSlotBoostEnergy` — traccia l'energia del powerup nel "next slot"
+- Swap: scambio bidirezionale — `curEnergy → _nextSlotBoostEnergy`, `nextEnergy → nw.levelBoost`
+- Preview aura: `updateNextPreview` mostra nodo aura su `nextNextWarriorNode` se `_nextSlotBoostEnergy >= 0`
+- `activateWarrior`: usa `_nextSlotBoostEnergy` se >= 0, altrimenti default (2 in test)
+
+### Gotcha Tween
+**`Tween.stopAllByTarget(component)` quando non ci sono tween attivi corrompe il sistema tween CC3** — i tween successivi sullo stesso target completano istantaneamente. Usare sempre la reference all'istanza: `this._myTween = tween(...).start()` poi `this._myTween?.stop()`.
+
+---
+
+## Cosa NON è ancora implementato (stato v0.6.14)
 
 - **Livelli massimi per specie** — nel codice tutti i tipi vanno fino a lv7, ma il GDD prevede cap diversi per specie (lv5/6/7 solo per alcune). Da implementare in Fase 3 quando arrivano gli asset definitivi.
 - **Contachilometri punteggio** — il punteggio salta al valore finale invece di scorrere come un odometro
 - **Timer: 4 stati visivi** — attualmente solo rosso sotto 5s; mancano gli stati "quasi invisibile" e "arancione pulse"
 - **Floating score tier system** — attualmente un solo stile; il GDD prevede 6 tier con dimensione/colore/FX
-- **Debug panel e debug label** — da rimuovere o nascondere prima dello shipping
-- **Audio** — nessun SFX né musica
+- **Debug panel** — parzialmente migrato in scena (WinButton + FrogIcon draggable); la palette completa è ancora nel `DebugPanel.ts` programmatico
+- **Audio mancanti** — `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` referenziati ma file non presenti
+
+## Audio (v0.6.x)
+
+- **Volume lancio**: modulato dalla forza del drag — `play(SFX.LAUNCH, Math.max(0.3, forcePct))` con `forcePct = impulse.length() / MAX_IMPULSE`
+- **Bounce vs Hit**: costanti separate `BOUNCE_VOL_MAX = 280` e `HIT_VOL_MAX = 80` in `Warrior.ts`
+- **HIT throttle**: `HIT_THROTTLE_MS = 120` — niente spam audio su contatti ravvicinati
+- **DRAW sfx**: suonato in `InputController.handleDragStart` al primo tocco/click sulla balestra
+- **Autoplay musica**: `ensureMusic()` aggiunge un listener `pointerdown` one-shot per aggirare le policy browser
+- **Duck su round-up**: `duckMusicTo(0.15)` all'advance del round + 2s slowmo; `unduckMusic()` alla fine dello slowmo in `tickSlowmo()`
+
+## Vittoria drago (v0.6.13)
+
+Quando un merge crea un drago oltre il suo `maxLevel` (tipo `dragon` al livello max), scatta `triggerVictory()`:
+- Tutti i warrior in pista esplodono a cascata con delay `i * 0.08s` — score `50 × level` per warrior
+- Si mostra una schermata "HAI VINTO!" con "Nuova partita" (identica al RIPROVA del game over)
+- Musica duckata + `SFX.WIN` + `unduckMusic()` dopo 2s
+
+## Merge white flash (v0.6.x)
+
+`playMergeOutEffect` / `playMergeInEffect` in `Warrior.ts` usano due tween paralleli:
+1. `UIOpacity` opacity 255→0 (OUT) o 0→255 (IN)
+2. `Sprite.color` da `(255,255,255,255)` → `(255,255,255,0)` (OUT) o viceversa (IN)
+
+Il tween su `Sprite.color` produce il flash bianco senza overlay Graphics separato.
+
+## DebugPanel — migrazione in scena (v0.6.13)
+
+Il vecchio `DebugPanel.ts` (canvas 2D programmatico) è ancora attivo ma si sta migrando a nodi nella scena:
+- `WinButton` (nodo Button) → `clickEvents` wired a `GameManager.debugWin()`
+- `FrogIcon` (nodo con `DebugDraggable` component, tipo=0 lv=1) — drag & drop sulla pista
+- `DebugDraggable.ts` in `assets/scripts/managers/` — coordinate conversion `_toWorld()` + `_toPhysY()` + ghost Graphics circle
+
+**CRITICO `DebugDraggable`**: usa `IGameManagerDebug` da `DebugPanel.ts` — evitare import circolare (DebugPanel non deve importare DebugDraggable).
 
 ---
 

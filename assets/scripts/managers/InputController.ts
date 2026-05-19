@@ -21,6 +21,7 @@ const TRAJ_DOT_ALPHA_END   = 0;
 export class InputController extends Component {
     onLaunch: ((warrior: Warrior, force: number) => void) | null = null;
     onTap:    ((warrior: Warrior) => void) | null = null;
+    onSwapNext: (() => void) | null = null;
     getWarriors: (() => readonly Warrior[]) | null = null;
     ropeParent: Node | null = null;
     launchEnabled = true;
@@ -45,6 +46,7 @@ export class InputController extends Component {
     private launcherNode: Node | null = null;
     private lastTouchPos: Vec2 | null = null;
     private tapStartPos: Vec2 | null = null;
+    private _swapTapStart: Vec2 | null = null;
     private trajPhase = 0;
     private snapAnim: {
         elapsed: number; duration: number;
@@ -75,7 +77,6 @@ export class InputController extends Component {
         this.ropeToTop();
         this.clearRope();
         if (this.launchEnabled) this.showCrossbowDefault();
-        console.log(`[InputController] warrior set — type=${w.type} level=${w.level}`);
     }
 
     clearWarrior(): void {
@@ -110,7 +111,6 @@ export class InputController extends Component {
         this.lastTouchPos = null;
         launched.applyImpulse(dir.multiplyScalar(halfImpulse));
         this.onLaunch?.(launched, 0.5);
-        console.log('[InputController] auto-launch');
     }
 
     start() {
@@ -131,7 +131,6 @@ export class InputController extends Component {
         input.on(Input.EventType.MOUSE_MOVE,   this.onMouseMove,   this);
         input.on(Input.EventType.MOUSE_UP,     this.onMouseUp,     this);
 
-        console.log(`[InputController] ready — platform=${sys.platform} mobile=${sys.isMobile}`);
     }
 
     update(dt: number): void {
@@ -182,9 +181,15 @@ export class InputController extends Component {
             return;
         }
         if (touch.y < 0) {
+            const lx = this._lwA?.x ?? -Infinity;
+            const rx = this._rwA?.x ??  Infinity;
+            if (touch.x < lx - 20 || touch.x > rx + 20) {
+                // Outside track bounds (e.g. NextPreview area) — record for swap-tap detection
+                if (this.onSwapNext) this._swapTapStart = new Vec2(touch.x, touch.y);
+                return;
+            }
             this.dragging = true;
             AudioManager.instance.play(SFX.DRAW, 0.7);
-            console.log('[InputController] drag started');
         }
     }
 
@@ -197,6 +202,13 @@ export class InputController extends Component {
 
     private handleDragEnd(touch: Vec2): void {
         if (this.blocked) { this.dragging = false; this.clearRope(); return; }
+        if (this._swapTapStart) {
+            const dx = touch.x - this._swapTapStart.x;
+            const dy = touch.y - this._swapTapStart.y;
+            this._swapTapStart = null;
+            if (Math.sqrt(dx * dx + dy * dy) < MIN_DRAG_BASE * this._scale) this.onSwapNext?.();
+            return;
+        }
         if (!this.launchEnabled && this.warrior && this.tapStartPos) {
             const dx = touch.x - this.tapStartPos.x;
             const dy = touch.y - this.tapStartPos.y;
@@ -217,19 +229,19 @@ export class InputController extends Component {
         const maxDrag = MAX_DRAG_BASE * this._scale;
 
         if (len < minDrag) {
-            console.log(`[InputController] drag too short (${len.toFixed(0)}px), cancelled`);
             this.showCrossbowDefault();
             return;
         }
 
-        const t       = Math.min(len, maxDrag) / maxDrag;
-        const dir     = this.clampLaunchDir(new Vec2(-drag.x, -drag.y).normalize());
-        const impulse = dir.multiplyScalar(t * this.maxImpulse());
+        const t            = Math.min(len, maxDrag) / maxDrag;
+        const dir          = this.clampLaunchDir(new Vec2(-drag.x, -drag.y).normalize());
+        const effectiveDir = this._halfDir(dir);
+        const impulse      = effectiveDir.multiplyScalar(t * this.maxImpulse());
 
         // Snap capture — all coords in Crossbow local space
         const uit    = this.launcherNode?.getComponent(UITransform);
         const armHW  = (uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W) * (this.launcherNode?.scale.x ?? 1);
-        const perp   = new Vec2(-dir.y, dir.x);
+        const perp   = new Vec2(-effectiveDir.y, effectiveDir.x);
         const lc     = this.launcherNode?.position ?? { x: 0, y: 0 };
         const la     = new Vec2(lc.x + perp.x * armHW, lc.y + perp.y * armHW);
         const ra     = new Vec2(lc.x - perp.x * armHW, lc.y - perp.y * armHW);
@@ -239,7 +251,6 @@ export class InputController extends Component {
         const ctrl   = this.worldToLocal(new Vec2(wPos.x + rawNx * clamp, wPos.y + rawNy * clamp));
         this.snapAnim = { elapsed: 0, duration: 0.22, la, ra, ctrl, startAngle: this.launcherNode?.angle ?? 0 };
 
-        console.log(`[InputController] launch — drag=${len.toFixed(0)}px t=${t.toFixed(2)} impulse=(${impulse.x.toFixed(0)},${impulse.y.toFixed(0)})`);
         const launched = this.warrior;
         this.warrior = null;
         launched.applyImpulse(impulse);
@@ -258,18 +269,19 @@ export class InputController extends Component {
         const t       = len / maxDrag;
         const nx      = rawLen > 0 ? dx / rawLen : 0;
         const ny      = rawLen > 0 ? dy / rawLen : -1;
-        const launchDir = this.clampLaunchDir(new Vec2(-nx, -ny));
+        const launchDir  = this.clampLaunchDir(new Vec2(-nx, -ny));
+        const effectiveDir = this._halfDir(launchDir);
 
-        this.aimAngleDeg = Math.round(Math.atan2(launchDir.x, launchDir.y) * 180 / Math.PI);
+        this.aimAngleDeg = Math.round(Math.atan2(effectiveDir.x, effectiveDir.y) * 180 / Math.PI);
         this.aimForcePct = Math.round(t * 100);
 
         if (this.launcherNode) {
-            this.launcherNode.angle = -Math.atan2(launchDir.x, launchDir.y) * 180 / Math.PI;
+            this.launcherNode.angle = -Math.atan2(effectiveDir.x, effectiveDir.y) * 180 / Math.PI;
         }
 
         const uit    = this.launcherNode?.getComponent(UITransform);
         const armHW  = (uit ? uit.contentSize.width * 0.5 : CROSSBOW_ARM_W) * (this.launcherNode?.scale.x ?? 1);
-        const perp   = new Vec2(-launchDir.y, launchDir.x);
+        const perp   = new Vec2(-effectiveDir.y, effectiveDir.x);
         const lc     = this.launcherNode?.position ?? { x: 0, y: 0 }; // launcher center in Crossbow-local
         const la     = new Vec2(lc.x + perp.x * armHW, lc.y + perp.y * armHW);
         const ra     = new Vec2(lc.x - perp.x * armHW, lc.y - perp.y * armHW);
@@ -296,7 +308,7 @@ export class InputController extends Component {
 
         if (rawLen >= MIN_DRAG_BASE * this._scale) {
             const startCp = this.crossbowNode?.position ?? this.warrior!.node.position;
-            this.drawTrajectory(new Vec2(startCp.x, startCp.y), launchDir, t);
+            this.drawTrajectory(new Vec2(startCp.x, startCp.y), effectiveDir, t);
         }
     }
 
@@ -323,8 +335,17 @@ export class InputController extends Component {
         const lwNx = lwDy;  const lwNy = -lwDx; const lwMag = Math.sqrt(lwNx * lwNx + lwNy * lwNy);
         const rwNx = rwDy;  const rwNy = -rwDx; const rwMag = Math.sqrt(rwNx * rwNx + rwNy * rwNy);
 
+        // Offset walls inward by warrior radius so the trajectory treats the warrior as a circle
+        const radius = this.warrior?.radius ?? 0;
+        const lwNu = lwNx / lwMag; const lwNv = lwNy / lwMag;
+        const rwNu = rwNx / rwMag; const rwNv = rwNy / rwMag;
+        const lwAr = new Vec2(lwA.x + radius * lwNu, lwA.y + radius * lwNv);
+        const lwBr = new Vec2(lwB.x + radius * lwNu, lwB.y + radius * lwNv);
+        const rwAr = new Vec2(rwA.x - radius * rwNu, rwA.y - radius * rwNv);
+        const rwBr = new Vec2(rwB.x - radius * rwNu, rwB.y - radius * rwNv);
+
         // Top of track as hard stop (prevents ray disappearing on center shots)
-        const trackTopY = lwB.y;
+        const trackTopY = lwB.y - radius;
         const warriors  = this.getWarriors?.() ?? [];
 
         const maxDist  = TRAJ_MAX_DIST * this._scale * forcePct;
@@ -336,11 +357,11 @@ export class InputController extends Component {
         for (let bounce = 0; bounce <= 1; bounce++) {
             let minT = Infinity; let hitNx = 0; let hitNy = 0; let isStop = false;
 
-            const tl = raySegT(p, d, lwA, lwB);
-            if (tl < minT) { minT = tl; hitNx = lwNx / lwMag; hitNy = lwNy / lwMag; isStop = false; }
+            const tl = raySegT(p, d, lwAr, lwBr);
+            if (tl < minT) { minT = tl; hitNx = lwNu; hitNy = lwNv; isStop = false; }
 
-            const tr = raySegT(p, d, rwA, rwB);
-            if (tr < minT) { minT = tr; hitNx = rwNx / rwMag; hitNy = rwNy / rwMag; isStop = false; }
+            const tr = raySegT(p, d, rwAr, rwBr);
+            if (tr < minT) { minT = tr; hitNx = rwNu; hitNy = rwNv; isStop = false; }
 
             // Stop at track top when shooting upward
             if (d.y > 0.001) {
@@ -486,10 +507,15 @@ export class InputController extends Component {
     }
 
     private clampLaunchDir(dir: Vec2): Vec2 {
-        const MAX_ANGLE = 60 * Math.PI / 180;
+        const MAX_ANGLE = 110 * Math.PI / 180;
         const angle   = Math.atan2(dir.x, dir.y);
         const clamped = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, angle));
         return new Vec2(Math.sin(clamped), Math.cos(clamped));
+    }
+
+    private _halfDir(dir: Vec2): Vec2 {
+        const a = Math.atan2(dir.x, dir.y) * 0.5;
+        return new Vec2(Math.sin(a), Math.cos(a));
     }
 
     private toWorld(ui: Vec2): Vec2 {

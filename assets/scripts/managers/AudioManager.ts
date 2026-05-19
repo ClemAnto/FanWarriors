@@ -12,9 +12,11 @@ export enum SFX {
     MERGE_2            = 'audio/sfx/merge_2',
     MERGE_3            = 'audio/sfx/merge_3',
     MERGE_4            = 'audio/sfx/merge_4',
-    EXPLOSION_CHAMPION = 'audio/sfx/explosion_champion',
-    EXPLOSION_HERO     = 'audio/sfx/explosion_hero',
-    EXPLOSION_LEGEND   = 'audio/sfx/explosion_legend',
+    MERGE_5            = 'audio/sfx/merge_5',
+    MERGE_6            = 'audio/sfx/merge_6',
+    EXPLOSION_1        = 'audio/sfx/explosion_1',
+    EXPLOSION_2        = 'audio/sfx/explosion_2',
+    EXPLOSION_3        = 'audio/sfx/explosion_3',
     MALUS              = 'audio/sfx/malus',
     TIMER_TICK         = 'audio/sfx/timer_tick',
     DANGER             = 'audio/sfx/danger',
@@ -96,7 +98,6 @@ export class AudioManager extends Component {
         if (this.sfxMuted || this._pauseMuted) return;
         const clip = this._clips.get(sfx);
         if (!clip) { console.warn(`[Audio] NO CLIP — ${sfx}`); return; }
-        console.log(`[Audio] play ${sfx} vol=${(relVolume * this.sfxVolume).toFixed(2)}`);
         this._sfxSource.playOneShot(clip, relVolume * this.sfxVolume);
     }
 

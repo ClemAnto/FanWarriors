@@ -62,6 +62,11 @@ export class SpawnManager {
         this.maxLevel = n;
     }
 
+    setNext(type: number, level: number): void {
+        this.nextType  = type;
+        this.nextLevel = level;
+    }
+
     private generateNext(): void {
         this.nextType  = Math.floor(Math.random() * this.spawnTypes);
         this.nextLevel = Math.floor(Math.random() * this.maxLevel) + 1;

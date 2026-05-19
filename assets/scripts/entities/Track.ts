@@ -40,7 +40,7 @@ export function initLayout(funnelPct?: number): void {
 @ccclass('Track')
 export class Track extends Component {
     private readonly funnelPercentage   = 75;
-    private readonly wallThickness      = 6;
+    private readonly wallThickness      = 12;
     private readonly topWallThickness   = 40;
     private _walls: Node[] = [];
     private _lineOpacity: UIOpacity | null = null;
@@ -49,7 +49,6 @@ export class Track extends Component {
 
     start() {
         const vs = view.getVisibleSize();
-        console.log(`[Track] start — screen ${vs.width}x${vs.height}`);
         initLayout(this.funnelPercentage);
 
         const spriteNode = this.node.getChildByName('TrackSprite');
@@ -60,7 +59,6 @@ export class Track extends Component {
         }
 
         this.buildWalls();
-        console.log(`[Track] ready — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H} bottom=${TRACK_BOTTOM_Y} top=${TRACK_TOP_Y} topW=${TRACK_W - 2 * FUNNEL_OFFSET}`);
     }
 
     onDestroy() {
@@ -74,7 +72,6 @@ export class Track extends Component {
     relayout(): void {
         initLayout(this.funnelPercentage);
         this.buildWalls();
-        console.log(`[Track] relayout — scale=${LAYOUT_SCALE.toFixed(2)} w=${TRACK_W} h=${TRACK_H}`);
     }
 
     setLinePulse(active: boolean): void {
@@ -144,7 +141,6 @@ export class Track extends Component {
         WALL_RB.set(right - t,      bot);
         WALL_RT.set(topR  - t,      top);
 
-        console.log(`[Track] buildWalls — sprite ${w}x${h} @ (${px},${py}) scale(${scx},${scy}) anchor(${ax},${ay}) → L=${left} R=${right} B=${bot} T=${top} t=${t.toFixed(1)} tTop=${tTop.toFixed(1)}`);
 
         this.spawnBoxWall('WallBottom', centerX, bot + t    / 2, fullW, t,    0.0, 0.0);
         this.spawnBoxWall('WallTop',    centerX, top - tTop / 2, topW,  tTop, 0.0, 1.0);

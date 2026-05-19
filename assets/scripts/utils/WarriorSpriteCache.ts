@@ -39,10 +39,8 @@ export class WarriorSpriteCache {
                             level++;
                         }
                     }
-                    console.log(`[WarriorSpriteCache] ${atlasName} (${cols}×${rows}, ${tex.width}×${tex.height}px)`);
                 }
             }
-            console.log(`[WarriorSpriteCache] ready — ${WarriorSpriteCache._frames.size} frame(s) total`);
             onDone();
         });
     }

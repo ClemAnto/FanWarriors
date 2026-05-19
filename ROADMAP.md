@@ -177,8 +177,8 @@
 
 - [x] Decisione finale stile artistico — medievale pixel art
 - [x] Produrre **sprite base**: 7 specie × livelli — sprite reali integrati (commit e16c782)
-- [ ] Completare la serie **~8–9 sprite livelli speciali**: Campione (~4–5 specie), Eroe (~2–3 specie), Leggenda (1 specie)
-- [ ] Esportare a 128×128 base + 256×256 retina, importare come Atlas
+- [x] Completare la serie **~8–9 sprite livelli speciali**: Campione (~4–5 specie), Eroe (~2–3 specie), Leggenda (1 specie)
+- [x] Esportare a 128×128 base + 256×256 retina, importare come Atlas
 - [x] Sostituire placeholder con sprite definitivi
 - [x] Background medievale fisso — integrato con prospettiva warriors (PerspectiveMapper)
 
@@ -187,7 +187,7 @@
 - [x] Animazione warrior al launcher: bounce-in (zoom-in da scala 0) — commit 62df635
 - [x] Animazione next preview: zoom-out creatura corrente → pausa → zoom-in nuova — commit 62df635
 - [x] ~~Animazioni frame-by-frame per ogni sprite~~ — eliminato (idle/squash/pop gestiti via tween programmatici)
-- [ ] Animazioni esplosione bonus (3 varianti): Campione, Eroe, Leggenda
+- [x] Animazioni esplosione bonus (3 varianti): Campione, Eroe, Leggenda — anelli + scintille tier-scaled
 - [ ] Animazione esplosione malus
 - [ ] **3 asset particellari** riutilizzati con parametri variabili per tier:
   - Scintille (`startSize`, `totalParticles` scalati per tier 4–6)
@@ -313,9 +313,14 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-16 — v0.6.2: vibrazione al merge implementata, VibraBtn aggiunto al menu, FullscreenBtn si nasconde automaticamente dove l'API non è disponibile (iOS/Safari).
+> Aggiornato al 2026-05-19 — v0.6.16: LevelBoost powerup implementato (aura dorata su ogni warrior lanciato, contagio a catena per prossimità).
 
-1. **Completare sprite livelli speciali** (Campione / Eroe / Leggenda) e sprite pista
-2. **Animazioni rimanenti**: idle (respiro), squash on landing, pop on merge, esplosioni 3 tier
-3. **UI Fase 3**: HUD definitivo (contachilometri punteggio, round animato, timer 4 stati), schermata game over, pausa, tutorial definitivi
-4. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
+1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
+2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)
+3. ~~**Blackhole VFX**~~ ✅ fatto (v0.6.14) — spirale perspective-corretta, stardust, merge ghost nero, implosione fisica
+4. ~~**Swap Next↔Launcher**~~ ✅ fatto (v0.6.15) — tap sul NextPreview scambia le due creature; abilitato solo quando il lancio è attivo
+5. ~~**LevelBoost powerup**~~ ✅ fatto (v0.6.16) — ogni warrior lanciato ha un'aura con energia N; prossimità a un altro warrior → +1 livello + aura(N-1) in catena; si spegne quando il warrior si ferma; swap Next↔Launcher preserva l'aura sul warrior
+6. **UI Fase 3**: HUD definitivo (contachilometri punteggio, round animato, timer 4 stati), schermata game over, pausa, tutorial definitivi
+7. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
+8. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
+9. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
