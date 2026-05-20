@@ -86,6 +86,18 @@ export class InputController extends Component {
         if (this.launcherNode) this.launcherNode.angle = 0;
     }
 
+    freezeInput(): void {
+        this.launchEnabled = false;
+        this.dragging = false;
+        this.clearRope();
+        if (this.launcherNode) this.launcherNode.angle = 0;
+    }
+
+    unfreezeInput(): void {
+        this.launchEnabled = true;
+        if (this.warrior) this.showCrossbowDefault();
+    }
+
     autoLaunch(): void {
         if (!this.warrior) return;
         this.dragging = false;

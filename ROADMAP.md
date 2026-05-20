@@ -188,21 +188,18 @@
 - [x] Animazione next preview: zoom-out creatura corrente → pausa → zoom-in nuova — commit 62df635
 - [x] ~~Animazioni frame-by-frame per ogni sprite~~ — eliminato (idle/squash/pop gestiti via tween programmatici)
 - [x] Animazioni esplosione bonus (3 varianti): Campione, Eroe, Leggenda — anelli + scintille tier-scaled
-- [ ] Animazione esplosione malus
-- [ ] **3 asset particellari** riutilizzati con parametri variabili per tier:
-  - Scintille (`startSize`, `totalParticles` scalati per tier 4–6)
-  - Esplosione (scala e densità per tier 5–6 e bonus Campione/Eroe/Leggenda)
-  - Coriandoli con gravità (tier 5–6)
-  - Aura magnetismo (asset dedicato fisso)
+- ~~Animazione esplosione malus~~ — cassata: il tween di ritorno è già leggibile
+- ~~3 asset particellari~~ — rimandati a fase successiva se necessario
 - [x] VFX di scena via codice: **screen shake** implementato (VFXManager) — flash overlay, flash rosso malus, slowmo ancora da fare
 
 ### Settimana 7: UI completa *(18–24 giu)*
 
 - [ ] Schermata splash + menu principale
 - [ ] HUD definitivo:
-  - Punteggio con animazione **contachilometri** (tween su label)
-  - Round con animazione **scale-up + bounce** al cambio
-  - Timer con 4 stati visivi (quasi invisibile → pulse rosso) + ticchettio audio ultimi 5s
+  - [x] Punteggio con animazione **contachilometri** (tween su label) — `_scoreProxy`/`_scoreTween` in GameManager.ts (v0.7.2)
+  - [ ] Round con animazione **scale-up + bounce** al cambio
+  - [ ] Timer con 4 stati visivi (quasi invisibile → pulse rosso) + ticchettio audio ultimi 5s
+  - [ ] Font HUD: **Press Start 2P** (assets/fonts/) — assegnare nell'editor alle Label
 - [ ] **6 stili floating score** (testo, colore, dimensione per ogni tier v1)
 - [x] **Balestra** al posto della fionda: nodo rotante (punta UP a 0°) + bowstring a V + traiettoria puntini stile Puzzle Bubble (max 1 rimbalzo, stop alla game over line) — artwork da integrare
 - [ ] Anteprima NEXT definitiva
@@ -313,14 +310,15 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-19 — v0.6.16: LevelBoost powerup implementato (aura dorata su ogni warrior lanciato, contagio a catena per prossimità).
+> Aggiornato al 2026-05-20 — v0.7.1: smart bag spawn, AURA visibile sul launcher, no particelle su merge semplice.
 
 1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
 2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)
 3. ~~**Blackhole VFX**~~ ✅ fatto (v0.6.14) — spirale perspective-corretta, stardust, merge ghost nero, implosione fisica
 4. ~~**Swap Next↔Launcher**~~ ✅ fatto (v0.6.15) — tap sul NextPreview scambia le due creature; abilitato solo quando il lancio è attivo
-5. ~~**LevelBoost powerup**~~ ✅ fatto (v0.6.16) — ogni warrior lanciato ha un'aura con energia N; prossimità a un altro warrior → +1 livello + aura(N-1) in catena; si spegne quando il warrior si ferma; swap Next↔Launcher preserva l'aura sul warrior
-6. **UI Fase 3**: HUD definitivo (contachilometri punteggio, round animato, timer 4 stati), schermata game over, pausa, tutorial definitivi
-7. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
-8. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
-9. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
+5. ~~**LevelBoost powerup**~~ ✅ fatto (v0.7.0) — AURA attiva al primo lancio di ogni specie (dal Lupo in poi); ora visibile già sul launcher (v0.7.1)
+6. ~~**Smart bag spawn**~~ ✅ fatto (v0.7.1) — SpawnManager con bag Tetris-style + bias contestuale verso specie stranded + bias livello
+7. **UI Fase 3**: HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa, tutorial definitivi
+8. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
+9. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
+10. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)

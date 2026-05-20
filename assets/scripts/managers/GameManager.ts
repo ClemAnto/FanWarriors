@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, Button, Toggle, director, sys, view, ResolutionPolicy, Sprite, ProgressBar } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -13,7 +13,7 @@ import { VFXManager } from './VFXManager';
 import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.7.1';
+const VERSION            = '0.8.0';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -96,6 +96,12 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _autoPaused = false;
     private _pauseOverlay: Node | null = null;
     private _pauseLabelNode: Node | null = null;
+    private _dialogNode: Node | null = null;
+    private _vibrToggle:  Toggle | null = null;
+    private _sfxToggle:   Toggle | null = null;
+    private _musicToggle: Toggle | null = null;
+    private _fsToggle:    Toggle | null = null;
+    private _syncingToggles = false;
     private _musicLabel: Label | null = null;
     private _sfxLabel:   Label | null = null;
     private _vibraLabel: Label | null = null;
@@ -132,8 +138,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     // hud refs
     private scoreLabel: Label | null = null;
     private roundLabel: Label | null = null;
-    private roundProgressGfx: Graphics | null = null;
-    private roundProgressLabel: Label | null = null;
+    private roundProgressBar: ProgressBar | null = null;
     private nextPreviewNode: Node | null = null;
     private nextNextWarriorNode: Node | null = null;
     private _nextPreviewAuraNode: Node | null = null;
@@ -141,6 +146,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _activeLauncherWarrior: Warrior | null = null;
     private timerLabel: Label | null = null;
     private timerSectionNode: Node | null = null;
+    private _scoreProxy = { val: 0 };
+    private _scoreTween: Tween<{ val: number }> | null = null;
 
     start() {
         AudioManager.instance; // trigger singleton init + asset preload as early as possible
@@ -200,6 +207,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
+        if (this.track) this.track.showDebugLine = DEBUG_ENGINE;
         this.track?.relayout();
         this.nextPreviewNode = this.track?.node.getChildByName('NextPreview') ?? null;
 
@@ -378,6 +386,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.totalMerges      = 0;
         this.mergesThisLaunch = 0;
         this.score            = 0;
+        this._scoreTween?.stop();
+        this._scoreTween = null;
+        this._scoreProxy.val  = 0;
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(1));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(1));
         this.timerRemaining = launchTimerForRound(1);
@@ -494,12 +505,12 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private checkSettled(): void {
+        if (this.roundUpPause) return;
         const inPlay = this.warriors.filter(w => w.launched && w.node?.isValid);
         inPlay.forEach(w => { if (w.velocity.length() < SETTLE_VELOCITY) w.forceStop(); });
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
 
         AudioManager.instance.play(SFX.LAND, 0.5);
-        if (this.roundUpPause) return;
         this.activateWarrior(this.createWarrior());
     }
 
@@ -664,8 +675,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._activeLauncherWarrior = nw;
         this.nextLaunchWarrior = nw;
 
-        if (nextEnergy >= 0) {
-            const lb = LevelBoostPowerup.attach(nw, nextEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        let effectiveEnergy = nextEnergy;
+        if (!this._firstLaunchSpecies.has(nw.type)) {
+            this._firstLaunchSpecies.add(nw.type);
+            const firstEnergy = nw.type - 2;
+            if (firstEnergy > effectiveEnergy) effectiveEnergy = firstEnergy;
+        }
+        if (effectiveEnergy >= 0) {
+            const lb = LevelBoostPowerup.attach(nw, effectiveEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
             nw.levelBoost = lb;
             nw.onAuraContact = (s, t) => this._onAuraContact(s, t);
         }
@@ -982,7 +999,9 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._powerupSettleCds.delete(w);
                 continue;
             }
+            const firstSettle = !this._powerupSettleCds.has(w);
             const cd = (this._powerupSettleCds.get(w) ?? AURA_SETTLE_CD) - dt;
+            if (firstSettle) this.scheduleOnce(() => this._checkAuraImmediateContacts(w), 0);
             if (cd <= 0) {
                 w.levelBoost.detach();
                 w.levelBoost = null;
@@ -1138,24 +1157,44 @@ export class GameManager extends Component implements IGameManagerDebug {
             // Create ring nodes programmatically on existing HUD
             const roundSec = existingHud.getChildByName('RoundSec');
             if (roundSec) {
-                const ringNode = roundSec.getChildByName('RoundRing') ?? new Node('RoundRing');
-                if (!ringNode.parent) {
-                    ringNode.setParent(roundSec);
-                    ringNode.setPosition(0, -56);
-                    ringNode.addComponent(UITransform).setContentSize(80, 80);
+                this.roundProgressBar = roundSec.getChildByName('ProgressBar')
+                    ?.getComponent(ProgressBar) ?? null;
+            }
+            this._dialogNode = existingHud.getChildByName('Dialog') ?? null;
+            if (this._dialogNode) {
+                const op = this._dialogNode.getComponent(UIOpacity) ?? this._dialogNode.addComponent(UIOpacity);
+                op.opacity = 0;
+                this._dialogNode.active = false;
+                const closeBtn = this._dialogNode.getChildByName('wood')?.getChildByName('CloseButton');
+                closeBtn?.on(Button.EventType.CLICK, this.closeMenu, this);
+                const layout = this._dialogNode.getChildByName('Layout');
+                if (layout) {
+                    this._vibrToggle  = layout.getChildByName('Vibrations')?.getComponent(Toggle) ?? null;
+                    this._sfxToggle   = layout.getChildByName('Sfx')?.getComponent(Toggle)        ?? null;
+                    this._musicToggle = layout.getChildByName('Music')?.getComponent(Toggle)      ?? null;
+                    this._fsToggle    = layout.getChildByName('Fullscreen')?.getComponent(Toggle) ?? null;
+                    this._vibrToggle?.node.on('toggle', () => {
+                        if (!this._syncingToggles) this.toggleVibration();
+                    }, this);
+                    this._sfxToggle?.node.on('toggle', () => {
+                        if (!this._syncingToggles) this.toggleSFX();
+                    }, this);
+                    this._musicToggle?.node.on('toggle', () => {
+                        if (!this._syncingToggles) this.toggleMusic();
+                    }, this);
+                    this._fsToggle?.node.on('toggle', () => {
+                        if (!this._syncingToggles) this.toggleFullscreen();
+                    }, this);
+                    if (!sys.isBrowser || !(document.documentElement as any).requestFullscreen) {
+                        const fsNode = layout.getChildByName('Fullscreen');
+                        if (fsNode) fsNode.active = false;
+                    }
                 }
-                this.roundProgressGfx = ringNode.getComponent(Graphics) ?? ringNode.addComponent(Graphics);
-                const plNode = roundSec.getChildByName('RoundProgress') ?? new Node('RoundProgress');
-                if (!plNode.parent) {
-                    plNode.setParent(roundSec);
-                    plNode.setPosition(0, -105);
-                    const lbl = plNode.addComponent(Label);
-                    lbl.fontSize = 13;
-                    lbl.color = new Color(160, 220, 255, 200);
-                    this.roundProgressLabel = lbl;
-                } else {
-                    this.roundProgressLabel = plNode.getComponent(Label);
-                }
+            }
+            const menuButtonNode = this.node.parent!.getChildByName('MenuButton');
+            if (menuButtonNode) {
+                const btn = menuButtonNode.getComponent(Button) ?? menuButtonNode.addComponent(Button);
+                btn.node.on(Button.EventType.CLICK, this.openMenu, this);
             }
             return;
         }
@@ -1177,21 +1216,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.makeLabel(roundSec, 'ROUND', 0, -12, 28, new Color(180, 180, 180, 255));
         this.roundLabel = this.makeLabel(roundSec, String(this.currentRound), 0, -56, 46, new Color(100, 200, 255, 255));
         this.roundLabel.isBold = true;
-
-        // Ring progress around round number
-        const ringNode = new Node('RoundRing');
-        ringNode.setParent(roundSec);
-        ringNode.setPosition(0, -56);
-        ringNode.addComponent(UITransform).setContentSize(80, 80);
-        this.roundProgressGfx = ringNode.addComponent(Graphics);
-
-        // Merges done / needed label below round number
-        const progressLabelNode = new Node('RoundProgress');
-        progressLabelNode.setParent(roundSec);
-        progressLabelNode.setPosition(0, -105);
-        this.roundProgressLabel = progressLabelNode.addComponent(Label);
-        this.roundProgressLabel.fontSize = 13;
-        this.roundProgressLabel.color = new Color(160, 220, 255, 200);
 
         this.updateNextPreview();
 
@@ -1230,6 +1254,41 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     togglePause(): void { this._togglePause(this._pauseLabelNode); }
+
+    openMenu(): void {
+        if (this.state === GameState.GameOver || this.state === GameState.Paused || !this._dialogNode) return;
+        this._stateBeforePause = this.state;
+        this.state = GameState.Paused;
+        PhysicsSystem2D.instance.enable = false;
+        AudioManager.instance.muteForPause();
+        this.inputCtrl.blocked = true;
+        const op = this._dialogNode.getComponent(UIOpacity)!;
+        this._dialogNode.active = true;
+        this._syncingToggles = true;
+        if (this._vibrToggle)  this._vibrToggle.isChecked  = this._vibrationEnabled;
+        if (this._sfxToggle)   this._sfxToggle.isChecked   = !AudioManager.instance.sfxMuted;
+        if (this._musicToggle) this._musicToggle.isChecked = !AudioManager.instance.musicMuted;
+        if (this._fsToggle)    this._fsToggle.isChecked    = sys.isBrowser && !!document.fullscreenElement;
+        this._syncingToggles = false;
+        op.opacity = 0;
+        tween(op).to(0.2, { opacity: 255 }).start();
+    }
+
+    closeMenu(): void {
+        if (!this._dialogNode) return;
+        const op = this._dialogNode.getComponent(UIOpacity)!;
+        tween(op)
+            .to(0.2, { opacity: 0 })
+            .call(() => {
+                this._dialogNode!.active = false;
+                this.state = this._stateBeforePause ?? GameState.Aiming;
+                this._stateBeforePause = null;
+                PhysicsSystem2D.instance.enable = true;
+                AudioManager.instance.unmuteForPause();
+                this.inputCtrl.blocked = false;
+            })
+            .start();
+    }
 
     toggleSFX(): void {
         AudioManager.instance.toggleSfx();
@@ -1345,7 +1404,23 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private updateScoreLabel(): void {
-        if (this.scoreLabel) this.scoreLabel.string = String(this.score);
+        if (!this.scoreLabel) return;
+        const target = this.score;
+        this._scoreTween?.stop();
+        const delta = Math.abs(target - this._scoreProxy.val);
+        const duration = Math.min(0.55, Math.max(0.15, delta / 2000));
+        this._scoreTween = tween(this._scoreProxy)
+            .to(duration, { val: target }, {
+                easing: 'quadOut',
+                onUpdate: (obj?: { val: number }) => {
+                    if (this.scoreLabel && obj) this.scoreLabel.string = String(Math.round(obj.val));
+                },
+            })
+            .call(() => {
+                if (this.scoreLabel) this.scoreLabel.string = String(target);
+                this._scoreTween = null;
+            })
+            .start();
     }
 
     private activateSlowmo(scale: number, duration: number): void {
@@ -1373,52 +1448,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private updateRoundProgress(): void {
-        const R  = 35;
-        const LW = 10;
+        if (!this.roundProgressBar) return;
         const cur = this.currentRound;
-
-        // Progress label text
-        if (this.roundProgressLabel) {
-            if (cur >= MAX_ROUND) {
-                this.roundProgressLabel.string = 'MAX';
-            } else {
-                const prev  = ROUND_THRESHOLDS[cur - 1] as number;
-                const next  = ROUND_THRESHOLDS[cur]     as number;
-                const done  = Math.min(this.totalMerges - prev, next - prev);
-                const total = next - prev;
-                this.roundProgressLabel.string = `${done}/${total}`;
-            }
-        }
-
-        // Arc
-        if (!this.roundProgressGfx) return;
-        const g = this.roundProgressGfx;
-        g.clear();
-
-        // Background track
-        g.lineWidth   = LW;
-        g.strokeColor = new Color(60, 60, 70, 220);
-        g.arc(0, 0, R, 0, Math.PI * 2, false);
-        g.stroke();
-
-        // Filled arc
         let factor = 0;
         if (cur >= MAX_ROUND) {
             factor = 1;
         } else {
-            const prev  = ROUND_THRESHOLDS[cur - 1] as number;
-            const next  = ROUND_THRESHOLDS[cur]     as number;
+            const prev = ROUND_THRESHOLDS[cur - 1] as number;
+            const next = ROUND_THRESHOLDS[cur]     as number;
             factor = Math.max(0, Math.min(1, (this.totalMerges - prev) / (next - prev)));
         }
-
-        if (factor > 0) {
-            const startAngle = -Math.PI / 2;
-            const endAngle   = startAngle + factor * Math.PI * 2;
-            g.lineWidth   = LW;
-            g.strokeColor = new Color(120, 220, 255, 255);
-            g.arc(0, 0, R, startAngle, endAngle, false);
-            g.stroke();
-        }
+        this.roundProgressBar.progress = factor;
     }
 
     // --- round progression ---
@@ -1436,11 +1476,25 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.updateRoundLabel();
         this.roundUpPause = true;
+        this.inputCtrl.freezeInput();
         AudioManager.instance.play(SFX.ROUND_UP);
         AudioManager.instance.duckMusicTo(0.15);
-        this.activateSlowmo(0.20, 2.0);
-        this.showRoundUpBanner();
-        this.scheduleOnce(() => { this.roundUpPause = false; }, 1.5);
+        this._slowmoTimer = 0;
+        this._slowmoScale = 1.0;
+        director.getScheduler().setTimeScale(1.0);
+        // Defer physics freeze: the triggering merge's playMergeOutEffect (MERGE_OUT_DUR=0.12s)
+        // changes rb.type=Static and queues body destruction — all must complete with physics
+        // enabled, otherwise Box2D's m_moveBuffer holds stale proxies that crash UpdatePairs.
+        this.scheduleOnce(() => {
+            PhysicsSystem2D.instance.enable = false;
+            this.showRoundUpBanner();
+            this.scheduleOnce(() => {
+                PhysicsSystem2D.instance.enable = true;
+                this.inputCtrl.unfreezeInput();
+                this.roundUpPause = false;
+                AudioManager.instance.unduckMusic();
+            }, 2.16);
+        }, 0.17);
     }
 
 
@@ -1570,7 +1624,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private showRoundUpBanner(): void {
-        this.vfx.showRoundUpBanner(this.currentRound);
+        const newSpeciesIdx = WARRIORS.findIndex(w => w.introRound === this.currentRound);
+        const silhouetteFrame = newSpeciesIdx >= 0
+            ? WarriorSpriteCache.get(WARRIORS[newSpeciesIdx].type, 1)
+            : null;
+        this.vfx.showRoundUpBanner(this.currentRound, silhouetteFrame);
     }
 
     private updateNextPreview(animate = false): void {

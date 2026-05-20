@@ -168,6 +168,18 @@ A 60fps = ~50ms: impercettibile per il player, filtra tutti i glitch fisici.
 
 ---
 
+## SpawnManager — da plain class a Component (v0.7.1)
+
+**Decisione**: `SpawnManager` è stato convertito da plain class a `@ccclass Component` e aggiunto dinamicamente al nodo di `GameManager` tramite `addComponent`.
+
+**Perché**: esporre `bagMultiplier`, `contextBiasChance`, `levelBiasChance`, `strandedRadiusMultiplier` come `@property` inspector-tunable richiede un Component. L'aggiunta dinamica evita modifiche alla scena.
+
+**Come usarlo**: `this.spawnMgr = this.node.addComponent(SpawnManager)` poi `this.spawnMgr.init(...)`. I `@property` sono visibili nell'inspector durante il play mode (non persistono tra run a meno di non aggiungerlo alla scena nell'editor). Le API pubbliche rimangono identiche alla versione precedente (`spawnNext`, `prefill`, `setSpawnTypes`, `setMaxLevel`, `setNext`, `.next`).
+
+**`setSpawnTypes(n)`**: gestisce sia avanzamento round (aggiunge nuove specie al bag corrente) sia reset debug (n < specie attuali → reinizializza bag da zero).
+
+---
+
 ## DebugPanel — coordinate canvas vs fisica (v0.6.2)
 
 **Spazi di coordinate rilevanti per DebugPanel:**
@@ -181,4 +193,18 @@ A 60fps = ~50ms: impercettibile per il player, filtra tutti i glitch fisici.
 
 **Check drop palette**: usare `toVisualY(GAME_OVER_LINE_Y / sy)` come soglia Y — è la posizione visiva della linea di game over (dove i warrior appaiono a schermo), non la costante di fisica.
 
-**InputController.blocked**: flag settato da DebugPanel via `GameManager.setLauncherBlocked()` durante palette drag. Controllato in handleDragStart/Move/End — impedisce lancio anche se il TOUCH_START era già stato ricevuto da InputController prima che DebugPanel impostasse il blocco.
+**InputController.blocked**: flag settato da DebugPanel via `GameManager.setLauncherBlocked()` durante palette drag, e da `GameManager.openMenu()`/`closeMenu()` durante il menu di pausa. Controllato in handleDragStart/Move/End — impedisce lancio anche se il TOUCH_START era già stato ricevuto da InputController prima che il blocco venisse impostato.
+
+---
+
+## Menu dialog — pausa + input blocking (v0.7.2)
+
+**Decisione**: aprire il menu (nodo `Dialog` nella HUD) mette il gioco in pausa completa: physics disabilitata, audio silenziato, **e input bloccato**.
+
+**Come funziona**:
+- `openMenu()`: imposta `GameState.Paused`, `PhysicsSystem2D.instance.enable = false`, `AudioManager.muteForPause()`, **`inputCtrl.blocked = true`**
+- `closeMenu()`: dopo il fade-out (tween 0.2s), ripristina `state`, `enable = true`, `unmuteForPause()`, **`inputCtrl.blocked = false`**
+
+**Perché il blocco esplicito**: `InputController` registra listener globali (`input.on()`) e non legge `GameState` — senza `blocked = true`, il drag e la rotazione balestra continuano a rispondere durante la pausa. `PhysicsSystem2D.enable = false` ferma la simulazione ma non impedisce all'input di accumulare stato (drag start, direzione balestra).
+
+**Toggle sync**: al momento dell'apertura, `_syncingToggles = true` viene impostato prima di aggiornare `isChecked` dei Toggle (Vibrations, Sfx, Music, Fullscreen) per evitare che le callback dei toggle chiamino nuovamente le funzioni toggle. Il flag viene resettato subito dopo la sync.

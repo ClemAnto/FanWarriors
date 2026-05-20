@@ -217,27 +217,134 @@ export class VFXManager {
             .call(() => { if (node.isValid) node.destroy(); }).start();
     }
 
-    showRoundUpBanner(round: number): void {
-        const node = new Node('RoundUpBanner');
-        node.setParent(this.uiLayer);
-        node.setPosition(0, 0);
-        node.setScale(0.4, 0.4, 1);
+    showRoundUpBanner(newRound: number, silhouetteFrame: SpriteFrame | null): void {
+        const prevRound = newRound - 1;
 
-        const lbl = node.addComponent(Label);
-        lbl.string   = `ROUND ${round}`;
-        lbl.fontSize = 45;
-        lbl.isBold   = true;
-        lbl.color    = new Color(255, 220, 50, 255);
+        // Timing constants (game-seconds; at 0.2x slowmo these are ×5 in real time)
+        const T_OV_IN    = 0.24;
+        const T_WORD     = 0.18;
+        const T_CUR      = 0.30;
+        const T_EXIT     = 0.84;  // old number starts flying up
+        const T_ENTER    = 0.96;  // new number starts rising from below
+        const T_SPECIES  = 1.50;
+        const T_FADEOUT  = 1.74;
+        const T_DESTROY  = 2.10;
+        const T_FO_DUR   = T_DESTROY - T_FADEOUT;  // 0.36
 
-        const opacity = node.addComponent(UIOpacity);
-        opacity.opacity = 255;
+        const root = new Node('RoundUpBanner');
+        root.setParent(this.uiLayer);
+        root.setPosition(0, 0);
 
-        tween(node)
-            .to(0.25, { scale: new Vec3(1.1, 1.1, 1) })
-            .to(0.08, { scale: new Vec3(1.0, 1.0, 1) })
+        // ── overlay (Graphics: UIOpacity not compatible, animate via onUpdate) ──
+        const ovNode = new Node('Overlay');
+        ovNode.setParent(root);
+        ovNode.addComponent(UITransform).setContentSize(4000, 6000);
+        const ovG = ovNode.addComponent(Graphics);
+        const drawOv = (a: number) => {
+            ovG.clear();
+            ovG.fillColor = new Color(0, 0, 0, Math.round(a));
+            ovG.rect(-2000, -3000, 4000, 6000);
+            ovG.fill();
+        };
+        drawOv(0);
+        const ovS = { alpha: 0 };
+        tween(ovS)
+            .to(T_OV_IN, { alpha: 51 }, { onUpdate: s => drawOv(s!.alpha) })
+            .delay(T_FADEOUT - T_OV_IN)
+            .to(T_FO_DUR, { alpha: 0 }, { onUpdate: s => drawOv(s!.alpha) })
+            .call(() => { if (root.isValid) root.destroy(); })
             .start();
-        tween(opacity).delay(1.05).to(0.4, { opacity: 0 })
-            .call(() => { if (node.isValid) node.destroy(); }).start();
+
+        // ── "ROUND" word ─────────────────────────────────────────────────────
+        const wordNode = new Node('RoundWord');
+        wordNode.setParent(root);
+        wordNode.setPosition(0, 50);
+        const wordLbl = wordNode.addComponent(Label);
+        wordLbl.string   = 'ROUND';
+        wordLbl.fontSize = 44;
+        wordLbl.isBold   = true;
+        wordLbl.color    = new Color(255, 255, 255, 255);
+        const wordOp = wordNode.addComponent(UIOpacity);
+        wordOp.opacity = 0;
+        tween(wordOp)
+            .delay(T_WORD).to(0.18, { opacity: 255 })
+            .delay(T_FADEOUT - T_WORD - 0.18)
+            .to(T_FO_DUR, { opacity: 0 })
+            .start();
+
+        // ── old round number (exits upward + fade) ────────────────────────────
+        const curNode = new Node('CurNum');
+        curNode.setParent(root);
+        curNode.setPosition(0, -22);
+        const curLbl = curNode.addComponent(Label);
+        curLbl.string   = String(prevRound);
+        curLbl.fontSize = 88;
+        curLbl.isBold   = true;
+        curLbl.color    = new Color(255, 220, 50, 255);
+        const curOp = curNode.addComponent(UIOpacity);
+        curOp.opacity = 0;
+        tween(curOp)
+            .delay(T_CUR).to(0.18, { opacity: 255 })
+            .delay(T_EXIT - T_CUR - 0.18)
+            .to(0.48, { opacity: 0 })
+            .start();
+        tween(curNode)
+            .delay(T_EXIT)
+            .to(0.48, { position: new Vec3(0, 40, 0) }, { easing: 'quadIn' })
+            .start();
+
+        // ── new round number (rises from below + fade in) ─────────────────────
+        const newNode = new Node('NewNum');
+        newNode.setParent(root);
+        newNode.setPosition(0, -65);
+        const newLbl = newNode.addComponent(Label);
+        newLbl.string   = String(newRound);
+        newLbl.fontSize = 88;
+        newLbl.isBold   = true;
+        newLbl.color    = new Color(255, 220, 50, 255);
+        const newOp = newNode.addComponent(UIOpacity);
+        newOp.opacity = 0;
+        tween(newOp)
+            .delay(T_ENTER).to(0.48, { opacity: 255 })
+            .delay(T_FADEOUT - T_ENTER - 0.48)
+            .to(T_FO_DUR, { opacity: 0 })
+            .start();
+        tween(newNode)
+            .delay(T_ENTER)
+            .to(0.48, { position: new Vec3(0, -22, 0) }, { easing: 'quadOut' })
+            .start();
+
+        // ── new species reveal (optional) ─────────────────────────────────────
+        if (silhouetteFrame) {
+            const rowNode = new Node('NewSpeciesRow');
+            rowNode.setParent(root);
+            rowNode.setPosition(0, -148);
+            const rowOp = rowNode.addComponent(UIOpacity);
+            rowOp.opacity = 0;
+            tween(rowOp)
+                .delay(T_SPECIES).to(0.24, { opacity: 210 })
+                .delay(T_FADEOUT - T_SPECIES - 0.24)
+                .to(T_FO_DUR, { opacity: 0 })
+                .start();
+
+            const silNode = new Node('Silhouette');
+            silNode.setParent(rowNode);
+            silNode.setPosition(0, 30);
+            silNode.addComponent(UITransform).setContentSize(76, 76);
+            const silSp = silNode.addComponent(Sprite);
+            silSp.sizeMode    = Sprite.SizeMode.CUSTOM;
+            silSp.spriteFrame = silhouetteFrame;
+            silSp.color       = new Color(0, 0, 0, 255);
+
+            const textNode = new Node('SpeciesText');
+            textNode.setParent(rowNode);
+            textNode.setPosition(0, -30);
+            const textLbl = textNode.addComponent(Label);
+            textLbl.string   = 'a new warrior is coming...';
+            textLbl.fontSize = 18;
+            textLbl.isBold   = false;
+            textLbl.color    = new Color(230, 230, 230, 255);
+        }
     }
 
     // ── explosion VFX ─────────────────────────────────────────────────────

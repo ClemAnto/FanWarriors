@@ -53,13 +53,15 @@ export class LevelBoostPowerup extends Component {
 
 
     private _startVFX(glowFrame: SpriteFrame | null): void {
+        const scale = this._energy * 1.2;
+        if (scale <= 0) return;
         const r = this._radius;
 
         // Outer glow ring
         const outerNode = new Node('AuraOuter');
         outerNode.setParent(this.node);
         const outerUIT = outerNode.addComponent(UITransform);
-        outerUIT.setContentSize(r * 3.4, r * 3.4);
+        outerUIT.setContentSize(r * 3.4 * scale, r * 3.4 * scale);
         const outerOp = outerNode.addComponent(UIOpacity);
         outerOp.opacity = 0;
         if (glowFrame) {
@@ -80,7 +82,7 @@ export class LevelBoostPowerup extends Component {
         const innerNode = new Node('AuraInner');
         innerNode.setParent(this.node);
         const innerUIT = innerNode.addComponent(UITransform);
-        innerUIT.setContentSize(r * 2.2, r * 2.2);
+        innerUIT.setContentSize(r * 2.2 * scale, r * 2.2 * scale);
         const innerOp = innerNode.addComponent(UIOpacity);
         innerOp.opacity = 0;
         if (glowFrame) {
@@ -145,8 +147,9 @@ export class LevelBoostPowerup extends Component {
         if (!parent?.isValid) { this.unschedule(this._spawnSparkle); return; }
 
         const r     = this._radius;
+        const scale = this._energy * 1.2;
         const angle = Math.random() * Math.PI * 2;
-        const dist  = r * (0.55 + Math.random() * 0.75);
+        const dist  = r * (0.55 + Math.random() * 0.75) * scale;
 
         const spark = new Node('PwrSpark');
         spark.setParent(parent);

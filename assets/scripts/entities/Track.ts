@@ -42,6 +42,7 @@ export class Track extends Component {
     private readonly funnelPercentage   = 75;
     private readonly wallThickness      = 12;
     private readonly topWallThickness   = 40;
+    showDebugLine = false;
     private _walls: Node[] = [];
     private _lineOpacity: UIOpacity | null = null;
     private _linePulseActive = false;
@@ -77,7 +78,7 @@ export class Track extends Component {
     setLinePulse(active: boolean): void {
         if (this._linePulseActive === active) return;
         this._linePulseActive = active;
-        if (active) this._startLinePulse(); else this._stopLinePulse();
+        if (active && this.showDebugLine) this._startLinePulse(); else this._stopLinePulse();
     }
 
     private _startLinePulse(): void {
@@ -168,6 +169,7 @@ export class Track extends Component {
 
         const lineNode = new Node('GameOverLine');
         lineNode.setParent(this.node);
+        lineNode.active = this.showDebugLine;
         const g = lineNode.addComponent(Graphics);
         g.lineWidth   = 6;
         g.strokeColor = new Color(255, 0, 0, 153);
@@ -180,7 +182,7 @@ export class Track extends Component {
         }
         g.stroke();
         this._lineOpacity = lineNode.addComponent(UIOpacity);
-        if (this._linePulseActive) this._startLinePulse();
+        if (this._linePulseActive && this.showDebugLine) this._startLinePulse();
         this._walls.push(lineNode);
     }
 

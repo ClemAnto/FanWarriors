@@ -259,7 +259,9 @@ Disegnata in `Track.buildWalls()` sul nodo **Track** — garantisce che sia semp
 - Spessore **6px**, rosso `(255, 0, 0, 153)` — opacità 60%
 - Nodo aggiunto a `_walls[]` → distrutto e ricreato ad ogni rebuild muri
 
-**Pulse di pericolo**: quando almeno un warrior (da turni precedenti) ha il bordo inferiore ≤ `GAME_OVER_LINE_Y`, `GameManager.checkLineLogic()` chiama `track.setLinePulse(true)`. `Track` avvia un tween `UIOpacity` 255→30→255 in loop (0.7s/ciclo). Appena nessun warrior tocca la linea, `setLinePulse(false)` ferma il tween e ripristina opacità 255.
+**Visibilità condizionale**: il nodo è creato sempre (serve comunque per leggere `GAME_OVER_LINE_Y` dall'editor), ma `lineNode.active = this.showDebugLine`. `Track.showDebugLine` viene impostato a `DEBUG_ENGINE` da `GameManager.start()` prima di chiamare `relayout()`. Con `DEBUG_ENGINE = false` (produzione) la linea esiste ma è invisibile e inattiva.
+
+**Pulse di pericolo**: quando almeno un warrior (da turni precedenti) ha il bordo inferiore ≤ `GAME_OVER_LINE_Y`, `GameManager.checkLineLogic()` chiama `track.setLinePulse(true)`. `Track` avvia un tween `UIOpacity` 255→30→255 in loop (0.7s/ciclo) solo se `showDebugLine` è attivo. Appena nessun warrior tocca la linea, `setLinePulse(false)` ferma il tween e ripristina opacità 255.
 
 `setLinePulse` è idempotente: controlla `_linePulseActive` prima di avviare/fermare per evitare restart ogni frame.
 
@@ -331,7 +333,7 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 | Pre-upgrade anim | 0.27s | GameManager.ts | gold flash sprite + scale bump 1.38→0.90→1.0 |
 
 ### Flusso per turno
-1. `activateWarrior` → `LevelBoostPowerup.attach(w, energy=2)` + `w.onAuraContact = _onAuraContact` + `_boostedThisTurn.clear()`
+1. `activateWarrior` → `LevelBoostPowerup.attach(w, energy=2)` + `w.onAuraContact = _onAuraContact` + `_boostedThisTurn.clear()` — **AURA visibile sul launcher** (v0.7.1)
 2. Warrior lanciato attraversa la linea → `w.levelBoost.resetActivation()` (timer expiry parte da qui, non dal lancio)
 3. Contatto fisico Box2D: `Warrior.onBeginContact` → se `this.levelBoost && crossedLine` → `scheduleOnce(0)` → `onAuraContact(source, target)`
 4. `_onAuraContact` — guard energy>0 + crossedLine + non in `_boostedThisTurn` → `applyLevelBoost`
@@ -354,14 +356,33 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 ---
 
-## Cosa NON è ancora implementato (stato v0.6.14)
+## SpawnManager — Smart Bag (v0.7.1)
+
+`SpawnManager` è ora un `@ccclass Component` (aggiunto dinamicamente via `this.node.addComponent(SpawnManager)` in GameManager). I parametri sono esposti nell'inspector:
+
+| Parametro | Default | Significato |
+|-----------|---------|-------------|
+| `bagMultiplier` | 2 | Copie di ogni specie per ciclo bag |
+| `contextBiasChance` | 0.35 | Probabilità di favorire una specie stranded |
+| `levelBiasChance` | 0.30 | Probabilità di favorire il livello di un warrior stranded |
+| `strandedRadiusMultiplier` | 3.0 | Un warrior è stranded se non ha peer compatibili entro `× 2r` |
+
+**Bag**: array shuffled con `bagMultiplier` copie per specie; si pesca dalla testa; si rigenera vuoto. Quando una nuova specie si sblocca (`setSpawnTypes`), vengono inserite `bagMultiplier` copie a posizioni random nel bag corrente — nessuna ricostruzione da zero.
+
+**Bias contestuale**: prima di pescare dalla testa, con probabilità `contextBiasChance` cerca specie con warrior stranded in pista, fa weighted pick proporzionale al numero di stranded, cerca quella specie nel bag e la rimuove (non dalla testa); fallback alla testa se non trovata.
+
+**Inizializzazione**: `spawnMgr.init(parent, visualParent, spawnTypes, layerScaleY)` — chiamare dopo `addComponent`. `getWarriors = () => this.warriors` deve essere assegnato subito dopo.
+
+---
+
+## Cosa NON è ancora implementato (stato v0.7.2)
 
 - **Livelli massimi per specie** — nel codice tutti i tipi vanno fino a lv7, ma il GDD prevede cap diversi per specie (lv5/6/7 solo per alcune). Da implementare in Fase 3 quando arrivano gli asset definitivi.
-- **Contachilometri punteggio** — il punteggio salta al valore finale invece di scorrere come un odometro
 - **Timer: 4 stati visivi** — attualmente solo rosso sotto 5s; mancano gli stati "quasi invisibile" e "arancione pulse"
 - **Floating score tier system** — attualmente un solo stile; il GDD prevede 6 tier con dimensione/colore/FX
 - **Debug panel** — parzialmente migrato in scena (WinButton + FrogIcon draggable); la palette completa è ancora nel `DebugPanel.ts` programmatico
 - **Audio mancanti** — `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` referenziati ma file non presenti
+- **Font HUD** — nessun font custom ancora assegnato; raccomandato Press Start 2P (TTF in assets/fonts/, assegnare nell'editor alle Label)
 
 ## Audio (v0.6.x)
 
