@@ -1,75 +1,222 @@
-import { Node } from 'cc';
+import { _decorator, Component, Node } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WALL_LT, WALL_RB } from '../entities/Track';
 
-export class SpawnManager {
-    private parent: Node;
-    private visualParent: Node;
-    private spawnTypes: number;
-    private layerScaleY: number;
-    private maxLevel = 1;
-    private nextType = 0;
-    private nextLevel = 1;
-    // WALL_* are in canvas space; divide by layerScaleY to get local coords for box2dLayer children
-    private canvasToLocal(y: number): number { return y / this.layerScaleY; }
-    private get spawnY(): number { return Math.round(this.canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.25)); }
+const { ccclass, property } = _decorator;
 
-    onMergeReady: ((a: Warrior, b: Warrior) => void) | null = null;
+@ccclass('SpawnManager')
+export class SpawnManager extends Component {
+
+    @property({ min: 1, max: 5, step: 1, tooltip: 'Copies of each species per bag cycle' })
+    bagMultiplier = 2;
+
+    @property({ min: 0, max: 1, tooltip: 'Probability of biasing toward stranded species' })
+    contextBiasChance = 0.35;
+
+    @property({ min: 0, max: 1, tooltip: 'Probability of biasing level toward a stranded warrior' })
+    levelBiasChance = 0.3;
+
+    @property({ min: 1, max: 10, tooltip: 'A warrior is stranded if no compatible peer is within this × diameter' })
+    strandedRadiusMultiplier = 3.0;
+
+    private _parent: Node | null = null;
+    private _visualParent: Node | null = null;
+    private _layerScaleY = 1;
+    private _maxLevel = 1;
+    private _nextType = 0;
+    private _nextLevel = 1;
+    private _activeSpecies: number[] = [];
+    private _currentBag: number[] = [];
+
+    onMergeReady:    ((a: Warrior, b: Warrior) => void) | null = null;
     onNextGenerated: (() => void) | null = null;
+    getWarriors:     (() => Warrior[]) | null = null;
 
-    constructor(parent: Node, visualParent: Node, spawnTypes: number, layerScaleY = 1) {
-        this.parent = parent;
-        this.visualParent = visualParent;
-        this.spawnTypes = spawnTypes;
-        this.layerScaleY = layerScaleY;
-        this.generateNext();
+    private _canvasToLocal(y: number): number { return y / this._layerScaleY; }
+    private get _spawnY(): number {
+        return Math.round(this._canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.25));
+    }
+
+    init(parent: Node, visualParent: Node, spawnTypes: number, layerScaleY = 1): void {
+        this._parent        = parent;
+        this._visualParent  = visualParent;
+        this._layerScaleY   = layerScaleY;
+        this.initializeBag(Array.from({ length: spawnTypes }, (_, i) => i));
+        this._generateNext();
     }
 
     get next(): { type: number; level: number } {
-        return { type: this.nextType, level: this.nextLevel };
+        return { type: this._nextType, level: this._nextLevel };
     }
 
     spawnNext(): Warrior {
-        const w = Warrior.spawn(this.parent, this.visualParent, this.nextType, this.nextLevel, 0, this.spawnY);
+        const w = Warrior.spawn(this._parent!, this._visualParent!, this._nextType, this._nextLevel, 0, this._spawnY);
         w.onMergeReady = this.onMergeReady;
-        this.generateNext();
+        this._generateNext();
         return w;
     }
 
     prefill(): Warrior[] {
-        const py = Math.round(this.canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.92));
+        const py = Math.round(this._canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.92));
         const px = Math.round((WALL_RB.x - WALL_LT.x) * 0.3);
+        const n  = this._activeSpecies.length;
         const positions = [
             { x: -px, y: py },
             { x:   0, y: py },
             { x:  px, y: py },
         ];
         return positions.map(({ x, y }, i) => {
-            const w = Warrior.spawn(this.parent, this.visualParent, i % this.spawnTypes, 1, x, y);
+            const w = Warrior.spawn(this._parent!, this._visualParent!, i % n, 1, x, y);
             w.crossedLine = true;
-            w.fired = true;
+            w.fired       = true;
             w.onMergeReady = this.onMergeReady;
             w.settle();
             return w;
         });
     }
 
-    setSpawnTypes(n: number): void {
-        this.spawnTypes = n;
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    initializeBag(activeSpecies: number[]): void {
+        this._activeSpecies = [...activeSpecies];
+        this._currentBag    = this._makeBag();
+        this._shuffle(this._currentBag);
     }
 
-    setMaxLevel(n: number): void {
-        this.maxLevel = n;
+    onNewSpeciesUnlocked(species: number): void {
+        if (this._activeSpecies.indexOf(species) >= 0) return;
+        this._activeSpecies.push(species);
+        // Splice bagMultiplier copies at random positions in the remaining bag
+        for (let i = 0; i < this.bagMultiplier; i++) {
+            const pos = Math.floor(Math.random() * (this._currentBag.length + 1));
+            this._currentBag.splice(pos, 0, species);
+        }
     }
+
+    setSpawnTypes(n: number): void {
+        if (n === this._activeSpecies.length) return;
+        if (n < this._activeSpecies.length) {
+            // Debug reset to earlier round — rebuild bag from scratch
+            this.initializeBag(Array.from({ length: n }, (_, i) => i));
+            return;
+        }
+        for (let s = this._activeSpecies.length; s < n; s++) {
+            this.onNewSpeciesUnlocked(s);
+        }
+    }
+
+    setMaxLevel(n: number): void { this._maxLevel = n; }
 
     setNext(type: number, level: number): void {
-        this.nextType  = type;
-        this.nextLevel = level;
+        this._nextType  = type;
+        this._nextLevel = level;
     }
 
-    private generateNext(): void {
-        this.nextType  = Math.floor(Math.random() * this.spawnTypes);
-        this.nextLevel = Math.floor(Math.random() * this.maxLevel) + 1;
+    // ── Internal ──────────────────────────────────────────────────────────────
+
+    private _makeBag(): number[] {
+        const bag: number[] = [];
+        for (const s of this._activeSpecies) {
+            for (let i = 0; i < this.bagMultiplier; i++) bag.push(s);
+        }
+        return bag;
+    }
+
+    private _shuffle(arr: number[]): void {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+    }
+
+    private _generateNext(): void {
+        this._nextType  = this._pickSpecies();
+        this._nextLevel = this._pickLevel(this._nextType);
         this.onNextGenerated?.();
+    }
+
+    private _pickSpecies(): number {
+        // Context bias: try to serve a stranded species from within the bag
+        if (this.contextBiasChance > 0 && Math.random() < this.contextBiasChance) {
+            const stranded = this._strandedBySpecies();
+            if (stranded.size > 0) {
+                const species = this._weightedPick(stranded);
+                const idx = this._currentBag.indexOf(species);
+                if (idx >= 0) {
+                    this._currentBag.splice(idx, 1);
+                    this._refillIfEmpty();
+                    return species;
+                }
+            }
+        }
+        // Normal bag draw from head
+        this._refillIfEmpty();
+        return this._currentBag.shift()!;
+    }
+
+    private _pickLevel(species: number): number {
+        const available = this._availableLevels();
+        if (this.levelBiasChance > 0 && Math.random() < this.levelBiasChance && this.getWarriors) {
+            const all      = this.getWarriors();
+            const stranded = all.filter(w =>
+                w.launched && !w.merging && w.node?.isValid &&
+                w.type === species && this._isStranded(w, all)
+            );
+            if (stranded.length > 0) {
+                const picked = stranded[Math.floor(Math.random() * stranded.length)];
+                if (available.indexOf(picked.level) >= 0) return picked.level;
+            }
+        }
+        return available[Math.floor(Math.random() * available.length)];
+    }
+
+    private _refillIfEmpty(): void {
+        if (this._currentBag.length === 0) {
+            this._currentBag = this._makeBag();
+            this._shuffle(this._currentBag);
+        }
+    }
+
+    private _availableLevels(): number[] {
+        const levels: number[] = [];
+        for (let l = 1; l <= this._maxLevel; l++) levels.push(l);
+        return levels;
+    }
+
+    private _strandedBySpecies(): Map<number, number> {
+        const result = new Map<number, number>();
+        if (!this.getWarriors) return result;
+        const active = this.getWarriors().filter(w => w.launched && !w.merging && w.node?.isValid);
+        for (const w of active) {
+            if (!this._isStranded(w, active)) continue;
+            // Only bias toward species still present in the bag
+            if (this._currentBag.indexOf(w.type) < 0) continue;
+            result.set(w.type, (result.get(w.type) ?? 0) + 1);
+        }
+        return result;
+    }
+
+    private _isStranded(w: Warrior, all: Warrior[]): boolean {
+        const maxDist = w.radius * 2 * this.strandedRadiusMultiplier;
+        return !all.some(other =>
+            other !== w &&
+            other.type  === w.type &&
+            other.level === w.level &&
+            Math.hypot(
+                w.node.position.x - other.node.position.x,
+                w.node.position.y - other.node.position.y
+            ) <= maxDist
+        );
+    }
+
+    private _weightedPick(map: Map<number, number>): number {
+        const entries = [...map.entries()];
+        const total   = entries.reduce((s, [, n]) => s + n, 0);
+        let r = Math.random() * total;
+        for (const [species, count] of entries) {
+            r -= count;
+            if (r <= 0) return species;
+        }
+        return entries[entries.length - 1][0];
     }
 }

@@ -13,7 +13,7 @@ import { VFXManager } from './VFXManager';
 import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.7.0';
+const VERSION            = '0.7.1';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -213,9 +213,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.initialScale = LAYOUT_SCALE;
         this.syncInputBounds();
 
-        this.spawnMgr = new SpawnManager(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1), this.box2dLayer.scale.y);
+        this.spawnMgr = this.node.addComponent(SpawnManager);
+        this.spawnMgr.init(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1), this.box2dLayer.scale.y);
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
+        this.spawnMgr.getWarriors     = ()      => this.warriors;
 
         const loadingSpinner = this._showLoadingSpinner();
 
@@ -465,6 +467,16 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this._nextSlotBoostEnergy = -1;
 
+        if (!this._firstLaunchSpecies.has(w.type)) {
+            this._firstLaunchSpecies.add(w.type);
+            const energy = w.type - 2;
+            if (energy > 0) {
+                const lb = LevelBoostPowerup.attach(w, energy, this.vfx.sparkleFrame, this.vfx.auraFrame);
+                w.levelBoost = lb;
+                w.onAuraContact = (s, t) => this._onAuraContact(s, t);
+            }
+        }
+
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
@@ -476,16 +488,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
         this._lastTickSec = -1;
-
-        if (!this._firstLaunchSpecies.has(w.type)) {
-            this._firstLaunchSpecies.add(w.type);
-            const energy = w.type - 2;
-            if (energy > 0) {
-                const lb = LevelBoostPowerup.attach(w, energy, this.vfx.sparkleFrame, this.vfx.auraFrame);
-                w.levelBoost = lb;
-                w.onAuraContact = (s, t) => this._onAuraContact(s, t);
-            }
-        }
 
         AudioManager.instance.play(SFX.LAUNCH, Math.max(0.3, forcePct));
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
@@ -939,7 +941,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
             AudioManager.instance.play(mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)]);
             this.vfx.flashMerge(merged.mapper);
-            this.vfx.spawnMergeSparks(midX, midYC, newLevel);
             this._vibrate(40);
 
             if (inflightMerged) this.activateAfterInflightMerge();
