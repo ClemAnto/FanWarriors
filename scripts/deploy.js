@@ -2,10 +2,11 @@
 // Deploys build/web-mobile to GitHub Pages (gh-pages branch).
 // Uses a temp git repo to bypass .gitignore (which excludes native/ and build/).
 
-const { execSync } = require('child_process');
-const fs   = require('fs');
-const path = require('path');
-const os   = require('os');
+const { execSync }  = require('child_process');
+const fs            = require('fs');
+const path          = require('path');
+const os            = require('os');
+const { patchHtml } = require('./patch-html');
 
 const ROOT      = path.resolve(__dirname, '..');
 const BUILD_DIR = path.join(ROOT, 'build', 'web-mobile');
@@ -16,14 +17,14 @@ if (!fs.existsSync(INDEX)) {
     process.exit(1);
 }
 
-// Inject version
+// Inject version + cache-bust script URLs
 const pkg     = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const version = pkg.version ?? '?';
 const html    = fs.readFileSync(INDEX, 'utf8');
-const patched = html.replace(/__VERSION__/g, version);
+const patched = patchHtml(html, version);
 if (patched !== html) {
     fs.writeFileSync(INDEX, patched, 'utf8');
-    console.log(`Version injected: v${version}`);
+    console.log(`Version injected + cache-busted: v${version}`);
 }
 
 // .nojekyll prevents GitHub Pages from running Jekyll on Cocos assets

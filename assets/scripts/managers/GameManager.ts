@@ -13,7 +13,7 @@ import { VFXManager } from './VFXManager';
 import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.8.0';
+const VERSION            = '0.8.3';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -33,7 +33,7 @@ const AURA_SETTLE_CD         = 1.0;  // seconds after warrior settles before AUR
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
-const ROUND_THRESHOLDS = [0, 10, 25, 45, 70, 100, 135] as const;
+const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
 
 function launchTimerForRound(round: number): number {
     return Math.max(3, 15 - (round - 1) * 2);
@@ -89,8 +89,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _slowmoScale    = 1.0;
     private _boostedThisTurn: Set<Warrior> = new Set();
     private _powerupSettleCds = new Map<Warrior, number>();
+    private _proximityTimers = new Map<string, number>();
     private _nextSlotBoostEnergy  = -1;   // powerup energy stored in the "next" slot (-1 = none)
     private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
+    private _trackClearedBonusUsed = false;
     private vfx!: VFXManager;
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
@@ -386,6 +388,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.totalMerges      = 0;
         this.mergesThisLaunch = 0;
         this.score            = 0;
+        this._trackClearedBonusUsed = false;
         this._scoreTween?.stop();
         this._scoreTween = null;
         this._scoreProxy.val  = 0;
@@ -408,7 +411,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.tickSlowmo(dt);
         this._sortWarriorLayerByY();
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
-        this._checkProximityMerge();
+        this._checkProximityMerge(dt);
         if (this.debugOverlay) {
             const g = this.debugOverlay;
             g.clear();
@@ -941,6 +944,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this.scheduleOnce(() => this.triggerVictory(), 0.5);
                     return;
                 }
+                this.checkTrackClearedBonus(midX, midYC);
                 if (inflightMerged) this.activateAfterInflightMerge();
                 return;
             }
@@ -1113,7 +1117,20 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         if (WARRIORS[wType]?.type === 'dragon') {
             this.scheduleOnce(() => this.triggerVictory(), 0.5);
+        } else {
+            this.checkTrackClearedBonus(x, yC);
         }
+    }
+
+    private checkTrackClearedBonus(x: number, yC: number): void {
+        if (this._trackClearedBonusUsed) return;
+        const onTrack = this.warriors.filter(w => w.crossedLine && w.node?.isValid);
+        if (onTrack.length > 0) return;
+        this._trackClearedBonusUsed = true;
+        const bonus = 1000 * this.currentRound;
+        this.score += bonus;
+        this.updateScoreLabel();
+        this.vfx.spawnTrackClearedBanner(x, yC, bonus);
     }
 
     private activateAfterInflightMerge(): void {
@@ -1318,24 +1335,47 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? new Color(255, 255, 255, 220) : new Color(100, 100, 100, 150);
     }
 
-    private _checkProximityMerge(): void {
+    private _checkProximityMerge(dt: number): void {
+        const activePairs = new Set<string>();
+
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
-            if (!a.node?.isValid || !a.crossedLine || a.merging || !a.onMergeReady) continue;
+            if (!a.node?.isValid || !a.launched || a.merging || !a.onMergeReady) continue;
             for (let j = i + 1; j < this.warriors.length; j++) {
                 const b = this.warriors[j];
-                if (!b.node?.isValid || !b.crossedLine || b.merging) continue;
+                if (!b.node?.isValid || !b.launched || b.merging) continue;
                 if (a.type !== b.type || a.level !== b.level) continue;
                 const dx   = a.node.position.x - b.node.position.x;
                 const dy   = a.node.position.y - b.node.position.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
+
                 if (dist < (a.radius + b.radius) * 0.85) {
                     a.merging = true;
                     b.merging = true;
+                    this._proximityTimers.clear();
                     a.onMergeReady(a, b);
                     return;
                 }
+
+                if (dist < (a.radius + b.radius) * 1.05) {
+                    const uA = a.node.uuid, uB = b.node.uuid;
+                    const key = uA < uB ? `${uA}|${uB}` : `${uB}|${uA}`;
+                    activePairs.add(key);
+                    const elapsed = (this._proximityTimers.get(key) ?? 0) + dt;
+                    this._proximityTimers.set(key, elapsed);
+                    if (elapsed >= 2.0) {
+                        a.merging = true;
+                        b.merging = true;
+                        this._proximityTimers.delete(key);
+                        a.onMergeReady(a, b);
+                        return;
+                    }
+                }
             }
+        }
+
+        for (const key of this._proximityTimers.keys()) {
+            if (!activePairs.has(key)) this._proximityTimers.delete(key);
         }
     }
 
@@ -1472,6 +1512,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private advanceRound(): void {
         this.currentRound++;
+        this._trackClearedBonusUsed = false;
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.updateRoundLabel();
@@ -1653,7 +1694,9 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const aura = new Node('PreviewAura');
                 aura.setParent(this.nextNextWarriorNode);
                 aura.setSiblingIndex(0);
-                aura.addComponent(UITransform).setContentSize(148, 148);
+                const _auraMin  = 148 * 0.8;
+                const _auraSize = Math.min(_auraMin * Math.pow(1.2, Math.max(0, this._nextSlotBoostEnergy - 1)), _auraMin * 2);
+                aura.addComponent(UITransform).setContentSize(_auraSize, _auraSize);
                 const auraSp = aura.addComponent(Sprite);
                 auraSp.sizeMode    = Sprite.SizeMode.CUSTOM;
                 auraSp.spriteFrame = this.vfx.auraFrame;

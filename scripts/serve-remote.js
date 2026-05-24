@@ -2,9 +2,10 @@
 // Starts a local static server for quick testing.
 // Usage: npm run serve  (or: node scripts/serve-remote.js [build-dir])
 
-const { spawn } = require('child_process');
-const fs        = require('fs');
-const path      = require('path');
+const { spawn }      = require('child_process');
+const fs             = require('fs');
+const path           = require('path');
+const { patchHtml }  = require('./patch-html');
 
 const PORT = 8080;
 const ROOT = path.resolve(__dirname, '..');
@@ -29,7 +30,7 @@ console.log(`Serving: ${buildDir}`);
     const version   = pkg.version ?? '?';
     const indexPath = path.join(buildDir, 'index.html');
     const html      = fs.readFileSync(indexPath, 'utf8');
-    const patched   = html.replace(/__VERSION__/g, version);
+    const patched   = patchHtml(html, version);
     if (patched !== html) fs.writeFileSync(indexPath, patched, 'utf8');
 })();
 

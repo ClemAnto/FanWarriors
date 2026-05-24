@@ -7,7 +7,7 @@ const { ccclass } = _decorator;
 // Base values at design width 720 — multiplied by _scale at runtime
 const MIN_DRAG_BASE    = 20;
 const MAX_DRAG_BASE    = 96;   // 3 × lv-1 diameter
-const MAX_IMPULSE_BASE = 1000;
+const MAX_IMPULSE_BASE = 1150;
 const CROSSBOW_ARM_W   = 72;   // design-px half-width of bow arms (= lv1r*4 = bowW/2)
 const TRAJ_MAX_DIST    = 500; // design-px total trajectory length before cutoff
 const TRAJ_DOT_STEP    = 16;   // design-px between trajectory dots
@@ -515,7 +515,7 @@ export class InputController extends Component {
         const lvl = this.warrior?.level ?? 1;
         const r1  = LEVEL_CONFIG[1]?.radius ?? 18;
         const r   = LEVEL_CONFIG[lvl]?.radius ?? r1;
-        return MAX_IMPULSE_BASE * this._scale * Math.pow(r / r1, 1.5);
+        return MAX_IMPULSE_BASE * this._scale * Math.pow(r / r1, 2);
     }
 
     private clampLaunchDir(dir: Vec2): Vec2 {

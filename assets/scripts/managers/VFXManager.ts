@@ -471,6 +471,52 @@ export class VFXManager {
         }
     }
 
+    spawnTrackClearedBanner(x: number, yCanvas: number, points: number): void {
+        const root = new Node('TrackClearedBanner');
+        root.setParent(this.uiLayer);
+        root.setSiblingIndex(this.uiLayer.children.length - 1);
+        root.setPosition(x, yCanvas);
+        root.setScale(0.1, 0.1, 1);
+
+        const scoreNode = new Node('BonusScore');
+        scoreNode.setParent(root);
+        scoreNode.setPosition(0, 24);
+        const scoreLbl = scoreNode.addComponent(Label);
+        scoreLbl.string        = `+${points}`;
+        scoreLbl.fontSize      = 68;
+        scoreLbl.isBold        = true;
+        scoreLbl.color         = new Color(255, 230, 50, 255);
+        scoreLbl.enableOutline = true;
+        scoreLbl.outlineColor  = new Color(0, 0, 0, 220);
+        scoreLbl.outlineWidth  = 4;
+
+        const subNode = new Node('SubText');
+        subNode.setParent(root);
+        subNode.setPosition(0, -28);
+        const subLbl = subNode.addComponent(Label);
+        subLbl.string        = 'Track Cleared!';
+        subLbl.fontSize      = 30;
+        subLbl.isBold        = true;
+        subLbl.color         = new Color(255, 255, 255, 255);
+        subLbl.enableOutline = true;
+        subLbl.outlineColor  = new Color(0, 0, 0, 200);
+        subLbl.outlineWidth  = 2;
+
+        const op = root.addComponent(UIOpacity);
+        op.opacity = 255;
+
+        tween(root)
+            .to(0.22, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
+            .to(0.12, { scale: new Vec3(1.0, 1.0, 1) })
+            .start();
+        tween(root).by(1.8, { position: new Vec3(0, 140, 0) }).start();
+        tween(op)
+            .delay(1.0)
+            .to(0.8, { opacity: 0 })
+            .call(() => { if (root.isValid) root.destroy(); })
+            .start();
+    }
+
     spawnExplosionLabel(x: number, yCanvas: number, text: string, color: Color): void {
         if (!text) return;
         const node = new Node('ExpLabel');

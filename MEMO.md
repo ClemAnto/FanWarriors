@@ -44,8 +44,10 @@ I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UIT
 |-----------|--------|------|
 | `MIN_DRAG` | 20px | Soglia minima drag valido |
 | `MAX_DRAG` | 80px | Cap visivo e di forza |
-| `MAX_IMPULSE` | 300 | Forza massima applicata |
+| `MAX_IMPULSE_BASE` | 1150 | Forza base al livello 1 — scala con `(r/r1)^2` |
 | Angolo max lancio | ±75° | Clampato da `clampLaunchDir()` |
+
+**Forza per livello**: `maxImpulse = MAX_IMPULSE_BASE × scale × (r/r1)²` — esponente 2 compensa esattamente la massa (∝ r²), dando velocità iniziale **identica per tutti i livelli** a parità di drag.
 
 **Balestra — angolo post-lancio**: la `snapAnim` non reimposta più l'angolo a 0. Il `launcherNode` rimane all'angolo del lancio fino al `clearWarrior()` (chiamato quando viene caricato il warrior successivo), che lo riporta a 0.
 
@@ -311,7 +313,7 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 **Implosione fisica**:
 - Forza `sin(π * elapsed / duration)` (bell-curve) verso il centro del merge
 - `impForce = (200 + tier * 60) * LAYOUT_SCALE`, durata 1.5–2.5s per tier
-- Fallback proximity merge: `_checkProximityMerge()` ogni frame — gestisce il caso Box2D `END_CONTACT` che annulla il merge su warriors sovrapposti
+- Fallback proximity merge: `_checkProximityMerge(dt)` ogni frame — due soglie: (1) < 85% radii → merge immediato; (2) < 105% radii per ≥ 2s → merge forzato. Richiede `launched=true` (non `crossedLine`). Timer in `_proximityTimers: Map<string, number>` (chiave `uuidA|uuidB`).
 
 ---
 

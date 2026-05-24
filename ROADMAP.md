@@ -310,7 +310,7 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-20 — v0.7.1: smart bag spawn, AURA visibile sul launcher, no particelle su merge semplice.
+> Aggiornato al 2026-05-24 — v0.8.2: raggi warrior +20%/livello (18→54), impulso esponente 2 (velocità costante), round ogni 20 merge, proximity merge esteso a warrior launched (non solo crossedLine) + timer 2s a 105% radii.
 
 1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
 2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)
@@ -318,7 +318,8 @@
 4. ~~**Swap Next↔Launcher**~~ ✅ fatto (v0.6.15) — tap sul NextPreview scambia le due creature; abilitato solo quando il lancio è attivo
 5. ~~**LevelBoost powerup**~~ ✅ fatto (v0.7.0) — AURA attiva al primo lancio di ogni specie (dal Lupo in poi); ora visibile già sul launcher (v0.7.1)
 6. ~~**Smart bag spawn**~~ ✅ fatto (v0.7.1) — SpawnManager con bag Tetris-style + bias contestuale verso specie stranded + bias livello
-7. **UI Fase 3**: HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa, tutorial definitivi
-8. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
-9. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
-10. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
+7. ~~**Track Cleared! bonus**~~ ✅ fatto (v0.8.1) — 1000×round, una volta per round, banner gold animato con sottotitolo
+8. **UI Fase 3**: HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa, tutorial definitivi
+9. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
+10. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
+11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)

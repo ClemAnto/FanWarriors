@@ -48,12 +48,15 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 
 Ogni specie ha una catena evolutiva a **4 livelli base**. Leone e Drago proseguono rispettivamente fino al livello 5 e al livello 6; quando una fusione supera il livello massimo della specie, la creatura **esplode** con bonus punti.
 
-| Livello | Nome | Equipaggiamento | Raggio | Note |
-|---------|------|-----------------|--------|------|
-| 1 | **Cucciolo** | Nessun accessorio | 20px | Punto di partenza, forma più piccola |
-| 2 | **Apprendista** | Arma e scudo di legno | 28px | Prima trasformazione |
-| 3 | **Soldato** | Arma vera (piccola) | 36px | Aspetto da combattente |
-| 4 | **Guerriero** | Elmetto/copricapo + arma più imponente | 42px | Presenza sul campo |
+| Livello | Nome | Equipaggiamento | Raggio | Diametro | Note |
+|---------|------|-----------------|--------|----------|------|
+| 1 | **Cucciolo** | Nessun accessorio | 18px | 36px | Punto di partenza |
+| 2 | **Apprendista** | Arma e scudo di legno | 22px | 44px | +22% diametro |
+| 3 | **Soldato** | Arma vera (piccola) | 26px | 52px | +18% diametro |
+| 4 | **Guerriero** | Elmetto/copricapo + arma più imponente | 31px | 62px | +19% diametro |
+| 5 | **Campione** | — | 37px | 74px | +19% diametro, esplosione |
+| 6 | **Eroe** | — | 45px | 90px | +22% diametro, esplosione |
+| 7 | **Leggenda** | — | 54px | 108px | +20% diametro, esplosione |
 
 ### Specie disponibili (7 totali)
 
@@ -130,6 +133,18 @@ I bonus si attivano quando la fusione supera il livello max della specie (la cre
 - **Esplosione lv5** (Lupo, Aquila): +500 pt bonus fisso
 - **Esplosione lv6** (Leone): +1000 pt bonus fisso
 - **Esplosione lv7** (Drago — vittoria): +2000 pt bonus fisso
+
+#### Track Cleared!
+
+Quando un warrior esplode (per fusione al livello max o per LevelBoost) e **non rimane nessun altro warrior in pista** (nessun warrior con `crossedLine = true`), il giocatore guadagna un bonus straordinario:
+
+```
+Bonus Track Cleared = 1000 × round_corrente
+```
+
+- Ottenibile **una sola volta per round** (il flag si resetta ad ogni avanzamento di round)
+- Feedback visivo: banner floating con `+XXXXX` in gold (68px, outline nera) + scritta "Track Cleared!" bianca (30px) sotto — pop-in con `backOut`, fluttua su 140px e sfuma in ~1.8s
+- Non si attiva in caso di vittoria (esplosione Drago)
 
 ### Feedback visivo del punteggio
 
