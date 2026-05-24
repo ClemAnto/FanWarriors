@@ -13,7 +13,12 @@ export interface ILevelBoost {
     resetActivation(): void;
 }
 
+export interface IBloodhoodSparkle {
+    detach(): void;
+}
+
 const MERGE_DELAY      = 0.3;
+const BHS_CONTACT_DELAY = 0;
 const BOUNCE_VOL_MAX   = 280;  // velocity at which wall-bounce volume reaches 1.0
 const HIT_VOL_MAX      = 80;   // velocity at which warrior-hit volume reaches 1.0
 
@@ -47,7 +52,10 @@ export class Warrior extends Component {
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
     onAuraContact: ((source: Warrior, target: Warrior) => void) | null = null;
+    onBloodhoodContact: ((source: Warrior, target: Warrior) => void) | null = null;
     levelBoost: ILevelBoost | null = null;
+    bloodhoodSparkle: IBloodhoodSparkle | null = null;
+    isBHLauncher = false;
     private _lastHitSoundMs = 0;
 
     // Upgrade level in-place (sprite + mapper, physics collider not resized at runtime)
@@ -108,7 +116,8 @@ export class Warrior extends Component {
         tween(op).to(duration, { opacity: 255 }).start();
     }
 
-    private mergeCallbacks = new Map<Warrior, () => void>();
+    private mergeCallbacks    = new Map<Warrior, () => void>();
+    private _bhsContactCbs   = new Map<Warrior, () => void>();
 
     static spawn(parent: Node, visualParent: Node, type: number, level: number, x: number, y: number): Warrior {
         const node = new Node('Warrior');
@@ -235,7 +244,20 @@ export class Warrior extends Component {
             }, 0);
         }
 
+        // Bloodhood contact — spread only after 300ms of sustained contact
+        if (this.onBloodhoodContact && otherW && !this._bhsContactCbs.has(otherW)) {
+            const src = this, tgt = otherW;
+            const cb = () => {
+                this._bhsContactCbs.delete(tgt);
+                if (src.node?.isValid && tgt.node?.isValid) src.onBloodhoodContact?.(src, tgt);
+            };
+            this._bhsContactCbs.set(tgt, cb);
+            this.scheduleOnce(cb, BHS_CONTACT_DELAY);
+        }
+
         if (otherW.type !== this.type || otherW.level !== this.level) return;
+        if (this.bloodhoodSparkle || otherW.bloodhoodSparkle) return;
+        if (this.onBloodhoodContact || otherW.onBloodhoodContact) return;
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
 
         // Snap: equalize velocities so they don't bounce apart
@@ -266,6 +288,11 @@ export class Warrior extends Component {
         if (cb) {
             this.unschedule(cb);
             this.mergeCallbacks.delete(otherW);
+        }
+        const bhsCb = this._bhsContactCbs.get(otherW);
+        if (bhsCb) {
+            this.unschedule(bhsCb);
+            this._bhsContactCbs.delete(otherW);
         }
     }
 

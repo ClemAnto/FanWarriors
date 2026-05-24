@@ -24,6 +24,7 @@ export class InputController extends Component {
     onSwapNext: (() => void) | null = null;
     getWarriors: (() => readonly Warrior[]) | null = null;
     ropeParent: Node | null = null;
+    swapHitNode: Node | null = null;
     launchEnabled = true;
     blocked = false;       // set true by DebugPanel while it owns a drag gesture
     showBounds = false;
@@ -192,14 +193,11 @@ export class InputController extends Component {
             if (Math.sqrt(dx * dx + dy * dy) <= hitR) this.tapStartPos = new Vec2(touch.x, touch.y);
             return;
         }
+        if (this._isOnSwapNode(touch)) {
+            if (this.onSwapNext) this._swapTapStart = new Vec2(touch.x, touch.y);
+            return;
+        }
         if (touch.y < 0) {
-            const lx = this._lwA?.x ?? -Infinity;
-            const rx = this._rwA?.x ??  Infinity;
-            if (touch.x < lx - 20 || touch.x > rx + 20) {
-                // Outside track bounds (e.g. NextPreview area) — record for swap-tap detection
-                if (this.onSwapNext) this._swapTapStart = new Vec2(touch.x, touch.y);
-                return;
-            }
             this.dragging = true;
             AudioManager.instance.play(SFX.DRAW, 0.7);
         }
@@ -528,6 +526,18 @@ export class InputController extends Component {
     private _halfDir(dir: Vec2): Vec2 {
         const a = Math.atan2(dir.x, dir.y) * 0.5;
         return new Vec2(Math.sin(a), Math.cos(a));
+    }
+
+    private _isOnSwapNode(touch: Vec2): boolean {
+        const n = this.swapHitNode;
+        if (!n?.isValid) return false;
+        const wp = n.worldPosition;
+        const ws = n.worldScale;
+        const uit = n.getComponent(UITransform);
+        const hw = (uit ? uit.contentSize.width  * 0.5 : 60) * Math.abs(ws.x);
+        const hh = (uit ? uit.contentSize.height * 0.5 : 60) * Math.abs(ws.y);
+        return touch.x >= wp.x - hw && touch.x <= wp.x + hw
+            && touch.y >= wp.y - hh && touch.y <= wp.y + hh;
     }
 
     private toWorld(ui: Vec2): Vec2 {

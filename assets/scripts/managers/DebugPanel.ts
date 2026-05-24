@@ -24,10 +24,14 @@ const DIV2_Y = -78;  // MERGES ↔ SAVE/LOAD/RESET
 const DIV3_Y = -110; // SAVE   ↔ PALETTE
 const DIV4_Y = -302; // PALETTE ↔ WIN
 
-// WIN button
-const WIN_BTN_Y = -322;
-const WIN_BTN_W = 170;
-const WIN_BTN_H =  26;
+// WIN + BH button row (side by side)
+const WIN_BTN_Y  = -322;
+const WIN_BTN_H  =   26;
+const WIN_BTN_W  =   95;
+const WIN_CX     =  CX - 42;   // 188 — shifted left to make room for BH
+const BH_BTN_W   =   58;
+const BH_CX      =  CX + 48;   // 278
+const BH_BTN_H   =  WIN_BTN_H;
 
 // Round row
 const ROUND_LBL_Y  =   2;
@@ -78,6 +82,8 @@ export interface IGameManagerDebug {
     resetDebugState(): void;
     setLauncherBlocked(v: boolean): void;
     debugWin(): void;
+    toggleBloodhood(): void;
+    isBloodhoodEnabled(): boolean;
 }
 
 @ccclass('DebugPanel')
@@ -94,6 +100,8 @@ export class DebugPanel extends Component {
     private pressedAction: 'save' | 'load' | 'reset' | null = null;
     private winPressed = false;
     private winLbl!: Label;
+    private bhPressed  = false;
+    private bhLbl!: Label;
     private pauseFlash = false;
     private ghost: Node | null = null;
     private dragType = -1;
@@ -103,6 +111,7 @@ export class DebugPanel extends Component {
     private tapWarrior: Warrior | null = null;
     private tapStart: Vec2 | null = null;
     private inputCooldown = false;
+    private _panelBlocking = false;
 
     init(gm: IGameManagerDebug): void {
         this.gm = gm;
@@ -166,8 +175,9 @@ export class DebugPanel extends Component {
             this.lbl(String(t), CX + ICON_R + 12, y, 10, WARRIORS[t]?.color ?? new Color(200, 200, 200));
         }
 
-        // WIN button
-        this.winLbl = this.lbl('🏆 WIN!', CX, WIN_BTN_Y, 14, new Color(255, 220, 50, 255));
+        // WIN + BH buttons
+        this.winLbl = this.lbl('🏆 WIN!', WIN_CX, WIN_BTN_Y, 11, new Color(255, 220, 50, 255));
+        this.bhLbl  = this.lbl('BH', BH_CX, WIN_BTN_Y, 13, new Color(200, 100, 255, 255));
     }
 
     private drawPanel(): void {
@@ -259,9 +269,19 @@ export class DebugPanel extends Component {
         g.fillColor   = this.winPressed ? new Color(255, 220, 50, 255) : new Color(80, 50, 10, 230);
         g.strokeColor = this.winPressed ? new Color(255, 255, 180, 255) : new Color(200, 150, 20, 200);
         g.lineWidth   = this.winPressed ? 2.5 : 1.5;
-        g.rect(CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
+        g.rect(WIN_CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
         g.fill();
-        g.rect(CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
+        g.rect(WIN_CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
+        g.stroke();
+
+        // BH toggle button (purple when on)
+        const bhOn = this.gm?.isBloodhoodEnabled() ?? false;
+        g.fillColor   = bhOn ? new Color(120, 30, 180, 255) : new Color(40, 20, 70, 230);
+        g.strokeColor = bhOn ? new Color(200, 100, 255, 255) : new Color(120, 60, 180, 180);
+        g.lineWidth   = bhOn ? 2.5 : 1.5;
+        g.rect(BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H);
+        g.fill();
+        g.rect(BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H);
         g.stroke();
 
         // Palette icons (7 types, level 1)
@@ -342,6 +362,12 @@ export class DebugPanel extends Component {
     private onMouseUp(e: EventMouse):    void { this.handleEnd(this.toLocal(e.getUILocation()), this.toWorld(e.getUILocation())); }
 
     private handleStart(p: Vec2, world: Vec2): void {
+        // Block InputController from interpreting panel taps as swap gestures
+        if (this.inRect(p, CX - PANEL_HALF, PANEL_BOT, PANEL_W, PANEL_TOP - PANEL_BOT)) {
+            this._panelBlocking = true;
+            this.gm.setLauncherBlocked(true);
+        }
+
         if (this.inputCooldown) return;
         this.inputCooldown = true;
         this.scheduleOnce(() => { this.inputCooldown = false; }, 0.08);
@@ -400,11 +426,21 @@ export class DebugPanel extends Component {
         }
 
         // WIN
-        if (this.inRect(p, CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H)) {
+        if (this.inRect(p, WIN_CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H)) {
             this.winPressed = true;
             this.drawPanel();
             this.scheduleOnce(() => { this.winPressed = false; this.drawPanel(); }, 0.18);
             this.gm.debugWin();
+            return;
+        }
+
+        // BH toggle
+        if (this.inRect(p, BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H)) {
+            this.gm.toggleBloodhood();
+            this.bhLbl.color = this.gm.isBloodhoodEnabled()
+                ? new Color(220, 140, 255, 255)
+                : new Color(200, 100, 255, 255);
+            this.drawPanel();
             return;
         }
 
@@ -492,6 +528,7 @@ export class DebugPanel extends Component {
                 this.gm.addDebugWarrior(this.dragType, 1, world.x, this.toPhysY(world.y));
             }
             this.dragType = -1;
+            this._panelBlocking = false;
             this.gm.setLauncherBlocked(false);
             return;
         }
@@ -504,6 +541,11 @@ export class DebugPanel extends Component {
         }
         this.tapWarrior = null;
         this.tapStart   = null;
+
+        if (this._panelBlocking) {
+            this._panelBlocking = false;
+            this.gm.setLauncherBlocked(false);
+        }
     }
 
     private spawnGhost(type: number, pos: Vec2): void {

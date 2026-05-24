@@ -11,9 +11,11 @@ import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
 import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
+import { BloodhoodEffect } from '../entities/BloodhoodEffect';
+import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.8.4';
+const VERSION            = '0.8.6';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -30,6 +32,9 @@ const FAILED_LAUNCH_MALUS  = 50;    // score penalty when launched warrior fails
 const CROSS_LINE_FRAMES    = 3;     // consecutive frames above gol before crossedLine is committed (prevents grazing false-positive)
 const GAME_OVER_FRAMES     = 3;     // consecutive frames below gol before game over triggers (prevents physics-jitter false-positive)
 const AURA_SETTLE_CD         = 1.0;  // seconds after warrior settles before AURA expires
+const BHS_PROX_INTERVAL      = 0.08; // seconds between BHS proximity spread checks
+const BHS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
+const BHS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before BHS spreads
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
@@ -91,6 +96,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _powerupSettleCds = new Map<Warrior, number>();
     private _proximityTimers = new Map<string, number>();
     private _nextSlotBoostEnergy  = -1;   // powerup energy stored in the "next" slot (-1 = none)
+    private _launcherBloodhoodEffect: BloodhoodEffect | null = null;
+    private _bhsActive = new Map<Warrior, BloodhoodSparkleEffect>();
+    private _bhsProxTimer = 0;
+    private _bhsProxTimers = new Map<Warrior, number>(); // candidate → accumulated proximity time
+    private _bhLaunchWarrior: Warrior | null = null;
+    private _bhLaunchEffect: BloodhoodSparkleEffect | null = null;
+    private _bhsOrder: Warrior[] = [];
+    private _bhsImploding = false;
+    private _bhsImplodeK = 1;
+    private _bhCooldownLaunches = 0;
+    bloodhoodEnabled = false;
     private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
     private _trackClearedBonusUsed = false;
     private _bestSingleScore = 0;
@@ -226,6 +242,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
         this.inputCtrl.onSwapNext   = () => this.swapNextWithLauncher();
         this.inputCtrl.getWarriors  = () => this.warriors;
+        this.inputCtrl.swapHitNode  = this.nextPreviewNode;
         this.inputCtrl.showBounds   = DEBUG_ENGINE;
         this.inputCtrl.initialScale = LAYOUT_SCALE;
         this.syncInputBounds();
@@ -418,6 +435,37 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     debugWin(): void { this.triggerVictory(); }
 
+    toggleBloodhood(): void {
+        this.bloodhoodEnabled = !this.bloodhoodEnabled;
+        if (this._activeLauncherWarrior) {
+            this._launcherBloodhoodEffect?.detach();
+            this._launcherBloodhoodEffect = null;
+            if (this.bloodhoodEnabled) {
+                this._launcherBloodhoodEffect = BloodhoodEffect.attach(
+                    this._activeLauncherWarrior, this.vfx.sparkleFrame, this.vfx.auraFrame);
+            }
+        }
+    }
+
+    isBloodhoodAvailable(): boolean {
+        if (this._bhCooldownLaunches > 0) return false;
+        if (this._activeLauncherWarrior?.levelBoost) return false;
+        const typeCounts = new Map<number, number>();
+        for (const w of this.warriors) typeCounts.set(w.type, (typeCounts.get(w.type) ?? 0) + 1);
+        return [...typeCounts.values()].some(c => c >= 10);
+    }
+    isBloodhoodEnabled(): boolean { return this.bloodhoodEnabled; }
+
+    private _logSpeciesCounts(): void {
+        const typeCounts = new Map<number, number>();
+        for (const w of this.warriors) typeCounts.set(w.type, (typeCounts.get(w.type) ?? 0) + 1);
+        const log = [...typeCounts.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([t, n]) => `${WARRIORS[t]?.name ?? t}=${n}`)
+            .join(' ');
+        console.log(`[species] ${log} | cd=${this._bhCooldownLaunches}`);
+    }
+
     update(dt: number) {
         this.vfx.tick(dt);
         this.tickSlowmo(dt);
@@ -462,6 +510,29 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.checkLineLogic(dt);
             }
             this._tickPowerupExpiry(dt);
+            if (this._bhLaunchWarrior?.node?.isValid) {
+                if (this._bhLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
+                    this._bhLaunchWarrior.onBloodhoodContact = null;
+                    this._bhLaunchWarrior = null;
+                    this._bhLaunchEffect?.detach();
+                    this._bhLaunchEffect = null;
+                    this.bloodhoodEnabled = false;
+                    this.scheduleOnce(() => this._startBHSCascade(), 0.3);
+                }
+            } else if (this._bhLaunchWarrior) {
+                this._bhLaunchWarrior = null;
+                this._bhLaunchEffect?.detach();
+                this._bhLaunchEffect = null;
+                this.bloodhoodEnabled = false;
+                this.scheduleOnce(() => this._startBHSCascade(), 0.3);
+            }
+            if (this._bhsActive.size > 0) {
+                this._bhsProxTimer += dt;
+                if (this._bhsProxTimer >= BHS_PROX_INTERVAL) {
+                    this._bhsProxTimer = 0;
+                    this._tickBHSProximity();
+                }
+            }
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
             this.updateDebugLabel();
@@ -506,6 +577,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             }
         }
 
+        this._launcherBloodhoodEffect?.detach();
+        this._launcherBloodhoodEffect = null;
+        if (!w.levelBoost && this._bhCooldownLaunches === 0) {
+            const typeCounts = new Map<number, number>();
+            for (const ww of this.warriors) typeCounts.set(ww.type, (typeCounts.get(ww.type) ?? 0) + 1);
+            this.bloodhoodEnabled = [...typeCounts.values()].some(c => c >= 10);
+        } else {
+            this.bloodhoodEnabled = false;
+        }
+        if (this.bloodhoodEnabled) {
+            this._launcherBloodhoodEffect = BloodhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        }
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
@@ -514,12 +597,27 @@ export class GameManager extends Component implements IGameManagerDebug {
             console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
             return;
         }
+        this._launcherBloodhoodEffect?.detach();
+        this._launcherBloodhoodEffect = null;
+        if (this.bloodhoodEnabled) {
+            this._bhCooldownLaunches = 10;
+            this._bhsOrder = [];
+            this._bhsImploding = false;
+            this._bhsImplodeK = 1;
+            w.isBHLauncher = true;
+            w.onBloodhoodContact = (s, t) => this._onBloodhoodContact(s, t);
+            this._bhLaunchWarrior = w;
+            this._bhLaunchEffect = BloodhoodSparkleEffect.attach(w);
+        } else if (this._bhCooldownLaunches > 0) {
+            this._bhCooldownLaunches--;
+        }
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
         this._lastTickSec = -1;
 
         AudioManager.instance.play(SFX.LAUNCH, Math.max(0.3, forcePct));
         this.scheduleOnce(() => this.checkLaunchResult(w), LAUNCH_CHECK_DELAY);
+        this._logSpeciesCounts();
     }
 
     private checkSettled(): void {
@@ -527,6 +625,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const inPlay = this.warriors.filter(w => w.launched && w.node?.isValid);
         inPlay.forEach(w => { if (w.velocity.length() < SETTLE_VELOCITY) w.forceStop(); });
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
+        if (this._bhsActive.size > 0 || this._bhLaunchWarrior !== null) return;
 
         AudioManager.instance.play(SFX.LAND, 0.5);
         this.activateWarrior(this.createWarrior());
@@ -592,7 +691,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                         w.settled = true;
                         w.levelBoost?.resetActivation();
                         if (this.state === GameState.Inflight) {
-                            if (this.waitForSettling) {
+                            if (this.waitForSettling || this._bhLaunchWarrior !== null || this._bhsActive.size > 0) {
                                 this.state = GameState.Settling;
                             } else {
                                 this.activateWarrior(this.createWarrior());
@@ -701,6 +800,12 @@ export class GameManager extends Component implements IGameManagerDebug {
             const lb = LevelBoostPowerup.attach(nw, effectiveEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
             nw.levelBoost = lb;
             nw.onAuraContact = (s, t) => this._onAuraContact(s, t);
+        }
+
+        this._launcherBloodhoodEffect?.detach();
+        this._launcherBloodhoodEffect = null;
+        if (this.bloodhoodEnabled) {
+            this._launcherBloodhoodEffect = BloodhoodEffect.attach(nw, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
 
         this.inputCtrl.setWarrior(nw);
@@ -925,6 +1030,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? (a.viewNode.worldPosition.y + b.viewNode.worldPosition.y) / 2 : midYC;
 
         this.scheduleOnce(() => {
+            this._cleanupBHS(a);
+            this._cleanupBHS(b);
             if (a.node.isValid) a.node.destroy();
             if (b.node.isValid) b.node.destroy();
 
@@ -987,6 +1094,119 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             if (inflightMerged) this.activateAfterInflightMerge();
         }, MERGE_OUT_DUR);
+    }
+
+    // --- bloodhood sparkle ---
+
+    private _cleanupBHS(w: Warrior): void {
+        const bhs = this._bhsActive.get(w);
+        if (bhs) { bhs.detach(); this._bhsActive.delete(w); }
+        w.bloodhoodSparkle = null;
+        w.onBloodhoodContact = null;
+    }
+
+    private _applyBHS(target: Warrior, source?: Warrior): void {
+        if (this._bhsActive.has(target)) return;
+        if (this._bhsImploding) return;
+        if (target.isBHLauncher) return;
+        if (!target.node?.isValid) return;
+        console.log(`[BHS] contagio: src type=${source?.type ?? 'BH'} lv=${source?.level ?? '-'} → tgt type=${target.type} lv=${target.level}`);
+        const spreadFn = (s: Warrior, t: Warrior) => this._onBHSSpread(s, t);
+        target.onBloodhoodContact = spreadFn;
+        const bhs = BloodhoodSparkleEffect.attach(target);
+        target.bloodhoodSparkle = bhs;
+        this._bhsActive.set(target, bhs);
+        this._bhsOrder.push(target);
+        bhs.onExpired = () => {
+            target.bloodhoodSparkle = null;
+            if (target.onBloodhoodContact === spreadFn) target.onBloodhoodContact = null;
+            this._bhsActive.delete(target);
+        };
+    }
+
+    private _onBloodhoodContact(source: Warrior, target: Warrior): void {
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        if (source === target) return;
+        this._applyBHS(target, source);
+    }
+
+    private _onBHSSpread(source: Warrior, target: Warrior): void {
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        if (source === target || source.type !== target.type) return;
+        this._applyBHS(target, source);
+    }
+
+    private _tickBHSProximity(): void {
+        const inRange = new Map<Warrior, Warrior>(); // candidate → source BHS warrior
+
+        for (const [bhsW] of this._bhsActive) {
+            if (!bhsW.node?.isValid) continue;
+            const pos = bhsW.node.position;
+            for (const w of this.warriors) {
+                if (w === bhsW || w.type !== bhsW.type || !w.node?.isValid) continue;
+                if (this._bhsActive.has(w)) continue;
+                const wp = w.node.position;
+                const dx = pos.x - wp.x, dy = pos.y - wp.y;
+                const threshold = bhsW.radius + w.radius + BHS_PROX_MARGIN * LAYOUT_SCALE;
+                if (dx * dx + dy * dy <= threshold * threshold) {
+                    if (!inRange.has(w)) inRange.set(w, bhsW);
+                }
+            }
+        }
+
+        for (const w of this._bhsProxTimers.keys()) {
+            if (!inRange.has(w) || this._bhsActive.has(w)) this._bhsProxTimers.delete(w);
+        }
+        for (const [w, bhsW] of inRange) {
+            if (this._bhsActive.has(w) || this._bhsImploding) continue;
+            const t = (this._bhsProxTimers.get(w) ?? 0) + BHS_PROX_INTERVAL;
+            if (t >= BHS_CONTACT_DELAY) {
+                this._bhsProxTimers.delete(w);
+                this._applyBHS(w, bhsW);
+            } else {
+                this._bhsProxTimers.set(w, t);
+            }
+        }
+    }
+
+    private _startBHSCascade(): void {
+        if (this._bhsImploding) return;
+        this._bhsImploding = true;
+        const toImplode = [...this._bhsOrder].reverse();
+        let delay = 0;
+        for (const w of toImplode) {
+            this.scheduleOnce(() => this._implodeWarrior(w), delay);
+            delay += 0.15;
+        }
+    }
+
+    private _implodeWarrior(w: Warrior): void {
+        if (!w.node?.isValid || !this._bhsActive.has(w)) return;
+        this._cleanupBHS(w);
+        this._bhsOrder = this._bhsOrder.filter(x => x !== w);
+        this._bhsProxTimers.delete(w);
+        const pts = Math.round(10 * this.currentRound * this._bhsImplodeK);
+        this.score += pts;
+        this.updateScoreLabel();
+        this.vfx.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), pts);
+        this._bhsImplodeK += 1.5;
+        const mapper = w.mapper;
+        const finish = () => {
+            this.warriors = this.warriors.filter(x => x !== w);
+            this.framesAboveLine.delete(w);
+            this.framesBelowLine.delete(w);
+            if (w.node?.isValid) w.node.destroy();
+        };
+        if (mapper?.node?.isValid) {
+            Tween.stopAllByTarget(mapper);
+            tween(mapper)
+                .to(0.10, { animScale: 1.5 }, { easing: 'quadOut' })
+                .to(0.20, { animScale: 0.0 }, { easing: 'quadIn' })
+                .call(finish)
+                .start();
+        } else {
+            finish();
+        }
     }
 
     // --- level-boost powerup ---
