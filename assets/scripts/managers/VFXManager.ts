@@ -1,4 +1,4 @@
-import { Node, Graphics, Color, Label, UIOpacity, Vec2, Vec3, tween, Tween, UITransform, SpriteFrame, Sprite, resources, Texture2D, Rect, gfx } from 'cc';
+import { Node, Graphics, Color, Label, UIOpacity, Vec2, Vec3, tween, Tween, UITransform, SpriteFrame, Sprite, resources, Texture2D, Rect, gfx, Font, assetManager } from 'cc';
 
 export class VFXManager {
     private readonly vfxLayer:      Node;
@@ -12,6 +12,8 @@ export class VFXManager {
     private _sparkleFrame:  SpriteFrame | null = null;
     private _stardustFrame: SpriteFrame | null = null;
     private _auraFrame:     SpriteFrame | null = null;
+    private _medievalFont:  Font | null = null;
+    private _useGoldenText  = true;
 
     constructor(vfxLayer: Node, uiLayer: Node, worldNode: Node, warriorsLayer: Node) {
         this.vfxLayer      = vfxLayer;
@@ -52,6 +54,74 @@ export class VFXManager {
                 this._auraFrame = sf;
             });
         });
+        // Font already bundled via Game.scene — load by UUID, no copy to resources needed
+        assetManager.loadAny({ uuid: '993e10ce-345b-464f-9b7d-bd534dcd6e0b' }, (err, font) => {
+            if (!err && font) { this._medievalFont = font as Font; return; }
+            console.warn('[VFXManager] MedievalSharp font unavailable');
+        });
+    }
+
+    private _applyFont(lbl: Label): void {
+        if (this._medievalFont) lbl.font = this._medievalFont;
+    }
+
+    private _applyGoldenShine(lbl: Label): void {
+        const gold = new Color(255, 210, 50, 255);
+        lbl.color = gold;
+        lbl.enableOutline = true;
+        lbl.outlineColor  = new Color(120, 55, 0, 220);
+        lbl.outlineWidth  = 3;
+        // Sweep: gold → bright-gold → gold, triggered when bubble peaks (~0.25s)
+        const proxy = { t: 0 };
+        tween(proxy)
+            .delay(0.25)
+            .to(0.18, { t: 1 }, { onUpdate: (o) => {
+                const t = o!.t;
+                lbl.color = new Color(255, Math.round(210 + 45 * t), Math.round(50 + 170 * t), 255);
+            }})
+            .to(0.22, { t: 0 }, { onUpdate: (o) => {
+                const t = o!.t;
+                lbl.color = new Color(255, Math.round(210 + 45 * t), Math.round(50 + 170 * t), 255);
+            }})
+            .call(() => { if (lbl.isValid) lbl.color = gold; })
+            .start();
+    }
+
+    private _applyPurpleShine(lbl: Label): void {
+        const purple = new Color(200, 60, 255, 255);
+        lbl.color = purple;
+        lbl.enableOutline = true;
+        lbl.outlineColor  = new Color(60, 0, 110, 220);
+        lbl.outlineWidth  = 3;
+        // Color pulse: purple ↔ bright pink-white, repeating
+        const cp = { t: 0 };
+        const colorPulse = () => {
+            if (!lbl.isValid) return;
+            tween(cp)
+                .to(0.38, { t: 1 }, { onUpdate: (o) => {
+                    if (!lbl.isValid) return;
+                    const t = o!.t;
+                    lbl.color = new Color(Math.round(200 + 55 * t), Math.round(60 + 160 * t), 255, 255);
+                }})
+                .to(0.38, { t: 0 }, { onUpdate: (o) => {
+                    if (!lbl.isValid) return;
+                    const t = o!.t;
+                    lbl.color = new Color(Math.round(200 + 55 * t), Math.round(60 + 160 * t), 255, 255);
+                }})
+                .call(colorPulse)
+                .start();
+        };
+        // Scale pulse: 1.0 ↔ 1.07, offset slightly from color pulse for organic feel
+        const scalePulse = () => {
+            if (!lbl.isValid) return;
+            tween(lbl.node)
+                .to(0.45, { scale: new Vec3(1.07, 1.07, 1) }, { easing: 'sineInOut' })
+                .to(0.45, { scale: new Vec3(1.0,  1.0,  1) }, { easing: 'sineInOut' })
+                .call(scalePulse)
+                .start();
+        };
+        tween(cp).delay(0.42).call(colorPulse).start();
+        tween(lbl.node).delay(0.50).call(scalePulse).start();
     }
 
     // ── screen shake ──────────────────────────────────────────────────────
@@ -198,24 +268,57 @@ export class VFXManager {
     // ── score / banners ───────────────────────────────────────────────────
 
     spawnFloatingScore(x: number, y: number, points: number, large = false): void {
+        // Outer node drives the float-up position only
         const node = new Node('FloatingScore');
         node.setParent(this.uiLayer);
         node.setSiblingIndex(this.uiLayer.children.length - 1);
-        node.setPosition(x, y);
+        node.setPosition(x, y + 75);
 
-        const lbl = node.addComponent(Label);
+        // Inner node drives the bubble scale pop-in independently
+        const inner = new Node('Inner');
+        inner.setParent(node);
+        inner.setScale(0, 0, 1);
+
+        const isPurple = points > 2000;
+        const isGolden = !isPurple && this._useGoldenText && points > 1000;
+        const lbl = inner.addComponent(Label);
         lbl.string   = points >= 0 ? `+${points}` : `${points}`;
-        lbl.fontSize = large ? 44 : 34;
+        lbl.fontSize = isPurple ? (large ? 64 : 52) : isGolden ? (large ? 58 : 46) : (large ? 44 : 34);
         lbl.isBold   = true;
-        lbl.color    = points >= 0 ? new Color(255, 220, 50, 255) : new Color(255, 80, 80, 255);
+        lbl.overflow      = Label.Overflow.NONE;
+        lbl.color         = points < 0 ? new Color(255, 80, 80, 255) : points <= 500 ? new Color(210, 210, 210, 255) : new Color(255, 255, 255, 255);
+        if (isPurple)      this._applyPurpleShine(lbl);
+        else if (isGolden) this._applyGoldenShine(lbl);
+        lbl.enableShadow  = true;
+        lbl.shadowColor   = new Color(0, 0, 0, 180);
+        lbl.shadowOffset  = new Vec2(2, -2);
+        lbl.shadowBlur    = 3;
+        this._applyFont(lbl);
 
-        const opacity = node.addComponent(UIOpacity);
-        opacity.opacity = 255;
+        const opacity = inner.addComponent(UIOpacity);
+        opacity.opacity = 0;
 
-        tween(node).by(0.9, { position: new Vec3(0, 90, 0) }).start();
-        tween(opacity).delay(0.35).to(0.55, { opacity: 0 })
-            .call(() => { if (node.isValid) node.destroy(); }).start();
+        // Bubble pop-in: scale 0 → 1 with backOut (automatic overshoot ~1.3 → settle 1.0)
+        tween(inner)
+            .to(0.38, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+            .start();
+
+        // Float up — small delay so the pop-in is visible before it starts moving
+        tween(node)
+            .delay(0.18)
+            .by(1.10, { position: new Vec3(0, 220, 0) }, { easing: 'quadOut' })
+            .start();
+
+        // Fade in fast, hold, then fade out
+        tween(opacity)
+            .to(0.12, { opacity: 255 })
+            .delay(1.0)
+            .to(0.65, { opacity: 0 })
+            .call(() => { if (node.isValid) node.destroy(); })
+            .start();
+
     }
+
 
     showRoundUpBanner(newRound: number, silhouetteFrame: SpriteFrame | null): void {
         const prevRound = newRound - 1;
@@ -263,7 +366,9 @@ export class VFXManager {
         wordLbl.string   = 'ROUND';
         wordLbl.fontSize = 44;
         wordLbl.isBold   = true;
+        wordLbl.overflow = Label.Overflow.NONE;
         wordLbl.color    = new Color(255, 255, 255, 255);
+        this._applyFont(wordLbl);
         const wordOp = wordNode.addComponent(UIOpacity);
         wordOp.opacity = 0;
         tween(wordOp)
@@ -282,6 +387,7 @@ export class VFXManager {
         curLbl.isBold   = true;
         curLbl.overflow = Label.Overflow.NONE;
         curLbl.color    = new Color(255, 220, 50, 255);
+        this._applyFont(curLbl);
         const curOp = curNode.addComponent(UIOpacity);
         curOp.opacity = 0;
         tween(curOp)
@@ -304,6 +410,7 @@ export class VFXManager {
         newLbl.isBold   = true;
         newLbl.overflow = Label.Overflow.NONE;
         newLbl.color    = new Color(255, 220, 50, 255);
+        this._applyFont(newLbl);
         const newOp = newNode.addComponent(UIOpacity);
         newOp.opacity = 0;
         tween(newOp)

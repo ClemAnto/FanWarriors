@@ -352,6 +352,7 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 - Swap: scambio bidirezionale — `curEnergy → _nextSlotBoostEnergy`, `nextEnergy → nw.levelBoost`
 - Preview aura: `updateNextPreview` mostra nodo aura su `nextNextWarriorNode` se `_nextSlotBoostEnergy >= 0`
 - `activateWarrior`: usa `_nextSlotBoostEnergy` se >= 0, altrimenti default (2 in test)
+- **Preview AURA size (v0.8.3)**: dimensione calcolata dinamicamente — `min = 148 × 0.8`, `size = min × 1.2^(energy−1)`, capped a `min × 2` (118→142→170→205 px per energy 1–4)
 
 ### Gotcha Tween
 **`Tween.stopAllByTarget(component)` quando non ci sono tween attivi corrompe il sistema tween CC3** — i tween successivi sullo stesso target completano istantaneamente. Usare sempre la reference all'istanza: `this._myTween = tween(...).start()` poi `this._myTween?.stop()`.
@@ -377,11 +378,63 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 ---
 
+## Floating score — tier visivi (v0.8.4+)
+
+`VFXManager.spawnFloatingScore()` applica stili diversi in base ai punti:
+
+| Punti | Colore | Font size | Effetto |
+|-------|--------|-----------|---------|
+| negativi | rosso `(255,80,80)` | 34 / 44 large | — |
+| 0–500 | grigio chiaro `(210,210,210)` | 34 / 44 large | — |
+| 501–1000 | bianco `(255,255,255)` | 34 / 44 large | — |
+| 1001–2000 | oro animato | 46 / 58 large | `_applyGoldenShine`: sweep gold→bright-gold→gold in 0.4s |
+| > 2000 | viola pulsante | 52 / 64 large | `_applyPurpleShine`: color pulse `(200,60,255)↔(255,220,255)` 0.76s/ciclo + scale pulse `1.0↔1.07` 0.9s/ciclo |
+
+Entrambi gli effetti speciali attivano anche `enableOutline` con outline scuro (3px) per effetto bold.
+Hold a opacità 100%: **1.0s** (era 0.55s). Nessuna particella (rimossa).
+
+---
+
+## Spawn log (v0.8.4+)
+
+`GameManager._spawnLog: Map<round, Map<type, count>>` — traccia quante creature di ogni tipo vengono spawnate per round.
+
+- Reset in `start()` (ogni partita) e in `resetDebugState()`
+- Registrato in `createWarrior()` e in `prefill()` (quest'ultimo conta round 1)
+- Stampato in console al game-over/vittoria con `_logSpawnReport()`
+
+Formato log:
+```
+[SpawnLog] ── Spawn report ──
+  Round 1: Frog×5, Cat×4, Chicken×3
+  Round 2: Wolf×2, Eagle×1
+  Total: Frog×5, Cat×4, Chicken×3, Wolf×2, Eagle×1
+```
+
+---
+
+## CRITICO — Box2D crash `b2BroadPhase.UpdatePairs` durante round-up (fix v0.8.4+)
+
+**Sintomo**: `Uncaught Error` in `b2TreeNode.get → b2BroadPhase.UpdatePairs → b2World.Step`, tipicamente al round-up 6+ mentre l'animazione banner finisce.
+
+**Causa**: durante il round-up `PhysicsSystem2D.instance.enable = false` per 2.16s, ma `update()` continuava ad applicare forze fisiche ai body Box2D (`applyMagnetism`, `applyUpwardDrift`, `applyCohesion`, `applyVortexImplosion`) e a triggherare merge di prossimità (`_checkProximityMerge`). Ogni `applyForce` su un body aggiunge il suo proxy al `m_moveBuffer` di Box2D. Senza `Step()` il buffer non viene mai consumato. Quando la fisica viene riabilitata, `UpdatePairs` processa proxy potenzialmente invalidi → crash.
+
+**Fix**: in `update()`, tutti i blocchi che toccano fisica sono ora guardati da `if (!this.roundUpPause)`:
+- `_checkProximityMerge(dt)`
+- `applyMagnetism()` / `applyUpwardDrift()`
+- `applyCohesion()`
+- `applyVortexImplosion(dt)`
+- `checkLineLogic(dt)`
+
+**Regola generale**: mai applicare forze a body Box2D mentre `PhysicsSystem2D.instance.enable = false`. Il buffer si accumula senza essere consumato → crash al prossimo `Step()`.
+
+---
+
 ## Cosa NON è ancora implementato (stato v0.7.2)
 
 - **Livelli massimi per specie** — nel codice tutti i tipi vanno fino a lv7, ma il GDD prevede cap diversi per specie (lv5/6/7 solo per alcune). Da implementare in Fase 3 quando arrivano gli asset definitivi.
 - **Timer: 4 stati visivi** — attualmente solo rosso sotto 5s; mancano gli stati "quasi invisibile" e "arancione pulse"
-- **Floating score tier system** — attualmente un solo stile; il GDD prevede 6 tier con dimensione/colore/FX
+- **Floating score tier system** — ✅ implementato (4 tier: grigio/bianco/oro/viola con effetti animati)
 - **Debug panel** — parzialmente migrato in scena (WinButton + FrogIcon draggable); la palette completa è ancora nel `DebugPanel.ts` programmatico
 - **Audio mancanti** — `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` referenziati ma file non presenti
 - **Font HUD** — nessun font custom ancora assegnato; raccomandato Press Start 2P (TTF in assets/fonts/, assegnare nell'editor alle Label)
@@ -575,19 +628,13 @@ URL live: **https://clemanto.github.io/FanWarriors/**
 `scripts/deploy.js` usa un repo git temporaneo in `os.tmpdir()` per aggirare il `.gitignore` root che esclude `native/` e `build/`. Senza questo workaround, i file in `assets/main/native/` (PNG degli asset Cocos) non venivano pushati e il gioco crashava con errore 4930.
 
 Flusso:
-1. Iniezione versione in `index.html` (`__VERSION__` → `pkg.version`)
+1. `patchHtml()` da `scripts/patch-html.js` — inietta versione + aggiunge `?v=VERSION` a tutti gli `<script src>` e a `System.import('./index.js')` (cache-busting, v0.8.3)
 2. Crea `.nojekyll` nella build dir (impedisce a GitHub Pages di girare Jekyll)
 3. Copia `build/web-mobile` in una dir temp
 4. Init git fresh + commit + `git push -f FanWarriors HEAD:gh-pages`
 5. Cleanup dir temp
 
-### `netlify.toml` — fix ordine header (2026-05-12)
-
-In Netlify l'ultima regola che fa match vince. La regola `/*` deve essere **prima**, le regole specifiche dopo. Ordine corretto nel file:
-1. `/*` — catch-all, cache 7 giorni (immagini, audio, font)
-2. `/**/*.html` / `/**/*.css` / `/**/*.js` / `/**/*.json` — `no-cache, no-store, must-revalidate`
-
-Cocos non hasha i nomi dei file JS/CSS, quindi senza `no-cache` il browser serve versioni vecchie dopo ogni deploy.
+**`scripts/patch-html.js`** — modulo condiviso usato da `serve-remote.js` e `deploy.js`. Sostituisce `__VERSION__`, poi aggiunge `?v=X.Y.Z` a ogni `src="*.js"`, `src="*.json"` e a `System.import('./index.js')`. Cocos non hasha i nomi dei file JS/CSS, quindi senza questo il browser serve versioni vecchie ad ogni deploy.
 
 ---
 

@@ -93,6 +93,12 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _nextSlotBoostEnergy  = -1;   // powerup energy stored in the "next" slot (-1 = none)
     private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
     private _trackClearedBonusUsed = false;
+    private _bestSingleScore = 0;
+    private _bestSingleScoreDesc = '';
+    private _spawnLog: Map<number, Map<number, number>> = new Map();
+
+    get bestSingleScore(): number { return this._bestSingleScore; }
+    get bestSingleScoreDesc(): string { return this._bestSingleScoreDesc; }
     private vfx!: VFXManager;
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
@@ -152,6 +158,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _scoreTween: Tween<{ val: number }> | null = null;
 
     start() {
+        this._spawnLog.clear();
         AudioManager.instance; // trigger singleton init + asset preload as early as possible
         this.scheduleOnce(() => AudioManager.instance.playMusic(), 0.5);
         AudioManager.instance.ensureMusic(); // fallback: play on first gesture if browser blocked autoplay
@@ -233,7 +240,9 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
-            this.warriors.push(...this.spawnMgr.prefill());
+            const prefilled = this.spawnMgr.prefill();
+            prefilled.forEach(w => this._recordSpawn(w.type, this.currentRound));
+            this.warriors.push(...prefilled);
             const firstWarrior = this.createWarrior();
             this.initHud();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
@@ -388,6 +397,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.totalMerges      = 0;
         this.mergesThisLaunch = 0;
         this.score            = 0;
+        this._bestSingleScore = 0;
+        this._bestSingleScoreDesc = '';
+        this._spawnLog.clear();
         this._trackClearedBonusUsed = false;
         this._scoreTween?.stop();
         this._scoreTween = null;
@@ -411,7 +423,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.tickSlowmo(dt);
         this._sortWarriorLayerByY();
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
-        this._checkProximityMerge(dt);
+        if (!this.roundUpPause) this._checkProximityMerge(dt);
         if (this.debugOverlay) {
             const g = this.debugOverlay;
             g.clear();
@@ -440,13 +452,15 @@ export class GameManager extends Component implements IGameManagerDebug {
                 });
             }
             this.zSortWarriors();
-            if (!this.timerPaused) {
-                this.applyMagnetism();
-                this.applyUpwardDrift();
+            if (!this.roundUpPause) {
+                if (!this.timerPaused) {
+                    this.applyMagnetism();
+                    this.applyUpwardDrift();
+                }
+                if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
+                if (this.implosionCenter) this.applyVortexImplosion(dt);
+                this.checkLineLogic(dt);
             }
-            if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
-            if (this.implosionCenter) this.applyVortexImplosion(dt);
-            this.checkLineLogic(dt);
             this._tickPowerupExpiry(dt);
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
@@ -460,6 +474,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
+        this._recordSpawn(w.type, this.currentRound);
         if (w.mapper) w.mapper.animScale = 0;
         // PerspectiveMapper.lateUpdate hasn't run yet for this brand-new component — hide viewNode
         // immediately so it doesn't flash at (0,0) for the first rendered frame.
@@ -618,8 +633,6 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private penaltyExplode(w: Warrior): void {
         if (this.timerPaused) return;
-        const y = w.node?.isValid ? w.node.position.y.toFixed(1) : '?';
-        const v = w.velocity.length().toFixed(2);
         w.playGameOverEffect();
         this.triggerGameOver();
     }
@@ -721,6 +734,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.bestScore = this.score;
             sys.localStorage.setItem('fw_best_score', String(this.bestScore));
         }
+        this._logSpawnReport();
         this.scheduleOnce(() => this.showGameOverScreen(), 0);
     }
 
@@ -762,6 +776,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         AudioManager.instance.duckMusicTo(0.15);
         AudioManager.instance.play(SFX.WIN);
 
+        this._logSpawnReport();
         const delay = Math.max(1.0, toExplode.length * 0.08 + 0.6);
         this.scheduleOnce(() => {
             AudioManager.instance.unduckMusic();
@@ -891,6 +906,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.checkRoundAdvance();
         const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
         this.score += points;
+        this._trackBestSingle(points, this.mergesThisLaunch > 1
+            ? `×${this.mergesThisLaunch} combo`
+            : `${WARRIORS[a.type]?.name ?? '?'} lv.${newLevel}`);
         this.vfx.spawnFloatingScore(midX, midYC, points, this.mergesThisLaunch > 1);
         this.updateScoreLabel();
         this.updateRoundProgress();
@@ -927,7 +945,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
                 this.score += bonus;
                 this.updateScoreLabel();
-                if (bonus > 0) this.vfx.spawnFloatingScore(midX, midYC + 30, bonus);
+                if (bonus > 0) {
+                    this._trackBestSingle(bonus, `${WARRIORS[aType]?.name ?? '?'} ${LEVEL_CONFIG[maxLevel]?.label ?? 'explosion'}`);
+                    this.vfx.spawnFloatingScore(midX, midYC + 30, bonus);
+                }
                 if (ghostFrame && ghostSize > 0) this.vfx.flashMergeGhost(ghostX, ghostY, ghostFrame, ghostSize);
                 this.vfx.spawnBlackhole(midX, midYC + a.radius * 0.9, a.radius, color, tier, maxLevel);
                 this.vfx.spawnImplosionVFX(midX, midYC, color, tier / 3, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
@@ -1032,6 +1053,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const newLevel = target.level + 1;
             const pts = 5 * newLevel * this.currentRound;
             this.score += pts;
+            this._trackBestSingle(pts, `AURA ${WARRIORS[target.type]?.name ?? '?'} lv.${newLevel}`);
             this.updateScoreLabel();
 
             if (newLevel > maxLevel) {
@@ -1089,6 +1111,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         if (bonus > 0) {
             this.score += bonus;
+            this._trackBestSingle(bonus, `${WARRIORS[w.type]?.name ?? '?'} ${LEVEL_CONFIG[maxLevel]?.label ?? 'explosion'}`);
             this.updateScoreLabel();
             this.vfx.spawnFloatingScore(x, yC + 30, bonus, true);
         }
@@ -1129,6 +1152,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._trackClearedBonusUsed = true;
         const bonus = 1000 * this.currentRound;
         this.score += bonus;
+        this._trackBestSingle(bonus, `Track Cleared! ×${this.currentRound}`);
         this.updateScoreLabel();
         this.vfx.spawnTrackClearedBanner(x, yC, bonus);
     }
@@ -1441,6 +1465,40 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._lastTickSec = secs;
             AudioManager.instance.play(SFX.TIMER_TICK);
         }
+    }
+
+    private _trackBestSingle(points: number, desc: string): void {
+        if (points > this._bestSingleScore) {
+            this._bestSingleScore = points;
+            this._bestSingleScoreDesc = desc;
+        }
+    }
+
+    private _recordSpawn(type: number, round: number): void {
+        let rm = this._spawnLog.get(round);
+        if (!rm) { rm = new Map(); this._spawnLog.set(round, rm); }
+        rm.set(type, (rm.get(type) ?? 0) + 1);
+    }
+
+    private _logSpawnReport(): void {
+        const rounds = [...this._spawnLog.keys()].sort((a, b) => a - b);
+        const totals = new Map<number, number>();
+        const lines: string[] = ['[SpawnLog] ── Spawn report ──'];
+        for (const r of rounds) {
+            const rm = this._spawnLog.get(r)!;
+            const parts: string[] = [];
+            for (const [type, count] of [...rm.entries()].sort((a, b) => a[0] - b[0])) {
+                const n = WARRIORS[type]?.name ?? `type${type}`;
+                parts.push(`${n}×${count}`);
+                totals.set(type, (totals.get(type) ?? 0) + count);
+            }
+            lines.push(`  Round ${r}: ${parts.join(', ')}`);
+        }
+        const totalParts = [...totals.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([type, count]) => `${WARRIORS[type]?.name ?? `type${type}`}×${count}`);
+        lines.push(`  Total: ${totalParts.join(', ')}`);
+        console.log(lines.join('\n'));
     }
 
     private updateScoreLabel(): void {

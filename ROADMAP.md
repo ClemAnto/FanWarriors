@@ -200,7 +200,7 @@
   - [ ] Round con animazione **scale-up + bounce** al cambio
   - [ ] Timer con 4 stati visivi (quasi invisibile → pulse rosso) + ticchettio audio ultimi 5s
   - [ ] Font HUD: **Press Start 2P** (assets/fonts/) — assegnare nell'editor alle Label
-- [ ] **6 stili floating score** (testo, colore, dimensione per ogni tier v1)
+- [x] **Floating score tier system** — 4 tier implementati: grigio (≤500), bianco (501–1000), oro+shine (1001–2000), viola+pulse (>2000); font MedievalSharp; bubble pop-in; hold 1s
 - [x] **Balestra** al posto della fionda: nodo rotante (punta UP a 0°) + bowstring a V + traiettoria puntini stile Puzzle Bubble (max 1 rimbalzo, stop alla game over line) — artwork da integrare
 - [ ] Anteprima NEXT definitiva
 - [ ] Schermata game over, pausa, tutorial popup definitivi
@@ -310,7 +310,7 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-24 — v0.8.2: raggi warrior +20%/livello (18→54), impulso esponente 2 (velocità costante), round ogni 20 merge, proximity merge esteso a warrior launched (non solo crossedLine) + timer 2s a 105% radii.
+> Aggiornato al 2026-05-24 — v0.8.3: preview AURA scala con energy (min −20%, +20%/livello, cap 2×); cache-busting `?v=VERSION` su tutti gli script in index.html via `scripts/patch-html.js`.
 
 1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
 2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)
