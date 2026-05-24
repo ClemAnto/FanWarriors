@@ -13,7 +13,7 @@ import { VFXManager } from './VFXManager';
 import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.8.3';
+const VERSION            = '0.8.4';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize

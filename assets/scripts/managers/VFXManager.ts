@@ -280,6 +280,7 @@ export class VFXManager {
         curLbl.string   = String(prevRound);
         curLbl.fontSize = 88;
         curLbl.isBold   = true;
+        curLbl.overflow = Label.Overflow.NONE;
         curLbl.color    = new Color(255, 220, 50, 255);
         const curOp = curNode.addComponent(UIOpacity);
         curOp.opacity = 0;
@@ -301,6 +302,7 @@ export class VFXManager {
         newLbl.string   = String(newRound);
         newLbl.fontSize = 88;
         newLbl.isBold   = true;
+        newLbl.overflow = Label.Overflow.NONE;
         newLbl.color    = new Color(255, 220, 50, 255);
         const newOp = newNode.addComponent(UIOpacity);
         newOp.opacity = 0;
