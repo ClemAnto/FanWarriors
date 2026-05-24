@@ -15,7 +15,7 @@ import { BloodhoodEffect } from '../entities/BloodhoodEffect';
 import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.8.6';
+const VERSION            = '0.8.7';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -240,10 +240,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.ropeParent = this.worldNode;
         this.inputCtrl.onLaunch     = (w, forcePct) => this.onWarriorLaunched(w, forcePct);
         this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
-        this.inputCtrl.onSwapNext   = () => this.swapNextWithLauncher();
         this.inputCtrl.getWarriors  = () => this.warriors;
-        this.inputCtrl.swapHitNode  = this.nextPreviewNode;
         this.inputCtrl.showBounds   = DEBUG_ENGINE;
+        this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLauncher(), this);
         this.inputCtrl.initialScale = LAYOUT_SCALE;
         this.syncInputBounds();
 
@@ -450,11 +449,14 @@ export class GameManager extends Component implements IGameManagerDebug {
     isBloodhoodAvailable(): boolean {
         if (this._bhCooldownLaunches > 0) return false;
         if (this._activeLauncherWarrior?.levelBoost) return false;
-        const typeCounts = new Map<number, number>();
-        for (const w of this.warriors) typeCounts.set(w.type, (typeCounts.get(w.type) ?? 0) + 1);
-        return [...typeCounts.values()].some(c => c >= 10);
+        return this.warriors.filter(w => w.crossedLine && w.node?.isValid).length > 30;
     }
     isBloodhoodEnabled(): boolean { return this.bloodhoodEnabled; }
+
+    private _logOnTrack(event: string): void {
+        const n = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
+        console.log(`[track] ${event} → ${n} warrior${n !== 1 ? 's' : ''} on track`);
+    }
 
     private _logSpeciesCounts(): void {
         const typeCounts = new Map<number, number>();
@@ -580,9 +582,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._launcherBloodhoodEffect?.detach();
         this._launcherBloodhoodEffect = null;
         if (!w.levelBoost && this._bhCooldownLaunches === 0) {
-            const typeCounts = new Map<number, number>();
-            for (const ww of this.warriors) typeCounts.set(ww.type, (typeCounts.get(ww.type) ?? 0) + 1);
-            this.bloodhoodEnabled = [...typeCounts.values()].some(c => c >= 10);
+            this.bloodhoodEnabled = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length > 30;
         } else {
             this.bloodhoodEnabled = false;
         }
@@ -1034,6 +1034,9 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._cleanupBHS(b);
             if (a.node.isValid) a.node.destroy();
             if (b.node.isValid) b.node.destroy();
+            this.warriors = this.warriors.filter(x => x !== a && x !== b);
+            this.framesAboveLine.delete(a); this.framesBelowLine.delete(a);
+            this.framesAboveLine.delete(b); this.framesBelowLine.delete(b);
 
             if (newLevel > maxLevel) {
                 // Both at max level — blackhole, no new warrior spawned
@@ -1073,6 +1076,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                     return;
                 }
                 this.checkTrackClearedBonus(midX, midYC);
+                this._logOnTrack('explosion');
                 if (inflightMerged) this.activateAfterInflightMerge();
                 return;
             }
@@ -1091,6 +1095,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             AudioManager.instance.play(mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)]);
             this.vfx.flashMerge(merged.mapper);
             this._vibrate(40);
+            this._logOnTrack('merge');
 
             if (inflightMerged) this.activateAfterInflightMerge();
         }, MERGE_OUT_DUR);
@@ -1188,7 +1193,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         const pts = Math.round(10 * this.currentRound * this._bhsImplodeK);
         this.score += pts;
         this.updateScoreLabel();
-        this.vfx.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), pts);
+        const wx  = w.node.position.x;
+        const wyC = this.coords.physToVisual(w.node.position.y);
+        this.vfx.spawnFloatingScore(wx, wyC, pts);
         this._bhsImplodeK += 1.5;
         const mapper = w.mapper;
         const finish = () => {
@@ -1196,6 +1203,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.framesAboveLine.delete(w);
             this.framesBelowLine.delete(w);
             if (w.node?.isValid) w.node.destroy();
+            this._logOnTrack('bhs-implode');
+            this.checkTrackClearedBonus(wx, wyC);
         };
         if (mapper?.node?.isValid) {
             Tween.stopAllByTarget(mapper);
@@ -1452,7 +1461,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                     }
                 }
             }
-            const menuButtonNode = this.node.parent!.getChildByName('MenuButton');
+            const menuButtonNode = existingHud.getChildByName('MenuButton');
             if (menuButtonNode) {
                 const btn = menuButtonNode.getComponent(Button) ?? menuButtonNode.addComponent(Button);
                 btn.node.on(Button.EventType.CLICK, this.openMenu, this);
