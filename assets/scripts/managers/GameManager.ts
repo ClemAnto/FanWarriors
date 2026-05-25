@@ -15,7 +15,7 @@ import { BloodhoodEffect } from '../entities/BloodhoodEffect';
 import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 const { ccclass } = _decorator;
 
-const VERSION            = '0.8.7';
+const VERSION            = '0.8.8';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -989,6 +989,16 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private mergeWarriors(a: Warrior, b: Warrior): void {
         if (this.timerPaused) { a.merging = false; b.merging = false; return; }
+        if (this.roundUpPause) {
+            // Physics may be disabled during round-up — defer until it's stable again.
+            // Creating/destroying Box2D bodies while PhysicsSystem2D is off leaves stale
+            // broadphase proxies that cause explosive behaviour on re-enable.
+            this.scheduleOnce(() => {
+                if (a.node?.isValid && b.node?.isValid) this.mergeWarriors(a, b);
+                else { a.merging = false; b.merging = false; }
+            }, 0.1);
+            return;
+        }
 
         // If the currently-inflight warrior (launched, not yet crossed) merges before reaching the
         // game-over line, checkLineLogic will never fire for it — we must activate the next warrior here.
@@ -1675,6 +1685,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private tickTimer(dt: number): void {
         if (this.timerPaused) return;
+        if (this.implosionCenter !== null) return; // freeze during blackhole explosion
         this.timerRemaining -= dt;
         this.updateTimerLabel();
         if (this.timerRemaining <= 0) {

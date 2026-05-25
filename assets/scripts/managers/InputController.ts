@@ -21,10 +21,8 @@ const TRAJ_DOT_ALPHA_END   = 0;
 export class InputController extends Component {
     onLaunch: ((warrior: Warrior, force: number) => void) | null = null;
     onTap:    ((warrior: Warrior) => void) | null = null;
-    onSwapNext: (() => void) | null = null;
     getWarriors: (() => readonly Warrior[]) | null = null;
     ropeParent: Node | null = null;
-    swapHitNode: Node | null = null;
     launchEnabled = true;
     blocked = false;       // set true by DebugPanel while it owns a drag gesture
     showBounds = false;
@@ -47,7 +45,6 @@ export class InputController extends Component {
     private launcherNode: Node | null = null;
     private lastTouchPos: Vec2 | null = null;
     private tapStartPos: Vec2 | null = null;
-    private _swapTapStart: Vec2 | null = null;
     private trajPhase = 0;
     private snapAnim: {
         elapsed: number; duration: number;
@@ -193,11 +190,7 @@ export class InputController extends Component {
             if (Math.sqrt(dx * dx + dy * dy) <= hitR) this.tapStartPos = new Vec2(touch.x, touch.y);
             return;
         }
-        if (this._isOnSwapNode(touch)) {
-            if (this.onSwapNext) this._swapTapStart = new Vec2(touch.x, touch.y);
-            return;
-        }
-        if (touch.y < 0) {
+        if (this._isInsideTrack(touch)) {
             this.dragging = true;
             AudioManager.instance.play(SFX.DRAW, 0.7);
         }
@@ -212,13 +205,6 @@ export class InputController extends Component {
 
     private handleDragEnd(touch: Vec2): void {
         if (this.blocked) { this.dragging = false; this.clearRope(); return; }
-        if (this._swapTapStart) {
-            const dx = touch.x - this._swapTapStart.x;
-            const dy = touch.y - this._swapTapStart.y;
-            this._swapTapStart = null;
-            if (Math.sqrt(dx * dx + dy * dy) < MIN_DRAG_BASE * this._scale) this.onSwapNext?.();
-            return;
-        }
         if (!this.launchEnabled && this.warrior && this.tapStartPos) {
             const dx = touch.x - this.tapStartPos.x;
             const dy = touch.y - this.tapStartPos.y;
@@ -528,16 +514,14 @@ export class InputController extends Component {
         return new Vec2(Math.sin(a), Math.cos(a));
     }
 
-    private _isOnSwapNode(touch: Vec2): boolean {
-        const n = this.swapHitNode;
-        if (!n?.isValid) return false;
-        const wp = n.worldPosition;
-        const ws = n.worldScale;
-        const uit = n.getComponent(UITransform);
-        const hw = (uit ? uit.contentSize.width  * 0.5 : 60) * Math.abs(ws.x);
-        const hh = (uit ? uit.contentSize.height * 0.5 : 60) * Math.abs(ws.y);
-        return touch.x >= wp.x - hw && touch.x <= wp.x + hw
-            && touch.y >= wp.y - hh && touch.y <= wp.y + hh;
+    private _isInsideTrack(touch: Vec2): boolean {
+        const lwA = this._lwA, lwB = this._lwB;
+        const rwA = this._rwA, rwB = this._rwB;
+        if (!lwA || !lwB || !rwA || !rwB) return touch.y < 0;
+        const t  = (touch.y - lwA.y) / (lwB.y - lwA.y);
+        const lx = lwA.x + (lwB.x - lwA.x) * t;
+        const rx = rwA.x + (rwB.x - rwA.x) * t;
+        return touch.x >= lx && touch.x <= rx;
     }
 
     private toWorld(ui: Vec2): Vec2 {

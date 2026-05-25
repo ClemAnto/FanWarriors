@@ -51,9 +51,9 @@ I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UIT
 
 **Balestra — angolo post-lancio**: la `snapAnim` non reimposta più l'angolo a 0. Il `launcherNode` rimane all'angolo del lancio fino al `clearWarrior()` (chiamato quando viene caricato il warrior successivo), che lo riporta a 0.
 
-**Swap Next (v0.6.16)** — `onSwapNext: (() => void) | null` in InputController. Meccanismo: in `handleDragStart`, se il tocco è fuori dai limiti orizzontali del track (`touch.x < _lwA.x - 20` o `> _rwA.x + 20`) il drag NON parte e viene salvata `_swapTapStart`. In `handleDragEnd`, se `_swapTapStart` è impostato e il tocco non si è spostato più di `MIN_DRAG`, viene chiamato `onSwapNext()`. GameManager collega `inputCtrl.onSwapNext = () => this.swapNextWithLauncher()`.
+**Swap Next (v0.8.6)** — listener diretto `nextPreviewNode.on(Node.EventType.TOUCH_END, () => this.swapNextWithLauncher(), this)` in GameManager. Rimosso il vecchio meccanismo `onSwapNext` + `_swapTapStart` da InputController. `_isInsideTrack()` delimita il drag alla geometria reale della pista (interpolazione pareti alla Y del tocco), quindi i tocchi sul NextPreview (fuori dal track) non avviano più il drag.
 
-**CRITICO — perché NON usare node-level touch events sul NextPreview**: il nodo NextPreview sta a y < 0 (zona inferiore schermo), quindi `handleDragStart` in InputController (listener globale) vede il tocco come drag valido. Al rilascio, la distanza release→warrior è ~295px >> `maxDrag` → il warrior viene **lanciato a piena forza** prima che il listener sul nodo possa attivarsi. Usare sempre l'approccio `onSwapNext` via InputController per tap in zone di gioco.
+**CRITICO — `getChildByName` cerca solo figli diretti**: in CC3, `node.getChildByName('X')` non fa ricerca ricorsiva. Per nodi annidati usare `existingHud.getChildByName('X')` se il nodo esatto è in scope, oppure `find('UILayer/HUD/X')` partendo dal root. Esempio bug: `this.node.parent!.getChildByName('MenuButton')` → Canvas cerca tra i figli diretti, ma MenuButton è a `Canvas > UILayer > HUD > MenuButton` → sempre null.
 
 **Traiettoria — collisione disco-disco**: `rayCircleT` usa `w.radius + this.warrior.radius` come raggio di collisione. Il raggio da solo (`w.radius`) causa stop anticipato — il corretto punto di stop è quando le superfici si toccano.
 
@@ -176,6 +176,17 @@ Dopo `node.destroy()`, l'accesso a `component.node` ritorna `null` nel tick succ
 ```typescript
 this.warriors = this.warriors.filter(w => w != null && w.node != null && w.node.isValid);
 ```
+
+### `node.isValid` non si aggiorna subito dopo `node.destroy()`
+In CC3, `node.destroy()` schedula la distruzione ma non imposta `isValid = false` immediatamente. Se si fa un check su `node.isValid` nello stesso frame (o nella stessa callback `scheduleOnce`) dopo `destroy()`, il nodo risulta ancora valido.
+
+**Fix obbligatorio**: dopo `node.destroy()`, filtrare **subito** l'array manualmente:
+```typescript
+if (a.node.isValid) a.node.destroy();
+if (b.node.isValid) b.node.destroy();
+this.warriors = this.warriors.filter(x => x !== a && x !== b); // <-- subito, non dopo
+```
+Non affidarsi a `w.node?.isValid` per escludere warrior appena distrutti — potrebbero ancora risultare validi.
 
 
 

@@ -589,27 +589,29 @@ export class VFXManager {
 
         const scoreNode = new Node('BonusScore');
         scoreNode.setParent(root);
-        scoreNode.setPosition(0, 24);
+        scoreNode.setPosition(0, 20);
         const scoreLbl = scoreNode.addComponent(Label);
         scoreLbl.string        = `+${points}`;
-        scoreLbl.fontSize      = 68;
+        scoreLbl.fontSize      = 50;
         scoreLbl.isBold        = true;
         scoreLbl.color         = new Color(255, 230, 50, 255);
         scoreLbl.enableOutline = true;
         scoreLbl.outlineColor  = new Color(0, 0, 0, 220);
         scoreLbl.outlineWidth  = 4;
+        this._applyFont(scoreLbl);
 
         const subNode = new Node('SubText');
         subNode.setParent(root);
-        subNode.setPosition(0, -28);
+        subNode.setPosition(0, -22);
         const subLbl = subNode.addComponent(Label);
         subLbl.string        = 'Track Cleared!';
-        subLbl.fontSize      = 30;
+        subLbl.fontSize      = 22;
         subLbl.isBold        = true;
         subLbl.color         = new Color(255, 255, 255, 255);
         subLbl.enableOutline = true;
         subLbl.outlineColor  = new Color(0, 0, 0, 200);
         subLbl.outlineWidth  = 2;
+        this._applyFont(subLbl);
 
         const op = root.addComponent(UIOpacity);
         op.opacity = 255;

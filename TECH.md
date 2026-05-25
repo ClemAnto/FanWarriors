@@ -208,3 +208,33 @@ A 60fps = ~50ms: impercettibile per il player, filtra tutti i glitch fisici.
 **Perché il blocco esplicito**: `InputController` registra listener globali (`input.on()`) e non legge `GameState` — senza `blocked = true`, il drag e la rotazione balestra continuano a rispondere durante la pausa. `PhysicsSystem2D.enable = false` ferma la simulazione ma non impedisce all'input di accumulare stato (drag start, direzione balestra).
 
 **Toggle sync**: al momento dell'apertura, `_syncingToggles = true` viene impostato prima di aggiornare `isChecked` dei Toggle (Vibrations, Sfx, Music, Fullscreen) per evitare che le callback dei toggle chiamino nuovamente le funzioni toggle. Il flag viene resettato subito dopo la sync.
+
+---
+
+## Swap NextPreview — listener diretto su nodo scena (v0.8.6)
+
+**Decisione**: il riconoscimento del tap su NextPreview non passa più dall'`InputController` globale. Il listener è ora diretto:
+```typescript
+this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLauncher(), this);
+```
+
+**Perché**: il vecchio approccio usava `_isOnSwapNode()` nell'handler globale `input.on(TOUCH_START)` con hit-test via coordinate canvas vs worldPosition. Questa conversione era fragile (coordinate space mismatch tra world node e UI canvas) e causava swap accidentali al click di altri elementi. Con il listener sul nodo, CC3 fa l'hit-test correttamente e il trigger è garantito solo sul nodo.
+
+**Rimosso da InputController**: campi `onSwapNext`, `swapHitNode`, `_swapTapStart`; metodo `_isOnSwapNode`; blocchi in `handleDragStart`/`handleDragEnd`.
+
+**Bug aperto (v0.8.6)**: dopo questa modifica il MenuButton ha smesso di aprire il menu. Causa sospettata ma non confermata: possibile interferenza del `TOUCH_END` registrato su `nextPreviewNode` (nodo World) con il `Button.EventType.CLICK` del MenuButton (nodo UILayer) via il sistema di dispatching CC3. Da investigare nella prossima sessione.
+
+---
+
+## InputController — drag limitato alla pista (v0.8.6)
+
+**Decisione**: il drag della traiettoria inizia solo se il tocco cade dentro la pista (orizzontalmente tra le pareti, a qualunque altezza), non più ovunque con `touch.y < 0`.
+
+**Implementazione**: metodo `_isInsideTrack(touch)` in InputController — interpolazione lineare della X delle pareti alla Y del tocco:
+```typescript
+const t  = (touch.y - lwA.y) / (lwB.y - lwA.y);
+const lx = lwA.x + (lwB.x - lwA.x) * t;
+const rx = rwA.x + (rwB.x - rwA.x) * t;
+return touch.x >= lx && touch.x <= rx;
+```
+Fallback `touch.y < 0` se i bounds non sono ancora settati. Le coordinate sono in canvas-centered space (stesso sistema di `WALL_L*`/`WALL_R*` esportati da Track.ts).
