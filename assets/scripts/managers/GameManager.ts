@@ -636,6 +636,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private checkLaunchResult(w: Warrior): void {
         if (!w.node?.isValid || w.crossedLine || this.state === GameState.GameOver) return;
         if (this.inflightWarrior !== w) return;
+        if (this.roundUpPause) { this.scheduleOnce(() => this.checkLaunchResult(w), 0.3); return; }
         if (w.node.position.y >= this.gameOverLineLocal) return;
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
@@ -1186,6 +1187,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _startBHSCascade(): void {
         if (this._bhsImploding) return;
+        if (this.state === GameState.GameOver) return;
         this._bhsImploding = true;
         const toImplode = [...this._bhsOrder].reverse();
         let delay = 0;
@@ -1397,6 +1399,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private activateAfterInflightMerge(): void {
+        if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
         if (this.waitForSettling) {
             this.state = GameState.Settling;
         } else {
