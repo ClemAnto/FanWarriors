@@ -9,7 +9,7 @@ const PANEL_SCALE = 1.5;  // visual scale applied to the whole panel node
 // ── Panel geometry (world space, canvas 720×1280 centred at origin) ──
 const CX         = 230;   // centre x — right side of track, portrait-visible (X:±360)
 const PANEL_TOP  =  68;   // below HUD NEXT preview (which sits at y≈90)
-const PANEL_BOT  = -352;
+const PANEL_BOT  = -386;
 const PANEL_W    =  230;
 const PANEL_HALF = PANEL_W / 2;
 
@@ -24,14 +24,26 @@ const DIV2_Y = -78;  // MERGES ↔ SAVE/LOAD/RESET
 const DIV3_Y = -110; // SAVE   ↔ PALETTE
 const DIV4_Y = -302; // PALETTE ↔ WIN
 
-// WIN + BH button row (side by side)
+// WIN + BH + PF + AURA button row (four buttons)
 const WIN_BTN_Y  = -322;
 const WIN_BTN_H  =   26;
-const WIN_BTN_W  =   95;
-const WIN_CX     =  CX - 42;   // 188 — shifted left to make room for BH
-const BH_BTN_W   =   58;
-const BH_CX      =  CX + 48;   // 278
+const WIN_BTN_W  =   58;
+const WIN_CX     =  CX - 78;   // 152
+const BH_BTN_W   =   43;
+const BH_CX      =  CX - 23;   // 207
 const BH_BTN_H   =  WIN_BTN_H;
+const PF_BTN_W   =   43;
+const PF_CX      =  CX + 32;   // 262
+const PF_BTN_H   =  WIN_BTN_H;
+const AURA_BTN_W =   43;
+const AURA_CX    =  CX + 87;   // 317
+const AURA_BTN_H =  WIN_BTN_H;
+
+// GN (Genocide) button — second row below WIN/BH/PF/AURA
+const GN_BTN_Y   = -356;
+const GN_BTN_W   =  160;
+const GN_BTN_H   =   26;
+const GN_CX      =  CX;        // 230
 
 // Round row
 const ROUND_LBL_Y  =   2;
@@ -61,8 +73,6 @@ const PAL_START_Y  = -138;
 const ICON_R       =   15;
 const ICON_SPACING =   26;
 
-const MAX_ROUND = 7;
-
 // ── Interface exposed to GameManager ──
 
 export interface IGameManagerDebug {
@@ -84,6 +94,9 @@ export interface IGameManagerDebug {
     debugWin(): void;
     toggleBloodhood(): void;
     isBloodhoodEnabled(): boolean;
+    activatePsychoForce(): void;
+    activateAura(): void;
+    activateGenocide(): void;
 }
 
 @ccclass('DebugPanel')
@@ -102,6 +115,12 @@ export class DebugPanel extends Component {
     private winLbl!: Label;
     private bhPressed  = false;
     private bhLbl!: Label;
+    private pfPressed   = false;
+    private pfLbl!:   Label;
+    private auraPressed = false;
+    private auraLbl!: Label;
+    private gnPressed   = false;
+    private gnLbl!:   Label;
     private pauseFlash = false;
     private ghost: Node | null = null;
     private dragType = -1;
@@ -175,9 +194,14 @@ export class DebugPanel extends Component {
             this.lbl(String(t), CX + ICON_R + 12, y, 10, WARRIORS[t]?.color ?? new Color(200, 200, 200));
         }
 
-        // WIN + BH buttons
-        this.winLbl = this.lbl('🏆 WIN!', WIN_CX, WIN_BTN_Y, 11, new Color(255, 220, 50, 255));
-        this.bhLbl  = this.lbl('BH', BH_CX, WIN_BTN_Y, 13, new Color(200, 100, 255, 255));
+        // WIN + BH + PF + AURA buttons
+        this.winLbl  = this.lbl('🏆 WIN!', WIN_CX,  WIN_BTN_Y, 10, new Color(255, 220, 50, 255));
+        this.bhLbl   = this.lbl('BH',      BH_CX,   WIN_BTN_Y, 13, new Color(200, 100, 255, 255));
+        this.pfLbl   = this.lbl('PF',      PF_CX,   WIN_BTN_Y, 13, new Color(60, 220, 255, 255));
+        this.auraLbl = this.lbl('AURA',    AURA_CX, WIN_BTN_Y, 11, new Color(255, 190, 40, 255));
+
+        // GN button
+        this.gnLbl = this.lbl('☠ GENOCIDE', GN_CX, GN_BTN_Y, 11, new Color(255, 60, 60, 255));
     }
 
     private drawPanel(): void {
@@ -282,6 +306,33 @@ export class DebugPanel extends Component {
         g.rect(BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H);
         g.fill();
         g.rect(BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H);
+        g.stroke();
+
+        // PF button (cyan flash on press)
+        g.fillColor   = this.pfPressed ? new Color(60, 220, 255, 255) : new Color(10, 55, 80, 230);
+        g.strokeColor = this.pfPressed ? new Color(200, 255, 255, 255) : new Color(40, 180, 220, 180);
+        g.lineWidth   = this.pfPressed ? 2.5 : 1.5;
+        g.rect(PF_CX - PF_BTN_W / 2, WIN_BTN_Y - PF_BTN_H / 2, PF_BTN_W, PF_BTN_H);
+        g.fill();
+        g.rect(PF_CX - PF_BTN_W / 2, WIN_BTN_Y - PF_BTN_H / 2, PF_BTN_W, PF_BTN_H);
+        g.stroke();
+
+        // AURA button (orange flash on press)
+        g.fillColor   = this.auraPressed ? new Color(255, 180, 30, 255) : new Color(80, 45, 5, 230);
+        g.strokeColor = this.auraPressed ? new Color(255, 240, 160, 255) : new Color(200, 130, 20, 180);
+        g.lineWidth   = this.auraPressed ? 2.5 : 1.5;
+        g.rect(AURA_CX - AURA_BTN_W / 2, WIN_BTN_Y - AURA_BTN_H / 2, AURA_BTN_W, AURA_BTN_H);
+        g.fill();
+        g.rect(AURA_CX - AURA_BTN_W / 2, WIN_BTN_Y - AURA_BTN_H / 2, AURA_BTN_W, AURA_BTN_H);
+        g.stroke();
+
+        // GN (Genocide) button — red flash on press
+        g.fillColor   = this.gnPressed ? new Color(220, 30, 30, 255) : new Color(80, 10, 10, 230);
+        g.strokeColor = this.gnPressed ? new Color(255, 140, 140, 255) : new Color(180, 40, 40, 180);
+        g.lineWidth   = this.gnPressed ? 2.5 : 1.5;
+        g.rect(GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H);
+        g.fill();
+        g.rect(GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H);
         g.stroke();
 
         // Palette icons (7 types, level 1)
@@ -391,7 +442,7 @@ export class DebugPanel extends Component {
         }
         // Round +
         if (this.inRect(p, CX + ROUND_BTN_GAP - ROUND_BTN_W / 2, ROUND_ROW_Y - ROUND_BTN_H / 2, ROUND_BTN_W, ROUND_BTN_H)) {
-            this.gm.setDebugRound(Math.min(MAX_ROUND, this.gm.getCurrentRound() + 1));
+            this.gm.setDebugRound(this.gm.getCurrentRound() + 1);
             this.refresh();
             return;
         }
@@ -441,6 +492,33 @@ export class DebugPanel extends Component {
                 ? new Color(220, 140, 255, 255)
                 : new Color(200, 100, 255, 255);
             this.drawPanel();
+            return;
+        }
+
+        // PF — activate PsychoForce on launcher
+        if (this.inRect(p, PF_CX - PF_BTN_W / 2, WIN_BTN_Y - PF_BTN_H / 2, PF_BTN_W, PF_BTN_H)) {
+            this.pfPressed = true;
+            this.drawPanel();
+            this.scheduleOnce(() => { this.pfPressed = false; this.drawPanel(); }, 0.18);
+            this.gm.activatePsychoForce();
+            return;
+        }
+
+        // AURA — activate Aura on launcher
+        if (this.inRect(p, AURA_CX - AURA_BTN_W / 2, WIN_BTN_Y - AURA_BTN_H / 2, AURA_BTN_W, AURA_BTN_H)) {
+            this.auraPressed = true;
+            this.drawPanel();
+            this.scheduleOnce(() => { this.auraPressed = false; this.drawPanel(); }, 0.18);
+            this.gm.activateAura();
+            return;
+        }
+
+        // GN — activate Genocide on launcher
+        if (this.inRect(p, GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H)) {
+            this.gnPressed = true;
+            this.drawPanel();
+            this.scheduleOnce(() => { this.gnPressed = false; this.drawPanel(); }, 0.18);
+            this.gm.activateGenocide();
             return;
         }
 

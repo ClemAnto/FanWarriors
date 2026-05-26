@@ -6,15 +6,13 @@ import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { AudioManager, SFX } from '../managers/AudioManager';
 const { ccclass } = _decorator;
 
-export interface ILevelBoost {
-    readonly energy: number;
-    readonly activationMs: number;
-    detach(): void;
-    resetActivation(): void;
-}
-
 export interface IBloodhoodSparkle {
     detach(): void;
+}
+
+export interface IPsychoForce {
+    detach(): void;
+    resetTimer(): void;
 }
 
 const MERGE_DELAY      = 0.3;
@@ -45,15 +43,17 @@ export class Warrior extends Component {
     hitOtherWarrior: boolean = false;
     viewNode!: Node;
     mapper: PerspectiveMapper | null = null;
+    psychoForce: IPsychoForce | null = null;
+    onPsychoContact: ((source: Warrior, target: Warrior) => void) | null = null;
+    onGenocideContact: ((source: Warrior, target: Warrior) => void) | null = null;
+    genocideInfected: boolean = false;
 
     get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE; }
     get velocity(): Vec2 { return this.getComponent(RigidBody2D)?.linearVelocity ?? new Vec2(0, 0); }
     set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
-    onAuraContact: ((source: Warrior, target: Warrior) => void) | null = null;
     onBloodhoodContact: ((source: Warrior, target: Warrior) => void) | null = null;
-    levelBoost: ILevelBoost | null = null;
     bloodhoodSparkle: IBloodhoodSparkle | null = null;
     isBHLauncher = false;
     private _lastHitSoundMs = 0;
@@ -118,6 +118,7 @@ export class Warrior extends Component {
 
     private mergeCallbacks    = new Map<Warrior, () => void>();
     private _bhsContactCbs   = new Map<Warrior, () => void>();
+    private _gnContactCbs    = new Map<Warrior, () => void>();
 
     static spawn(parent: Node, visualParent: Node, type: number, level: number, x: number, y: number): Warrior {
         const node = new Node('Warrior');
@@ -236,14 +237,6 @@ export class Warrior extends Component {
 
         if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;
 
-        // AURA contact — fire from the side that owns the AURA
-        if (this.levelBoost && this.crossedLine && otherW) {
-            const src = this, tgt = otherW;
-            this.scheduleOnce(() => {
-                if (src.node?.isValid && tgt.node?.isValid) src.onAuraContact?.(src, tgt);
-            }, 0);
-        }
-
         // Bloodhood contact — spread only after 300ms of sustained contact
         if (this.onBloodhoodContact && otherW && !this._bhsContactCbs.has(otherW)) {
             const src = this, tgt = otherW;
@@ -255,9 +248,28 @@ export class Warrior extends Component {
             this.scheduleOnce(cb, BHS_CONTACT_DELAY);
         }
 
-        if (otherW.type !== this.type || otherW.level !== this.level) return;
+        // PsychoForce spread — fires once (callback cleared in GameManager after first use)
+        if (this.psychoForce && otherW.crossedLine) {
+            this.onPsychoContact?.(this, otherW);
+        }
+
+        // Genocide contact — immediate trigger (next frame via scheduleOnce 0)
+        if (this.onGenocideContact && otherW.crossedLine && !this._gnContactCbs.has(otherW)) {
+            const src = this, tgt = otherW;
+            const cb = () => {
+                this._gnContactCbs.delete(tgt);
+                if (src.node?.isValid && tgt.node?.isValid) src.onGenocideContact?.(src, tgt);
+            };
+            this._gnContactCbs.set(tgt, cb);
+            this.scheduleOnce(cb, 0);
+        }
+
+        if (otherW.level !== this.level) return;
+        if (otherW.type !== this.type && !this.psychoForce && !otherW.psychoForce) return;
         if (this.bloodhoodSparkle || otherW.bloodhoodSparkle) return;
         if (this.onBloodhoodContact || otherW.onBloodhoodContact) return;
+        if (this.onGenocideContact || otherW.onGenocideContact) return;
+        if (this.genocideInfected    || otherW.genocideInfected)    return;
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
 
         // Snap: equalize velocities so they don't bounce apart
@@ -293,6 +305,11 @@ export class Warrior extends Component {
         if (bhsCb) {
             this.unschedule(bhsCb);
             this._bhsContactCbs.delete(otherW);
+        }
+        const gnCb = this._gnContactCbs.get(otherW);
+        if (gnCb) {
+            this.unschedule(gnCb);
+            this._gnContactCbs.delete(otherW);
         }
     }
 

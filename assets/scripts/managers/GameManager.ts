@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, Button, Toggle, director, sys, view, ResolutionPolicy, Sprite, ProgressBar } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, Button, Toggle, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -10,16 +10,18 @@ import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
 import { VFXManager } from './VFXManager';
-import { LevelBoostPowerup } from '../entities/LevelBoostPowerup';
+import { AuraEffect } from '../entities/AuraEffect';
+import { PsychoForceEffect } from '../entities/PsychoForceEffect';
 import { BloodhoodEffect } from '../entities/BloodhoodEffect';
 import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
-const { ccclass } = _decorator;
+import { GenocideEffect } from '../entities/GenocideEffect';
+import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
+const { ccclass, property } = _decorator;
 
-const VERSION            = '0.8.8';
+const VERSION            = '0.8.20';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
-const MAX_ROUND          = 7;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
 const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
 const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
@@ -31,10 +33,25 @@ const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warri
 const FAILED_LAUNCH_MALUS  = 50;    // score penalty when launched warrior fails to cross the line
 const CROSS_LINE_FRAMES    = 3;     // consecutive frames above gol before crossedLine is committed (prevents grazing false-positive)
 const GAME_OVER_FRAMES     = 3;     // consecutive frames below gol before game over triggers (prevents physics-jitter false-positive)
-const AURA_SETTLE_CD         = 1.0;  // seconds after warrior settles before AURA expires
+
 const BHS_PROX_INTERVAL      = 0.08; // seconds between BHS proximity spread checks
+const AURA_REPEL_RANGE       = 160;  // design-px — max distance at which repelling force is applied
+const AURA_REPEL_FORCE       = 500;  // base force magnitude (design-px units, scaled by LAYOUT_SCALE)
+const AURA_ZAPP_HOLD         = 0.2;  // seconds a warrior must stay in range before being zapped
 const BHS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
 const BHS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before BHS spreads
+const PF_PROX_INTERVAL       = 0.08;
+const PF_PROX_MARGIN         = 60;
+const PF_CONTACT_DELAY       = 0.15;
+const GENOCIDE_PROX_MARGIN   = 20;   // extra px beyond touch radius to trigger cascade
+const GENOCIDE_CASCADE_DELAY = 0.3;  // seconds between each infection step (nearest → farthest)
+const GENOCIDE_IMPLODE_HOLD  = 0.5;  // seconds from infection to implosion
+const GENOCIDE_EXPIRE_SEC    = 2.0;  // max carrier duration before effect expires
+const GENOCIDE_PROX_INTERVAL = 0.06; // seconds between proximity checks
+const VORTEX_RANGE_BASE      = 70;   // design px per level (level 1 = 70, level 5 = 350)
+const VORTEX_FORCE_BASE      = 220;  // force units per level
+const VORTEX_TTL_BASE        = 0.5;  // base vortex duration in seconds
+const VORTEX_TTL_LEVEL       = 0.15; // extra seconds per level
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
@@ -53,6 +70,7 @@ function spawnMaxLevelForRound(round: number): number {
 
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManagerDebug {
+    @property(Prefab) psychoSparklePrefab: Prefab | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -92,10 +110,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _dangerCooldown = 0;
     private _slowmoTimer    = 0;
     private _slowmoScale    = 1.0;
-    private _boostedThisTurn: Set<Warrior> = new Set();
-    private _powerupSettleCds = new Map<Warrior, number>();
     private _proximityTimers = new Map<string, number>();
-    private _nextSlotBoostEnergy  = -1;   // powerup energy stored in the "next" slot (-1 = none)
+    private _auraWarrior:    Warrior | null = null;
+    private _auraEffect:     AuraEffect | null = null;
+    private _auraProxTimers   = new Map<Warrior, number>();
+    private _zapTargetEnergy  = new Map<Warrior, { energy: number; count: number }>();
+    private _zapTimerFrozen   = false;
+    private static _zapSparkGlobalIdx = 0;
     private _launcherBloodhoodEffect: BloodhoodEffect | null = null;
     private _bhsActive = new Map<Warrior, BloodhoodSparkleEffect>();
     private _bhsProxTimer = 0;
@@ -103,10 +124,28 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _bhLaunchWarrior: Warrior | null = null;
     private _bhLaunchEffect: BloodhoodSparkleEffect | null = null;
     private _bhsOrder: Warrior[] = [];
+    private _pfActive       = new Map<Warrior, Sprite | null>();
+    private _pfOrder:         Warrior[] = [];
+    private _pfProxTimer    = 0;
+    private _pfProxTimers   = new Map<Warrior, number>();
+    private _pfImploding    = false;
+    private _pfImplodeK     = 1;
+    private _pfLaunchWarrior: Warrior | null = null;
+    private _pfCooldownLaunches = 0;
+    psychoForceEnabled      = false;
     private _bhsImploding = false;
     private _bhsImplodeK = 1;
-    private _bhCooldownLaunches = 0;
     bloodhoodEnabled = false;
+    private _bhCooldownLaunches = 0;
+    private _gnCooldownLaunches = 0;
+    private _nextPowerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null = null;
+    private _nextPowerupPending = false;
+    private _genocideCarrier:   Warrior | null = null;
+    private _genocideEffect:    GenocideEffect | null = null;
+    private _genocideTriggered  = false;
+    private _genocideProxTimer  = 0;
+    private _gnTimerStarted     = false;
+    private _activeVortices: { x: number; y: number; range: number; force: number; ttl: number }[] = [];
     private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
     private _trackClearedBonusUsed = false;
     private _bestSingleScore = 0;
@@ -165,7 +204,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private roundProgressBar: ProgressBar | null = null;
     private nextPreviewNode: Node | null = null;
     private nextNextWarriorNode: Node | null = null;
-    private _nextPreviewAuraNode: Node | null = null;
+    private _nextPreviewGlowNode: Node | null = null;
+
     private nextLaunchWarrior: Warrior | null = null;
     private _activeLauncherWarrior: Warrior | null = null;
     private timerLabel: Label | null = null;
@@ -323,7 +363,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     getCurrentRound(): number { return this.currentRound; }
 
     setDebugRound(r: number): void {
-        this.currentRound = Math.max(1, Math.min(MAX_ROUND, r));
+        this.currentRound = Math.max(1, r);
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.timerRemaining = launchTimerForRound(this.currentRound);
@@ -391,7 +431,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         for (const s of state.warriors) this.addDebugWarrior(s.type, s.level, s.x, s.y);
 
-        this.currentRound = Math.max(1, Math.min(MAX_ROUND, state.round));
+        this.currentRound = Math.max(1, state.round);
         this.totalMerges  = Math.max(0, state.totalMerges);
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
@@ -447,11 +487,222 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     isBloodhoodAvailable(): boolean {
-        if (this._bhCooldownLaunches > 0) return false;
-        if (this._activeLauncherWarrior?.levelBoost) return false;
         return this.warriors.filter(w => w.crossedLine && w.node?.isValid).length > 30;
     }
     isBloodhoodEnabled(): boolean { return this.bloodhoodEnabled; }
+
+    activateAura(): void {
+        const w = this._activeLauncherWarrior;
+        if (!w?.node?.isValid) return;
+        // Disattiva qualsiasi altro powerup attivo sul launcher
+        if (this.bloodhoodEnabled) {
+            this._launcherBloodhoodEffect?.detach();
+            this._launcherBloodhoodEffect = null;
+            this.bloodhoodEnabled = false;
+        }
+        if (this.psychoForceEnabled || w.psychoForce) {
+            w.psychoForce?.detach();
+            w.psychoForce = null;
+            this.psychoForceEnabled = false;
+        }
+        if (this._genocideCarrier === w) this._expireGenocide();
+        this._auraEffect?.detach();
+        this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
+        this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+        this._auraWarrior = w;
+    }
+
+    activatePsychoForce(): void {
+        if (this.psychoForceEnabled) return;
+        const w = this._activeLauncherWarrior;
+        if (!w?.node?.isValid) return;
+        this.psychoForceEnabled = true;
+        if (!w.psychoForce) {
+            const pfe = PsychoForceEffect.attach(w, this.vfx.auraFrame, true);
+            w.psychoForce = pfe;
+        }
+    }
+
+    activateGenocide(): void {
+        const w = this._activeLauncherWarrior;
+        if (!w?.node?.isValid) return;
+        this._expireGenocide();
+        const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        ge.onExpired = () => this._expireGenocide();
+        w.onGenocideContact = (s, t) => this._onGenocideContact(s, t);
+        this._genocideCarrier   = w;
+        this._genocideEffect    = ge;
+        this._genocideTriggered = false;
+        this._genocideProxTimer = 0;
+        this._gnTimerStarted    = false;
+        console.log('[Genocide] effect activated on launcher');
+    }
+
+    private _applyPendingPowerup(w: Warrior, powerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide'): void {
+        this._launcherBloodhoodEffect?.detach();
+        this._launcherBloodhoodEffect = null;
+        this.bloodhoodEnabled = false;
+        if (w.psychoForce) { w.psychoForce.detach(); w.psychoForce = null; }
+        this.psychoForceEnabled = false;
+        if (this._auraWarrior === w) {
+            this._restoreAuraScales();
+            this._auraEffect?.detach();
+            this._auraEffect = null;
+            this._auraWarrior = null;
+            this._auraProxTimers.clear();
+        }
+        if (this._genocideCarrier === w) this._expireGenocide();
+        if (powerup === 'aura') {
+            this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
+            this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+            this._auraWarrior = w;
+        } else if (powerup === 'psychoForce') {
+            this.psychoForceEnabled = true;
+            w.psychoForce = PsychoForceEffect.attach(w, this.vfx.auraFrame, true);
+        } else if (powerup === 'bloodhood') {
+            this.bloodhoodEnabled = true;
+            this._launcherBloodhoodEffect = BloodhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        } else {
+            const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+            ge.onExpired = () => this._expireGenocide();
+            w.onGenocideContact = (s, t) => this._onGenocideContact(s, t);
+            this._genocideCarrier   = w;
+            this._genocideEffect    = ge;
+            this._genocideTriggered = false;
+            this._genocideProxTimer = 0;
+            this._gnTimerStarted    = false;
+        }
+    }
+
+    // --- genocide powerup ---
+
+    private _onGenocideContact(source: Warrior, target: Warrior): void {
+        if (this._genocideTriggered) return;
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        this._triggerGenocideCascade(target.type);
+    }
+
+    private _expireGenocide(): void {
+        if (this._genocideCarrier) this._genocideCarrier.onGenocideContact = null;
+        this._genocideEffect?.detach();
+        this._genocideEffect    = null;
+        this._genocideCarrier   = null;
+        this._genocideTriggered = false;
+        this._genocideProxTimer = 0;
+        this._gnTimerStarted    = false;
+    }
+
+    private _tickGenocideProximity(): void {
+        const carrier = this._genocideCarrier!;
+        if (!carrier.node?.isValid) { this._expireGenocide(); return; }
+        const cp = carrier.node.position;
+        for (const w of this.warriors) {
+            if (w === carrier || !w.node?.isValid || !w.crossedLine) continue;
+            const wp = w.node.position;
+            const dx = cp.x - wp.x, dy = cp.y - wp.y;
+            const threshold = carrier.radius + w.radius + GENOCIDE_PROX_MARGIN * LAYOUT_SCALE;
+            if (dx * dx + dy * dy <= threshold * threshold) {
+                this._triggerGenocideCascade(w.type);
+                return;
+            }
+        }
+    }
+
+    private _triggerGenocideCascade(targetType: number): void {
+        if (this._genocideTriggered) return;
+        this._genocideTriggered = true;
+        console.log(`[Genocide] cascade on type=${targetType}`);
+
+        this._genocideEffect?.detach();
+        this._genocideEffect = null;
+
+        const carrier = this._genocideCarrier;
+        if (carrier) carrier.onGenocideContact = null;
+        const cp = carrier?.node?.isValid ? carrier.node.position : null;
+
+        const targets = this.warriors.filter(w =>
+            w !== carrier && w.crossedLine && w.node?.isValid && w.type === targetType
+        );
+
+        if (cp) {
+            targets.sort((a, b) => {
+                const ap = a.node.position, bp = b.node.position;
+                const da = (ap.x - cp.x) ** 2 + (ap.y - cp.y) ** 2;
+                const db = (bp.x - cp.x) ** 2 + (bp.y - cp.y) ** 2;
+                return da - db;
+            });
+        }
+
+        for (let i = 0; i < targets.length; i++) {
+            const w = targets[i];
+            w.genocideInfected = true;
+            const infectDelay = i * GENOCIDE_CASCADE_DELAY;
+            this.scheduleOnce(() => {
+                if (!w.node?.isValid) return;
+                const gns = GenocideSparkleEffect.attach(w);
+                this.scheduleOnce(() => this._implodeGenocideWarrior(w, gns), GENOCIDE_IMPLODE_HOLD);
+            }, infectDelay);
+        }
+
+        this._genocideCarrier = null;
+    }
+
+    private _implodeGenocideWarrior(w: Warrior, gns: GenocideSparkleEffect): void {
+        if (!w.node?.isValid) return;
+        gns.detach();
+        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));
+        this.score += pts;
+        this.updateScoreLabel();
+        this.updateRoundProgress();
+        const wx  = w.node.position.x;
+        const wyC = this.coords.physToVisual(w.node.position.y);
+        this.vfx.spawnFloatingScore(wx, wyC, pts);
+        this._activeVortices.push({
+            x:     wx,
+            y:     w.node.position.y,
+            range: VORTEX_RANGE_BASE * w.level * LAYOUT_SCALE,
+            force: VORTEX_FORCE_BASE * w.level * LAYOUT_SCALE,
+            ttl:   VORTEX_TTL_BASE + w.level * VORTEX_TTL_LEVEL,
+        });
+        const mapper = w.mapper;
+        const finish = () => {
+            this.warriors = this.warriors.filter(x => x !== w);
+            this.framesAboveLine.delete(w);
+            this.framesBelowLine.delete(w);
+            if (w.node?.isValid) w.node.destroy();
+            this._logOnTrack('genocide-implode');
+            this.checkTrackClearedBonus(wx, wyC);
+        };
+        if (mapper?.node?.isValid) {
+            Tween.stopAllByTarget(mapper);
+            tween(mapper)
+                .to(0.10, { animScale: 1.5 }, { easing: 'quadOut' })
+                .to(0.20, { animScale: 0.0 }, { easing: 'quadIn'  })
+                .call(finish)
+                .start();
+        } else {
+            finish();
+        }
+    }
+
+    private _tickVortexForces(): void {
+        const sx = this.box2dLayer.scale.x;
+        const sy = this.box2dLayer.scale.y;
+        for (const v of this._activeVortices) {
+            for (const w of this.warriors) {
+                if (!w.node?.isValid || w.merging) continue;
+                const wp  = w.node.position;
+                const dxL = v.x - wp.x;
+                const dyL = v.y - wp.y;
+                const dist = Math.sqrt((dxL * sx) ** 2 + (dyL * sy) ** 2);
+                if (dist <= 0 || dist > v.range) continue;
+                const t   = 1 - dist / v.range;
+                const f   = v.force * t;
+                const len = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
+                w.applyForce(new Vec2(dxL / len * f, dyL / len * f));
+            }
+        }
+    }
 
     private _logOnTrack(event: string): void {
         const n = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
@@ -465,7 +716,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             .sort((a, b) => b[1] - a[1])
             .map(([t, n]) => `${WARRIORS[t]?.name ?? t}=${n}`)
             .join(' ');
-        console.log(`[species] ${log} | cd=${this._bhCooldownLaunches}`);
+        console.log(`[species] ${log}`);
     }
 
     update(dt: number) {
@@ -508,10 +759,12 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this.applyUpwardDrift();
                 }
                 if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
+                if (this._auraWarrior?.node?.isValid && this._auraWarrior.crossedLine) {
+                    this._applyAuraRepel(dt);
+                }
                 if (this.implosionCenter) this.applyVortexImplosion(dt);
                 this.checkLineLogic(dt);
             }
-            this._tickPowerupExpiry(dt);
             if (this._bhLaunchWarrior?.node?.isValid) {
                 if (this._bhLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
                     this._bhLaunchWarrior.onBloodhoodContact = null;
@@ -535,6 +788,47 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this._tickBHSProximity();
                 }
             }
+            if (this._pfLaunchWarrior?.node?.isValid) {
+                if (this._pfLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
+                    this._pfLaunchWarrior.onPsychoContact = null;
+                    this._pfLaunchWarrior = null;
+                    this.psychoForceEnabled = false;
+                    this.scheduleOnce(() => this._startPFCascade(), 0.3);
+                }
+            } else if (this._pfLaunchWarrior) {
+                this._pfLaunchWarrior = null;
+                this.psychoForceEnabled = false;
+                this.scheduleOnce(() => this._startPFCascade(), 0.3);
+            }
+            if (this._pfActive.size > 0) {
+                this._pfProxTimer += dt;
+                if (this._pfProxTimer >= PF_PROX_INTERVAL) {
+                    this._pfProxTimer = 0;
+                    this._tickPFProximity();
+                }
+            }
+            if (this._genocideCarrier?.node?.isValid && !this._genocideTriggered) {
+                if (!this._gnTimerStarted &&
+                    this._genocideCarrier.crossedLine &&
+                    this._genocideCarrier.velocity.length() < SETTLE_VELOCITY) {
+                    this._gnTimerStarted = true;
+                    this._genocideEffect?.startTimer(GENOCIDE_EXPIRE_SEC);
+                }
+                this._genocideProxTimer += dt;
+                if (this._genocideProxTimer >= GENOCIDE_PROX_INTERVAL) {
+                    this._genocideProxTimer = 0;
+                    this._tickGenocideProximity();
+                }
+            } else if (this._genocideCarrier && !this._genocideCarrier.node?.isValid) {
+                this._expireGenocide();
+            }
+            if (this._activeVortices.length > 0) {
+                for (let i = this._activeVortices.length - 1; i >= 0; i--) {
+                    this._activeVortices[i].ttl -= dt;
+                    if (this._activeVortices[i].ttl <= 0) this._activeVortices.splice(i, 1);
+                }
+                if (this._activeVortices.length > 0) this._tickVortexForces();
+            }
             if (this.state === GameState.Settling) this.checkSettled();
             if (this.state === GameState.Aiming)   this.tickTimer(dt);
             this.updateDebugLabel();
@@ -548,12 +842,14 @@ export class GameManager extends Component implements IGameManagerDebug {
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
         this._recordSpawn(w.type, this.currentRound);
+        this._checkFirstAura(w);
         if (w.mapper) w.mapper.animScale = 0;
         // PerspectiveMapper.lateUpdate hasn't run yet for this brand-new component — hide viewNode
         // immediately so it doesn't flash at (0,0) for the first rendered frame.
         if (w.viewNode?.isValid) w.viewNode.setScale(0, 0, 1);
         this.warriors.push(w);
         this.nextLaunchWarrior = w;
+        if (this._nextPowerup) this._nextPowerupPending = true;
         return w;
     }
 
@@ -565,29 +861,48 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.state = GameState.Aiming;
         this.updateTimerLabel();
 
-        this._boostedThisTurn.clear();
-
-        this._nextSlotBoostEnergy = -1;
-
-        if (!this._firstLaunchSpecies.has(w.type)) {
-            this._firstLaunchSpecies.add(w.type);
-            const energy = w.type - 2;
-            if (energy > 0) {
-                const lb = LevelBoostPowerup.attach(w, energy, this.vfx.sparkleFrame, this.vfx.auraFrame);
-                w.levelBoost = lb;
-                w.onAuraContact = (s, t) => this._onAuraContact(s, t);
-            }
+        // Detach aura if it's still on the incoming launcher (e.g. re-activation edge case)
+        if (this._auraWarrior === w) {
+            this._restoreAuraScales();
+            this._auraEffect?.detach();
+            this._auraEffect  = null;
+            this._auraWarrior = null;
+            this._auraProxTimers.clear();
         }
 
         this._launcherBloodhoodEffect?.detach();
         this._launcherBloodhoodEffect = null;
-        if (!w.levelBoost && this._bhCooldownLaunches === 0) {
-            this.bloodhoodEnabled = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length > 30;
-        } else {
-            this.bloodhoodEnabled = false;
+
+        // Genocide auto: ≥25 warrior sul track, cooldown 10 tiri
+        const onTrack = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length;
+        if (onTrack >= 25 && this._gnCooldownLaunches === 0 && !this._genocideCarrier && this._nextPowerup !== 'aura') {
+            this._expireGenocide();
+            const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+            ge.onExpired = () => this._expireGenocide();
+            w.onGenocideContact = (s, t) => this._onGenocideContact(s, t);
+            this._genocideCarrier   = w;
+            this._genocideEffect    = ge;
+            this._genocideTriggered = false;
+            this._genocideProxTimer = 0;
+            this._gnTimerStarted    = false;
         }
+
+        // Bloodhood (debug toggle only)
         if (this.bloodhoodEnabled) {
             this._launcherBloodhoodEffect = BloodhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        }
+
+        // PsychoForce auto-activation disabled
+        this.psychoForceEnabled = false;
+        if (this.psychoForceEnabled) {
+            const pfe = PsychoForceEffect.attach(w, this.vfx.auraFrame, true);
+            w.psychoForce = pfe;
+        }
+
+        if (this._nextPowerupPending && this._nextPowerup) {
+            this._nextPowerupPending = false;
+            this._applyPendingPowerup(w, this._nextPowerup);
+            this._nextPowerup = null;
         }
     }
 
@@ -611,6 +926,35 @@ export class GameManager extends Component implements IGameManagerDebug {
         } else if (this._bhCooldownLaunches > 0) {
             this._bhCooldownLaunches--;
         }
+        if (this._genocideCarrier === w) {
+            this._gnCooldownLaunches = 10;
+        } else if (this._gnCooldownLaunches > 0) {
+            this._gnCooldownLaunches--;
+        }
+        if (this.psychoForceEnabled) {
+            this._pfCooldownLaunches = 10;
+            this._pfOrder      = [];
+            this._pfImploding  = false;
+            this._pfImplodeK   = 1;
+            w.onPsychoContact  = (s, t) => this._onPFContact(s, t);
+            this._pfLaunchWarrior = w;
+        } else if (this._pfCooldownLaunches > 0) {
+            this._pfCooldownLaunches--;
+        }
+        // Strip powerup visuals from any warrior already on track — residual effects continue on their own
+        if (this._auraWarrior && this._auraWarrior !== w && this._auraWarrior.crossedLine) {
+            this._auraEffect?.detach();
+            this._auraEffect = null;
+            this._restoreAuraScales();
+            this._auraWarrior = null;
+            this._auraProxTimers.clear();
+        }
+        if (this._pfLaunchWarrior && this._pfLaunchWarrior !== w && this._pfLaunchWarrior.crossedLine) {
+            this._pfLaunchWarrior.psychoForce?.detach();
+            this._pfLaunchWarrior.psychoForce = null;
+        }
+        if (this._auraWarrior === w) this._auraEffect?.startTimer();
+
         this.state = GameState.Inflight;
         this.inflightWarrior = w;
         this._lastTickSec = -1;
@@ -625,7 +969,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const inPlay = this.warriors.filter(w => w.launched && w.node?.isValid);
         inPlay.forEach(w => { if (w.velocity.length() < SETTLE_VELOCITY) w.forceStop(); });
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
-        if (this._bhsActive.size > 0 || this._bhLaunchWarrior !== null) return;
+        if (this._bhsActive.size > 0 || this._bhLaunchWarrior !== null || this._pfActive.size > 0 || this._pfLaunchWarrior !== null) return;
 
         AudioManager.instance.play(SFX.LAND, 0.5);
         this.activateWarrior(this.createWarrior());
@@ -656,6 +1000,24 @@ export class GameManager extends Component implements IGameManagerDebug {
         AudioManager.instance.play(SFX.MALUS);
         this.vfx.spawnFloatingScore(w.node.position.x, this.coords.physToVisual(w.node.position.y), -FAILED_LAUNCH_MALUS);
         this.updateScoreLabel();
+
+        // Powerup lost on failed launch
+        if (this._pfLaunchWarrior === w) {
+            w.psychoForce?.detach();
+            w.psychoForce = null;
+            w.onPsychoContact = null;
+            this._pfLaunchWarrior = null;
+            this.psychoForceEnabled = false;
+        }
+        if (this._bhLaunchWarrior === w) {
+            this._bhLaunchEffect?.detach();
+            this._bhLaunchEffect = null;
+            w.isBHLauncher = false;
+            w.onBloodhoodContact = null;
+            this._bhLaunchWarrior = null;
+            this.bloodhoodEnabled = false;
+        }
+        if (this._genocideCarrier === w) this._expireGenocide();
 
         w.launched = false;
         w.forceStop();
@@ -690,9 +1052,11 @@ export class GameManager extends Component implements IGameManagerDebug {
                         this.framesBelowLine.delete(w);
                         w.crossedLine = true;
                         w.settled = true;
-                        w.levelBoost?.resetActivation();
+                        if (w.onPsychoContact === null && this._pfLaunchWarrior === w) {
+                            w.onPsychoContact = (s, t) => this._onPFContact(s, t);
+                        }
                         if (this.state === GameState.Inflight) {
-                            if (this.waitForSettling || this._bhLaunchWarrior !== null || this._bhsActive.size > 0) {
+                            if (this.waitForSettling || this._bhLaunchWarrior !== null || this._bhsActive.size > 0 || this._pfLaunchWarrior !== null || this._pfActive.size > 0) {
                                 this.state = GameState.Settling;
                             } else {
                                 this.activateWarrior(this.createWarrior());
@@ -773,11 +1137,36 @@ export class GameManager extends Component implements IGameManagerDebug {
         const spawnX = cur.node.position.x;
         const spawnY = cur.node.position.y;
 
-        // Bidirectional swap: launcher energy → next slot, next slot energy → new launcher
-        const curEnergy  = cur.levelBoost?.energy ?? -1;
-        const nextEnergy = this._nextSlotBoostEnergy;
-        cur.levelBoost = null;
-        this._nextSlotBoostEnergy = curEnergy;
+        // Powerup on cur follows it to the next slot; save what was pending for nw (from a previous swap)
+        const curPowerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null =
+            (this._auraWarrior === cur)      ? 'aura' :
+            (cur.psychoForce != null)        ? 'psychoForce' :
+            this.bloodhoodEnabled            ? 'bloodhood' :
+            (this._genocideCarrier === cur)  ? 'genocide' : null;
+        const pendingForNw = this._nextPowerup;
+        this._nextPowerup  = curPowerup;
+
+        if (this._auraWarrior === cur) {
+            this._restoreAuraScales();
+            this._auraEffect?.detach();
+            this._auraEffect  = null;
+            this._auraWarrior = null;
+            this._auraProxTimers.clear();
+        }
+        if (curPowerup === 'psychoForce') {
+            cur.psychoForce?.detach();
+            this.psychoForceEnabled = false;
+        }
+        if (curPowerup === 'bloodhood') {
+            this.bloodhoodEnabled = false;
+        }
+        if (curPowerup === 'genocide') {
+            this._genocideEffect?.detach();
+            this._genocideEffect    = null;
+            this._genocideCarrier   = null;
+            this._genocideTriggered = false;
+            this._gnTimerStarted    = false;
+        }
 
         this.warriors = this.warriors.filter(w => w !== cur);
         this.framesAboveLine.delete(cur);
@@ -791,21 +1180,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._activeLauncherWarrior = nw;
         this.nextLaunchWarrior = nw;
 
-        let effectiveEnergy = nextEnergy;
-        if (!this._firstLaunchSpecies.has(nw.type)) {
-            this._firstLaunchSpecies.add(nw.type);
-            const firstEnergy = nw.type - 2;
-            if (firstEnergy > effectiveEnergy) effectiveEnergy = firstEnergy;
-        }
-        if (effectiveEnergy >= 0) {
-            const lb = LevelBoostPowerup.attach(nw, effectiveEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
-            nw.levelBoost = lb;
-            nw.onAuraContact = (s, t) => this._onAuraContact(s, t);
-        }
+        this._checkFirstAura(nw);
 
         this._launcherBloodhoodEffect?.detach();
         this._launcherBloodhoodEffect = null;
-        if (this.bloodhoodEnabled) {
+        if (pendingForNw) {
+            this._applyPendingPowerup(nw, pendingForNw);
+        } else if (this.bloodhoodEnabled) {
             this._launcherBloodhoodEffect = BloodhoodEffect.attach(nw, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
 
@@ -1009,17 +1390,29 @@ export class GameManager extends Component implements IGameManagerDebug {
         const midX  = (a.node.position.x + b.node.position.x) / 2;  // local (scaleX=1 → canvas)
         const midY  = (a.node.position.y + b.node.position.y) / 2;  // local
         const midYC = this.coords.physToVisual(midY);                 // canvas Y for UI/VFX
+
+        // PsychoForce cross-type merge: result uses the receiver's type (the one not carrying the aura)
+        const isPsychoMerge    = a.type !== b.type && (a.psychoForce !== null || b.psychoForce !== null);
+        const parentWasPsycho  = a.psychoForce !== null || b.psychoForce !== null;
+        const aType            = isPsychoMerge
+            ? (b.psychoForce !== null && a.psychoForce === null ? a.type : b.type)
+            : a.type;
+
         const newLevel = a.level + 1;
-        const maxLevel = WARRIORS[a.type]?.maxLevel ?? 7;
+        const maxLevel = WARRIORS[aType]?.maxLevel ?? 7;
         const vx = (a.velocity.x + b.velocity.x) * 0.5 * 0.75;
         const vy = (a.velocity.y + b.velocity.y) * 0.5 * 0.75;
 
         this.framesAboveLine.delete(a); this.framesBelowLine.delete(a);
         this.framesAboveLine.delete(b); this.framesBelowLine.delete(b);
 
-        this.totalMerges++;
+        const isEffectMerge = isPsychoMerge ||
+            a.bloodhoodSparkle != null || b.bloodhoodSparkle != null;
+        if (!isEffectMerge) {
+            this.totalMerges++;
+            this.checkRoundAdvance();
+        }
         this.mergesThisLaunch++;
-        this.checkRoundAdvance();
         const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
         this.score += points;
         this._trackBestSingle(points, this.mergesThisLaunch > 1
@@ -1032,7 +1425,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         const MERGE_OUT_DUR = 0.12;
         a.playMergeOutEffect(midX, midY, MERGE_OUT_DUR);
         b.playMergeOutEffect(midX, midY, MERGE_OUT_DUR);
-        const aType       = a.type;
         const ghostFrame  = a.viewNode?.isValid ? a.viewNode.getComponent(Sprite)?.spriteFrame ?? null : null;
         const ghostSize   = a.viewNode?.isValid ? (a.viewNode.getComponent(UITransform)?.contentSize.width ?? 0) : 0;
         const ghostX      = a.viewNode?.isValid && b.viewNode?.isValid
@@ -1043,6 +1435,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             this._cleanupBHS(a);
             this._cleanupBHS(b);
+            this._cleanupPF(a);
+            this._cleanupPF(b);
+            const auraInvolved = a === this._auraWarrior || b === this._auraWarrior;
+            if (auraInvolved) {
+                this._auraEffect?.detach();
+                this._auraEffect = null;
+                this._auraProxTimers.clear();
+            }
             if (a.node.isValid) a.node.destroy();
             if (b.node.isValid) b.node.destroy();
             this.warriors = this.warriors.filter(x => x !== a && x !== b);
@@ -1088,6 +1488,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 }
                 this.checkTrackClearedBonus(midX, midYC);
                 this._logOnTrack('explosion');
+                if (auraInvolved) { this._restoreAuraScales(); this._auraWarrior = null; }
                 if (inflightMerged) this.activateAfterInflightMerge();
                 return;
             }
@@ -1101,6 +1502,14 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.warriors.push(merged);
             if (merged.mapper) merged.mapper.animScale = 0;
             merged.playMergeInEffect(0.35);
+            if (parentWasPsycho) this._applyPF(merged);
+            if (auraInvolved) {
+                this._restoreAuraScales();
+                this._auraEffect = AuraEffect.attach(merged, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(merged.type) * LAYOUT_SCALE);
+                this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+                this._auraEffect.startTimer();
+                this._auraWarrior = merged;
+            }
 
             const mergeSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
             AudioManager.instance.play(mergeSfxs[Math.min(newLevel - 2, mergeSfxs.length - 1)]);
@@ -1110,6 +1519,195 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             if (inflightMerged) this.activateAfterInflightMerge();
         }, MERGE_OUT_DUR);
+    }
+
+    // --- psycho force ---
+
+    private _cleanupPF(w: Warrior): void {
+        if (this._pfActive.has(w)) {
+            const sp = this._pfActive.get(w) ?? null;
+            this._pfActive.delete(w);
+            if (sp?.node?.isValid) tween(sp).to(0.25, { color: new Color(255, 255, 255, 255) }).start();
+        } else {
+            w.psychoForce?.detach(); // launcher: rimuove PsychoForceEffect
+        }
+        w.psychoForce = null;
+        w.onPsychoContact = null;
+        if (this._pfLaunchWarrior === w) {
+            this._pfLaunchWarrior = null;
+            this.psychoForceEnabled = false;
+        }
+        this._pfOrder = this._pfOrder.filter(x => x !== w);
+        this._pfProxTimers.delete(w);
+    }
+
+    private _applyPF(target: Warrior): void {
+        if (this._pfActive.has(target)) return;
+        if (this._pfImploding) return;
+        if (target === this._pfLaunchWarrior) return;
+        if (!target.node?.isValid || !target.crossedLine) return;
+        console.log(`[PF] infect type=${target.type} lv=${target.level}`);
+
+        // Tinta ciano direttamente sullo sprite del warrior (no overlay)
+        const sp = target.viewNode?.getComponent(Sprite) ?? null;
+        if (sp) tween(sp).to(0.25, { color: new Color(0, 200, 255, 255) }).start();
+
+        // psychoForce stub: serve per abilitare merge cross-specie e per il check cleanup
+        target.psychoForce = { detach: () => {}, resetTimer: () => {} };
+        target.onPsychoContact = (s, t) => this._onPFSpread(s, t);
+        this._pfActive.set(target, sp);
+        this._pfOrder.push(target);
+        this._playPFInfectAnim(target);
+    }
+
+    private _spawnPFLaser(canvasY: number): void {
+        if (!this.psychoSparklePrefab || !this.warriorsLayer?.isValid) return;
+        const n = instantiate(this.psychoSparklePrefab);
+        n.setParent(this.warriorsLayer);
+        n.layer = this.warriorsLayer.layer;
+        n.setPosition(0, canvasY, 0);
+        n.children.forEach(c => { c.layer = this.warriorsLayer.layer; });
+        const atom = n.getChildByName('atom');
+        if (atom) {
+            const ut = atom.getComponent(UITransform);
+            if (ut) ut.setContentSize(TRACK_W * 3, 126);
+        }
+        const op = atom?.getComponent(UIOpacity) ?? atom?.addComponent(UIOpacity) ?? null;
+        if (op) {
+            op.opacity = 230;
+            tween(op).delay(0.05).to(0.30, { opacity: 0 })
+                .call(() => { if (n.isValid) n.destroy(); }).start();
+        } else {
+            this.scheduleOnce(() => { if (n.isValid) n.destroy(); }, 0.40);
+        }
+    }
+
+    private _isHorizontalContact(dx: number, dy: number): boolean {
+        return dx > dy;
+    }
+
+    private _onPFContact(source: Warrior, target: Warrior): void {
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        if (source === target || !target.crossedLine) return;
+        const dx = Math.abs(target.node.position.x - source.node.position.x);
+        const dy = Math.abs(target.node.position.y - source.node.position.y);
+        if (this._isHorizontalContact(dx, dy) || target.type === source.type) {
+            this._applyPF(target);
+            const vy = target.viewNode?.isValid
+                ? target.viewNode.position.y
+                : this.coords.physToVisual(target.node.position.y);
+            this._spawnPFLaser(vy);
+        }
+    }
+
+    private _onPFSpread(source: Warrior, target: Warrior): void {
+        if (!source.node?.isValid || !target.node?.isValid) return;
+        if (source === target || !target.crossedLine) return;
+        const dx = Math.abs(target.node.position.x - source.node.position.x);
+        const dy = Math.abs(target.node.position.y - source.node.position.y);
+        if (this._isHorizontalContact(dx, dy) || target.type === source.type) {
+            this._applyPF(target);
+        }
+    }
+
+    private _tickPFProximity(): void {
+        const inRange = new Map<Warrior, Warrior>();
+
+        for (const [pfW] of this._pfActive) {
+            if (!pfW.node?.isValid) continue;
+            const pos = pfW.node.position;
+            for (const w of this.warriors) {
+                if (w === pfW || w === this._pfLaunchWarrior) continue;
+                if (!w.node?.isValid || !w.crossedLine) continue;
+                if (this._pfActive.has(w)) continue;
+                const wp  = w.node.position;
+                const dx  = Math.abs(pos.x - wp.x);
+                const dy  = Math.abs(pos.y - wp.y);
+                const thr = pfW.radius + w.radius + PF_PROX_MARGIN * LAYOUT_SCALE;
+                if (dx * dx + dy * dy <= thr * thr) {
+                    if (this._isHorizontalContact(dx, dy) || w.type === pfW.type) {
+                        if (!inRange.has(w)) inRange.set(w, pfW);
+                    }
+                }
+            }
+        }
+
+        for (const w of this._pfProxTimers.keys()) {
+            if (!inRange.has(w) || this._pfActive.has(w)) this._pfProxTimers.delete(w);
+        }
+        for (const [w] of inRange) {
+            if (this._pfActive.has(w) || this._pfImploding) continue;
+            const t = (this._pfProxTimers.get(w) ?? 0) + PF_PROX_INTERVAL;
+            if (t >= PF_CONTACT_DELAY) {
+                this._pfProxTimers.delete(w);
+                this._applyPF(w);
+            } else {
+                this._pfProxTimers.set(w, t);
+            }
+        }
+    }
+
+    private _startPFCascade(): void {
+        if (this._pfImploding) return;
+        if (this.state === GameState.GameOver) return;
+        this._pfImploding = true;
+        const toImplode = [...this._pfOrder].reverse();
+        let delay = 0;
+        for (const w of toImplode) {
+            this.scheduleOnce(() => this._implodePFWarrior(w), delay);
+            delay += 0.12;
+        }
+    }
+
+    private _implodePFWarrior(w: Warrior): void {
+        if (!w.node?.isValid || !this._pfActive.has(w)) return;
+        this._cleanupPF(w);
+        const pts = Math.round(8 * this.currentRound * this._pfImplodeK);
+        this.score += pts;
+        this.updateScoreLabel();
+        this.updateRoundProgress();
+        const wx  = w.node.position.x;
+        const wyC = this.coords.physToVisual(w.node.position.y);
+        this.vfx.spawnFloatingScore(wx, wyC, pts);
+        this._pfImplodeK += 1.5;
+        const mapper = w.mapper;
+        const finish = () => {
+            this.warriors = this.warriors.filter(x => x !== w);
+            this.framesAboveLine.delete(w);
+            this.framesBelowLine.delete(w);
+            if (w.node?.isValid) w.node.destroy();
+            this._logOnTrack('pf-implode');
+            this.checkTrackClearedBonus(wx, wyC);
+        };
+        if (mapper?.node?.isValid) {
+            Tween.stopAllByTarget(mapper);
+            tween(mapper)
+                .to(0.10, { animScale: 1.5 }, { easing: 'quadOut' })
+                .to(0.20, { animScale: 0.0 }, { easing: 'quadIn' })
+                .call(finish)
+                .start();
+        } else {
+            finish();
+        }
+    }
+
+    private _playPFInfectAnim(w: Warrior): void {
+        const mapper = w.mapper;
+        if (!mapper?.node?.isValid) return;
+
+        // Y hop via bounceY (PerspectiveMapper applica l'offset in lateUpdate)
+        tween(mapper)
+            .to(0.18, { bounceY: 35 }, { easing: 'quadOut' })
+            .to(0.20, { bounceY: 0  }, { easing: 'quadIn'  })
+            .start();
+
+        // Squash-and-stretch sincronizzato col hop
+        tween(mapper)
+            .to(0.05, { animScale: 0.82, squashX: 1.22 })                           // squash (anticipo)
+            .to(0.13, { animScale: 1.22, squashX: 0.86 })                           // stretch (salto)
+            .to(0.08, { animScale: 0.88, squashX: 1.18 })                           // squash (atterraggio)
+            .to(0.24, { animScale: 1.0,  squashX: 1.0  }, { easing: 'elasticOut' }) // settle
+            .start();
     }
 
     // --- bloodhood sparkle ---
@@ -1230,160 +1828,398 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    // --- level-boost powerup ---
+    // --- aura powerup ---
 
-    private _onAuraContact(source: Warrior, target: Warrior): void {
-        if (!source.levelBoost || source.levelBoost.energy <= 0 || !source.crossedLine) return;
-        if (!source.node?.isValid || !target.node?.isValid) return;
-        if (this._boostedThisTurn.has(target)) return;
-        this.applyLevelBoost(source, target);
+    private _auraRangeForType(type: number): number {
+        // Eagle (type 4) = 160 px baseline; range scales linearly with species index
+        return AURA_REPEL_RANGE * (type + 1) / 5;
     }
 
-    private _checkAuraImmediateContacts(source: Warrior): void {
-        if (!source.levelBoost || source.levelBoost.energy <= 0 || !source.node?.isValid) return;
-        const sp = source.node.position;
-        for (const w of this.warriors) {
-            if (w === source || !w.node?.isValid) continue;
-            if (this._boostedThisTurn.has(w)) continue;
-            const wp = w.node.position;
-            const dx = sp.x - wp.x;
-            const dy = sp.y - wp.y;
-            const touchDist = (source.radius + w.radius) * 2.0;
-            if (dx * dx + dy * dy <= touchDist * touchDist) {
-                this._onAuraContact(source, w);
+    private _restoreAuraScales(): void {
+        const targets = new Set<Warrior>([
+            ...this._zapTargetEnergy.keys(),
+            ...(this._auraWarrior ? [this._auraWarrior] : []),
+        ]);
+        for (const w of targets) {
+            if (w.mapper && w.node?.isValid && Math.abs(w.mapper.animScale - 1.0) > 0.01) {
+                tween(w.mapper).to(0.15, { animScale: 1.0 }, { easing: 'quadOut' }).start();
             }
         }
     }
 
-    private _tickPowerupExpiry(dt: number): void {
+    private _applyAuraRepel(dt: number): void {
+        const src   = this._auraWarrior!;
+        const sp    = src.node.position;
+        const sx    = this.box2dLayer.scale.x;
+        const sy    = this.box2dLayer.scale.y;
+        const range = this._auraRangeForType(src.type) * LAYOUT_SCALE;
+        const baseF = AURA_REPEL_FORCE * LAYOUT_SCALE;
+        const toZap: Warrior[] = [];
+
         for (const w of this.warriors) {
-            if (!w.levelBoost || !w.crossedLine || !w.node?.isValid) {
-                this._powerupSettleCds.delete(w);
+            if (w === src || !w.node?.isValid || !w.crossedLine || w.merging) continue;
+            const wp  = w.node.position;
+            const dxL = wp.x - sp.x;
+            const dyL = wp.y - sp.y;
+            const dist = Math.sqrt((dxL * sx) ** 2 + (dyL * sy) ** 2);
+            if (dist <= 0 || dist > range) {
+                this._auraProxTimers.delete(w);
                 continue;
             }
-            if (w.velocity.length() >= SETTLE_VELOCITY) {
-                this._powerupSettleCds.delete(w);
-                continue;
-            }
-            const firstSettle = !this._powerupSettleCds.has(w);
-            const cd = (this._powerupSettleCds.get(w) ?? AURA_SETTLE_CD) - dt;
-            if (firstSettle) this.scheduleOnce(() => this._checkAuraImmediateContacts(w), 0);
-            if (cd <= 0) {
-                w.levelBoost.detach();
-                w.levelBoost = null;
-                this._powerupSettleCds.delete(w);
+            const t   = 1 - dist / range;
+            const f   = baseF * t;
+            const len = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
+            w.applyForce(new Vec2(dxL / len * f, dyL / len * f));
+
+            const elapsed = (this._auraProxTimers.get(w) ?? 0) + dt;
+            if (elapsed >= AURA_ZAPP_HOLD) {
+                toZap.push(w);
+                this._auraProxTimers.delete(w);
             } else {
-                this._powerupSettleCds.set(w, cd);
+                this._auraProxTimers.set(w, elapsed);
             }
+        }
+
+        for (const w of toZap) this._zappWarrior(w);
+    }
+
+    private _zappWarrior(w: Warrior): void {
+        if (!w.node?.isValid || w.merging) return;
+        w.merging = true;
+        w.forceStop();
+        w.setDragMode(true);
+
+        const wType   = w.type;
+        const wEnergy = 1 << (w.level - 1);
+        const x  = w.node.position.x;
+        const yC = this.coords.physToVisual(w.node.position.y);
+
+        const startSpark = () => {
+            this.warriors = this.warriors.filter(ww => ww !== w);
+            this.framesAboveLine.delete(w);
+            this.framesBelowLine.delete(w);
+            if (w.node?.isValid) w.node.destroy();
+
+            if (!this.vfx.sparkleFrame || !this.warriorsLayer?.isValid) return;
+
+            // Spark color from species
+            const baseCol  = WARRIORS[wType]?.color;
+            const sparkCol = baseCol ? new Color(baseCol.r, baseCol.g, baseCol.b, 255) : new Color(255, 220, 60, 255);
+
+            const sparkSize = Math.round(120 * Math.pow(wEnergy, 0.35));
+            const spark = new Node('ZappSpark');
+            spark.setParent(this.warriorsLayer);
+            spark.setPosition(x, yC, 0);
+            spark.addComponent(UITransform).setContentSize(sparkSize, sparkSize);
+            const sp = spark.addComponent(Sprite);
+            sp.sizeMode    = Sprite.SizeMode.CUSTOM;
+            sp.spriteFrame = this.vfx.sparkleFrame;
+            sp.color       = sparkCol;
+            sp.getMaterialInstance(0)?.overridePipelineStates({
+                blendState: { targets: [{ blend: true,
+                    blendSrc: gfx.BlendFactor.SRC_ALPHA,
+                    blendDst: gfx.BlendFactor.ONE }] }
+            });
+            const sparkOp = spark.addComponent(UIOpacity);
+            sparkOp.opacity = 230;
+            // Twinkle: brightness flicker simulates star shimmer (additive blend makes it visually pop)
+            tween(sparkOp)
+                .repeatForever(tween<UIOpacity>()
+                    .to(0.11, { opacity: 135 }, { easing: 'sineInOut' })
+                    .to(0.11, { opacity: 230 }, { easing: 'sineInOut' }))
+                .start();
+
+            // Find target: same species, on track, not merging, highest Y (topmost)
+            let target: Warrior | null = null;
+            let maxY = -Infinity;
+            for (const cand of this.warriors) {
+                if (!cand.crossedLine || !cand.node?.isValid || cand.merging) continue;
+                if (cand.type !== wType) continue;
+                const cy = this.coords.physToVisual(cand.node.position.y);
+                if (cy > maxY) { maxY = cy; target = cand; }
+            }
+
+            // Register energy + assign global stagger index; freeze timer on first spark of batch
+            let sparkIdx = 0;
+            if (target) {
+                const wasEmpty = this._zapTargetEnergy.size === 0;
+                const rec = this._zapTargetEnergy.get(target) ?? { energy: 0, count: 0 };
+                rec.count++;
+                this._zapTargetEnergy.set(target, rec);
+                if (wasEmpty) {
+                    GameManager._zapSparkGlobalIdx = 0;
+                    if (!this.timerPaused) { this._zapTimerFrozen = true; this.setTimerPaused(true); }
+                }
+                sparkIdx = GameManager._zapSparkGlobalIdx++;
+            }
+
+            // Rise 150px, flash, then staggered fly — re-search target at fly time
+            tween(spark)
+                .by(0.9, { position: new Vec3(0, 150, 0) }, { easing: 'quadOut' })
+                .call(() => {
+                    if (!spark.isValid) return;
+                    tween(spark)
+                        .to(0.08, { scale: new Vec3(2.0, 2.0, 1) })
+                        .to(0.07, { scale: new Vec3(1.0, 1.0, 1) })
+                        .call(() => {
+                            if (!spark.isValid) return;
+                            if (target) {
+                                const doFly = () => {
+                                    if (!spark.isValid) { this._onSparkHit(target!, wEnergy); return; }
+                                    // Re-search: if original target gone, redirect to best available
+                                    const flyTarget = target!.node?.isValid
+                                        ? target!
+                                        : this._redirectSparkTarget(target!, wType);
+                                    if (!flyTarget) { if (spark.isValid) spark.destroy(); return; }
+                                    this._flySparkToTarget(spark, flyTarget, wEnergy);
+                                };
+                                // cumulative delay: gap(k)=0.5×0.6^k → sum = 1.25×(1−0.6^i)
+                                const flyDelay = sparkIdx > 0 ? 1.25 * (1 - Math.pow(0.6, sparkIdx)) : 0;
+                                if (flyDelay > 0) this.scheduleOnce(doFly, flyDelay);
+                                else doFly();
+                            } else {
+                                tween(sparkOp)
+                                    .to(0.3, { opacity: 0 })
+                                    .call(() => { if (spark.isValid) spark.destroy(); })
+                                    .start();
+                            }
+                        })
+                        .start();
+                })
+                .start();
+        };
+
+        if (w.mapper) {
+            tween(w.mapper)
+                .to(0.06, { animScale: 1.5 }, { easing: 'quadOut' })
+                .to(0.12, { animScale: 0.0 }, { easing: 'quadIn'  })
+                .call(startSpark)
+                .start();
+        } else {
+            startSpark();
         }
     }
 
-    private applyLevelBoost(source: Warrior, target: Warrior): void {
-        if (this.timerPaused) return;
-        if (!source.node?.isValid || !target.node?.isValid) return;
-        if (this._boostedThisTurn.has(target)) return;
-        this._boostedThisTurn.add(target);
-        this._boostedThisTurn.add(source);
-
-        const chainEnergy = (source.levelBoost?.energy ?? 1) - 1;
-
-        this._playBoostReceiveAnim(target, () => {
-            if (!target.node?.isValid) return;
-
-            const maxLevel = WARRIORS[target.type]?.maxLevel ?? 7;
-            const newLevel = target.level + 1;
-            const pts = 5 * newLevel * this.currentRound;
-            this.score += pts;
-            this._trackBestSingle(pts, `AURA ${WARRIORS[target.type]?.name ?? '?'} lv.${newLevel}`);
-            this.updateScoreLabel();
-
-            if (newLevel > maxLevel) {
-                this.vfx.spawnFloatingScore(target.node.position.x,
-                    this.coords.physToVisual(target.node.position.y), pts);
-                this._explodeWarriorByBoost(target);
-            } else {
-                target.levelUpInPlace(newLevel);
-                this.vfx.playLevelUpBounce(target.mapper, target.viewNode);
-                this.vfx.spawnMergeSparks(target.node.position.x,
-                    this.coords.physToVisual(target.node.position.y), newLevel);
-                this.vfx.spawnFloatingScore(target.node.position.x,
-                    this.coords.physToVisual(target.node.position.y) + 60, pts);
-                AudioManager.instance.play(SFX.MERGE_1, 0.6);
-                this._vibrate(30);
-
-                if (chainEnergy >= 0) {
-                    target.levelBoost?.detach();
-                    const clb = LevelBoostPowerup.attach(target, chainEnergy, this.vfx.sparkleFrame, this.vfx.auraFrame);
-                    target.levelBoost = clb;
-                    target.onAuraContact = (s, t) => this._onAuraContact(s, t);
-                    this.scheduleOnce(() => this._checkAuraImmediateContacts(target), 0);
+    private _redirectSparkTarget(oldTarget: Warrior, wType: number): Warrior | null {
+        // Decrement old target's pending count (it won't receive this spark)
+        const oldRec = this._zapTargetEnergy.get(oldTarget);
+        if (oldRec) {
+            oldRec.count--;
+            if (oldRec.count <= 0) {
+                this._zapTargetEnergy.delete(oldTarget);
+                if (this._zapTargetEnergy.size === 0 && this._zapTimerFrozen) {
+                    this._zapTimerFrozen = false;
+                    this.setTimerPaused(false);
                 }
             }
-        });
+        }
+        // Find new best target
+        let newTarget: Warrior | null = null;
+        let maxY = -Infinity;
+        for (const cand of this.warriors) {
+            if (!cand.crossedLine || !cand.node?.isValid || cand.merging) continue;
+            if (cand.type !== wType) continue;
+            const cy = this.coords.physToVisual(cand.node.position.y);
+            if (cy > maxY) { maxY = cy; newTarget = cand; }
+        }
+        if (newTarget) {
+            const rec = this._zapTargetEnergy.get(newTarget) ?? { energy: 0, count: 0 };
+            rec.count++;
+            this._zapTargetEnergy.set(newTarget, rec);
+        } else if (this._zapTargetEnergy.size === 0 && this._zapTimerFrozen) {
+            this._zapTimerFrozen = false;
+            this.setTimerPaused(false);
+        }
+        return newTarget;
     }
 
-    private _playBoostReceiveAnim(target: Warrior, onComplete: () => void): void {
-        const sp = target.viewNode?.isValid ? target.viewNode.getComponent(Sprite) : null;
-        if (!sp || !target.mapper) { onComplete(); return; }
+    private _flySparkToTarget(spark: Node, target: Warrior, energy: number): void {
+        if (!this.warriorsLayer?.isValid) return;
 
-        // Gold flash on sprite colour
-        const origColor = sp.color.clone();
-        sp.color = new Color(255, 230, 80, 255);
-        tween(sp).to(0.22, { color: origColor }).start();
+        const sx = spark.position.x;
+        const sy = spark.position.y;
+        const tx = target.node.position.x;
+        const ty = this.coords.physToVisual(target.node.position.y);
 
-        // Scale bump then callback
-        tween(target.mapper)
-            .to(0.09, { animScale: 1.38 }, { easing: 'quadOut' })
-            .to(0.11, { animScale: 0.90 }, { easing: 'quadIn'  })
-            .to(0.07, { animScale: 1.00 })
-            .call(onComplete)
+        const side = Math.random() < 0.5 ? 1 : -1;
+        const midX = (sx + tx) / 2 + side * 55;
+        const midY = Math.max(sy, ty) + 60;
+
+        const dist   = Math.sqrt((tx - sx) ** 2 + (ty - sy) ** 2);
+        const flyDur = Math.min(1.2, Math.max(0.45, dist / 380));
+        const half   = flyDur * 0.5;
+
+        const sparkSprCol = spark.getComponent(Sprite)?.color ?? new Color(255, 220, 60, 255);
+        const trailCol    = new Color(sparkSprCol.r, sparkSprCol.g, sparkSprCol.b, 180);
+
+        let trailActive = true;
+        const spawnTrailDot = () => {
+            if (!trailActive || !spark.isValid || !this.warriorsLayer?.isValid) return;
+            const dot = new Node('ZappTrail');
+            dot.setParent(this.warriorsLayer);
+            dot.setPosition(spark.position.x, spark.position.y, 0);
+            dot.addComponent(UITransform).setContentSize(112, 112);
+            const dsp = dot.addComponent(Sprite);
+            dsp.sizeMode    = Sprite.SizeMode.CUSTOM;
+            dsp.spriteFrame = this.vfx.sparkleFrame!;
+            dsp.color       = trailCol;
+            dsp.getMaterialInstance(0)?.overridePipelineStates({
+                blendState: { targets: [{ blend: true,
+                    blendSrc: gfx.BlendFactor.SRC_ALPHA,
+                    blendDst: gfx.BlendFactor.ONE }] }
+            });
+            const dop = dot.addComponent(UIOpacity);
+            dop.opacity = 150;
+            tween(dop).to(0.22, { opacity: 0 }).call(() => { if (dot.isValid) dot.destroy(); }).start();
+            this.scheduleOnce(spawnTrailDot, 0.06);
+        };
+        this.scheduleOnce(spawnTrailDot, 0.04);
+
+        tween(spark)
+            .to(half, { position: new Vec3(midX, midY, 0) }, { easing: 'quadOut' })
+            .to(half, { position: new Vec3(tx, ty, 0) }, { easing: 'quadIn' })
+            .call(() => {
+                trailActive = false;
+                this._onSparkHit(target, energy);
+                if (spark.isValid) spark.destroy();
+            })
             .start();
     }
 
-    private _explodeWarriorByBoost(w: Warrior): void {
-        const x       = w.node.position.x;
-        const y       = w.node.position.y;
-        const yC      = this.coords.physToVisual(y);
-        const maxLevel = WARRIORS[w.type]?.maxLevel ?? 7;
-        const tier    = Math.max(1, Math.min(3, maxLevel - 2)) as 1 | 2 | 3;
-        const lvConf  = LEVEL_CONFIG[maxLevel];
-        const color   = lvConf?.vfxColor ?? new Color(255, 200, 50, 255);
-        const bonus   = lvConf?.bonus ?? 0;
+    private _onSparkHit(target: Warrior, energy: number): void {
+        const rec = this._zapTargetEnergy.get(target);
+        if (!rec) return;
 
-        if (bonus > 0) {
-            this.score += bonus;
-            this._trackBestSingle(bonus, `${WARRIORS[w.type]?.name ?? '?'} ${LEVEL_CONFIG[maxLevel]?.label ?? 'explosion'}`);
+        // Yellow tint flash + visual hop
+        if (target.node?.isValid) {
+            const spr = target.viewNode?.getComponent(Sprite);
+            if (spr) {
+                const orig = spr.color.clone();
+                spr.color = new Color(255, 240, 60, 255);
+                this.scheduleOnce(() => { if (target.node?.isValid && spr.isValid) spr.color = orig; }, 0.14);
+            }
+            if (target.mapper) {
+                tween(target.mapper)
+                    .to(0.10, { bounceY: 28 }, { easing: 'quadOut' })
+                    .to(0.16, { bounceY: 0  }, { easing: 'quadIn'  })
+                    .start();
+                // Scale pulse proportional to spark energy
+                const scalePeak = 1.0 + 0.10 * Math.pow(energy, 0.35);
+                tween(target.mapper)
+                    .to(0.08, { animScale: scalePeak }, { easing: 'quadOut' })
+                    .to(0.16, { animScale: 1.0       }, { easing: 'quadIn'  })
+                    .start();
+            }
+        }
+
+        // Zap score: 5 × round × 2^(level−1), assegnato all'impatto sul target
+        if (target.node?.isValid) {
+            const zapPts = 5 * this.currentRound * energy;
+            this.score += zapPts;
             this.updateScoreLabel();
-            this.vfx.spawnFloatingScore(x, yC + 30, bonus, true);
+            const tx = target.node.position.x;
+            const tyC = this.coords.physToVisual(target.node.position.y);
+            this.vfx.spawnFloatingScore(tx, tyC, zapPts);
         }
 
-        const expSfx = maxLevel >= 7 ? SFX.EXPLOSION_3 : maxLevel >= 6 ? SFX.EXPLOSION_2 : SFX.EXPLOSION_1;
-        AudioManager.instance.play(expSfx, 0.85);
-        this.vfx.screenShake(tier >= 3 ? 18 : tier >= 2 ? 12 : 7, 0.28);
-        this.activateSlowmo(tier >= 3 ? 0.18 : tier >= 2 ? 0.28 : 0.42, tier >= 3 ? 0.9 : tier >= 2 ? 0.65 : 0.45);
-        this.vfx.spawnBlackhole(x, yC + w.radius * 0.9, w.radius, color, tier, maxLevel);
-        this.vfx.spawnImplosionVFX(x, yC, color, tier / 3, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
-        this.vfx.spawnExplosionLabel(x, yC + 10, lvConf?.label ?? '', color);
+        rec.energy += energy;
+        rec.count--;
 
-        const impDur   = tier >= 3 ? 2.5 : tier >= 2 ? 2.0 : 1.5;
-        const impForce = (200 + tier * 60) * LAYOUT_SCALE;
-        this.implosionCenter    = new Vec2(x, y);
-        this.implosionDuration  = impDur;
-        this.implosionTimeLeft  = impDur;
-        this.implosionPeakForce = impForce;
-
-        const wType = w.type;
-        this.warriors = this.warriors.filter(ww => ww !== w);
-        this.framesAboveLine.delete(w);
-        this.framesBelowLine.delete(w);
-        w.node.destroy();
-        this._vibrate(90);
-
-        if (WARRIORS[wType]?.type === 'dragon') {
-            this.scheduleOnce(() => this.triggerVictory(), 0.5);
-        } else {
-            this.checkTrackClearedBonus(x, yC);
+        if (rec.count <= 0) {
+            this._zapTargetEnergy.delete(target);
+            if (this._zapTargetEnergy.size === 0 && this._zapTimerFrozen) {
+                this._zapTimerFrozen = false;
+                this.setTimerPaused(false);
+            }
+            if (target.node?.isValid) this._evolveWarrior(target, rec.energy);
         }
+    }
+
+    private _evolveWarrior(target: Warrior, accEnergy: number): void {
+        if (!target.node?.isValid) return;
+
+        const aType      = target.type;
+        const posX       = target.node.position.x;
+        const posY       = target.node.position.y;
+        const posYC      = this.coords.physToVisual(posY);
+        const radius     = target.radius;
+        const initLevel  = target.level;
+        const initEnergy = 1 << (initLevel - 1);
+        const finalLevel = Math.floor(Math.log2(initEnergy + accEnergy)) + 1;
+        const maxLevel   = WARRIORS[aType]?.maxLevel ?? 7;
+
+        this._cleanupBHS(target);
+        this._cleanupPF(target);
+        this.warriors = this.warriors.filter(w => w !== target);
+        this.framesAboveLine.delete(target);
+        this.framesBelowLine.delete(target);
+        if (target.node.isValid) target.node.destroy();
+
+        if (finalLevel > maxLevel) {
+            const lvConf = LEVEL_CONFIG[maxLevel];
+            const color  = lvConf?.vfxColor ?? new Color(255, 200, 50, 255);
+            const tier   = Math.max(1, Math.min(3, maxLevel - 2)) as 1 | 2 | 3;
+            const expSfx = finalLevel >= 7 ? SFX.EXPLOSION_3 : finalLevel >= 6 ? SFX.EXPLOSION_2 : SFX.EXPLOSION_1;
+            AudioManager.instance.play(expSfx);
+            this.vfx.screenShake(tier >= 3 ? 20 : tier >= 2 ? 14 : 8, 0.35);
+            this.activateSlowmo(tier >= 3 ? 0.15 : tier >= 2 ? 0.25 : 0.40, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
+            this.vfx.spawnBlackhole(posX, posYC + radius * 0.9, radius, color, tier, maxLevel);
+            this.vfx.spawnImplosionVFX(posX, posYC, color, tier / 3, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
+            const impDur = tier >= 3 ? 2.5 : tier >= 2 ? 2.0 : 1.5;
+            this.implosionCenter    = new Vec2(posX, posY);
+            this.implosionDuration  = impDur;
+            this.implosionTimeLeft  = impDur;
+            this.implosionPeakForce = (200 + tier * 60) * LAYOUT_SCALE;
+            if (lvConf?.label) this.vfx.spawnExplosionLabel(posX, posYC + 10, lvConf.label, color);
+            this._vibrate(120);
+            const evoPts = 20 * this.currentRound * Math.max(0, finalLevel - initLevel);
+            if (evoPts > 0) {
+                this.score += evoPts;
+                this.updateScoreLabel();
+                this.vfx.spawnFloatingScore(posX, posYC + 40, evoPts);
+            }
+            if (WARRIORS[aType]?.type === 'dragon') this.scheduleOnce(() => this.triggerVictory(), 0.5);
+            else this.checkTrackClearedBonus(posX, posYC);
+            return;
+        }
+
+        const evoPts = 20 * this.currentRound * Math.max(0, finalLevel - initLevel);
+        if (evoPts > 0) {
+            this.score += evoPts;
+            this.updateScoreLabel();
+            this.updateRoundProgress();
+            this.vfx.spawnFloatingScore(posX, posYC + 40, evoPts);
+        }
+
+        const evolved = Warrior.spawn(this.box2dLayer, this.warriorsLayer, aType, finalLevel, posX, posY);
+        evolved.crossedLine = true;
+        evolved.fired       = true;
+        evolved.settle();
+        evolved.onMergeReady = (x, y) => this.mergeWarriors(x, y);
+        this.warriors.push(evolved);
+        if (evolved.mapper) evolved.mapper.animScale = 0;
+        evolved.playMergeInEffect(0.35);
+        const sfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
+        AudioManager.instance.play(sfxs[Math.min(finalLevel - 2, sfxs.length - 1)]);
+        this.vfx.flashMerge(evolved.mapper);
+        // Bubble pop after flashMerge settles
+        this.scheduleOnce(() => {
+            if (!evolved.mapper?.node?.isValid) return;
+            tween(evolved.mapper)
+                .to(0.16, { animScale: 1.38 }, { easing: 'quadOut' })
+                .to(0.11, { animScale: 0.88 }, { easing: 'quadIn'  })
+                .to(0.09, { animScale: 1.05 })
+                .to(0.07, { animScale: 1.0  })
+                .start();
+        }, 0.35);
+        this._logOnTrack('aura-evolve');
+    }
+
+    private _checkFirstAura(w: Warrior): void {
+        if (!AuraEffect.isEligible(w.type)) return;
+        if (this._firstLaunchSpecies.has(w.type)) return;
+        this._firstLaunchSpecies.add(w.type);
+        AuraEffect.init(w, this.currentRound);
     }
 
     private checkTrackClearedBonus(x: number, yC: number): void {
@@ -1791,22 +2627,20 @@ export class GameManager extends Component implements IGameManagerDebug {
     private updateRoundProgress(): void {
         if (!this.roundProgressBar) return;
         const cur = this.currentRound;
-        let factor = 0;
-        if (cur >= MAX_ROUND) {
-            factor = 1;
-        } else {
-            const prev = ROUND_THRESHOLDS[cur - 1] as number;
-            const next = ROUND_THRESHOLDS[cur]     as number;
-            factor = Math.max(0, Math.min(1, (this.totalMerges - prev) / (next - prev)));
-        }
+        const prev = this._roundThreshold(cur - 1);
+        const next = this._roundThreshold(cur);
+        const factor = Math.max(0, Math.min(1, (this.totalMerges - prev) / (next - prev)));
         this.roundProgressBar.progress = factor;
     }
 
     // --- round progression ---
 
+    private _roundThreshold(round: number): number {
+        return (ROUND_THRESHOLDS[round] as number | undefined) ?? round * 20;
+    }
+
     private checkRoundAdvance(): void {
-        const threshold = ROUND_THRESHOLDS[this.currentRound] as number | undefined;
-        if (threshold !== undefined && this.totalMerges >= threshold) {
+        if (this.totalMerges >= this._roundThreshold(this.currentRound)) {
             this.advanceRound();
         }
     }
@@ -1983,41 +2817,10 @@ export class GameManager extends Component implements IGameManagerDebug {
             icon.setParent(this.nextPreviewNode);
             icon.addComponent(UITransform).setContentSize(100, 100);
             this.nextNextWarriorNode = icon;
-            this._nextPreviewAuraNode = null;
         }
         const sp = this.nextNextWarriorNode.getComponent(Sprite) ?? this.nextNextWarriorNode.addComponent(Sprite);
         sp.sizeMode = Sprite.SizeMode.CUSTOM;
         sp.spriteFrame = frame ?? null!;
-
-        // Aura glow on next preview when a pending boost is waiting
-        if (this._nextSlotBoostEnergy >= 0 && this.vfx.auraFrame) {
-            if (!this._nextPreviewAuraNode?.isValid) {
-                const aura = new Node('PreviewAura');
-                aura.setParent(this.nextNextWarriorNode);
-                aura.setSiblingIndex(0);
-                const _auraMin  = 148 * 0.8;
-                const _auraSize = Math.min(_auraMin * Math.pow(1.2, Math.max(0, this._nextSlotBoostEnergy - 1)), _auraMin * 2);
-                aura.addComponent(UITransform).setContentSize(_auraSize, _auraSize);
-                const auraSp = aura.addComponent(Sprite);
-                auraSp.sizeMode    = Sprite.SizeMode.CUSTOM;
-                auraSp.spriteFrame = this.vfx.auraFrame;
-                auraSp.color       = new Color(255, 200, 50, 255);
-                const op = aura.addComponent(UIOpacity);
-                op.opacity = 0;
-                tween(op).to(0.6, { opacity: 90 }).start();
-                tween(aura)
-                    .repeatForever(tween<Node>()
-                        .to(0.7, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'sineInOut' })
-                        .to(0.7, { scale: new Vec3(1.0,  1.0,  1) }, { easing: 'sineInOut' }))
-                    .start();
-                this._nextPreviewAuraNode = aura;
-            }
-        } else {
-            if (this._nextPreviewAuraNode?.isValid) {
-                this._nextPreviewAuraNode.destroy();
-            }
-            this._nextPreviewAuraNode = null;
-        }
 
         if (animate) {
             Tween.stopAllByTarget(this.nextNextWarriorNode);
@@ -2028,6 +2831,55 @@ export class GameManager extends Component implements IGameManagerDebug {
                 .to(0.07, { scale: new Vec3(1.0,  1.0,  1) })
                 .start();
         }
+
+        this._updateNextPreviewPowerupGlow();
+    }
+
+    private _updateNextPreviewPowerupGlow(): void {
+        if (!this.nextNextWarriorNode?.isValid) return;
+        const powerup = this._nextPowerup;
+
+        if (!powerup) {
+            if (this._nextPreviewGlowNode?.isValid) {
+                const op = this._nextPreviewGlowNode.getComponent(UIOpacity)!;
+                Tween.stopAllByTarget(op);
+                tween(op).to(0.2, { opacity: 0 }).start();
+            }
+            return;
+        }
+
+        if (!this._nextPreviewGlowNode?.isValid) {
+            const n = new Node('NextPowerupGlow');
+            n.setParent(this.nextNextWarriorNode);
+            n.setSiblingIndex(0);
+            n.addComponent(UITransform).setContentSize(86, 86);
+            const s = n.addComponent(Sprite);
+            s.sizeMode    = Sprite.SizeMode.CUSTOM;
+            s.spriteFrame = this.vfx.auraFrame;
+            s.getMaterialInstance(0)?.overridePipelineStates({
+                blendState: { targets: [{ blend: true,
+                    blendSrc: gfx.BlendFactor.SRC_ALPHA,
+                    blendDst: gfx.BlendFactor.ONE }] },
+            });
+            const op = n.addComponent(UIOpacity);
+            op.opacity = 0;
+            this._nextPreviewGlowNode = n;
+        }
+
+        const glowSp = this._nextPreviewGlowNode.getComponent(Sprite)!;
+        const glowOp = this._nextPreviewGlowNode.getComponent(UIOpacity)!;
+        glowSp.color  = powerup === 'aura'        ? new Color(255, 200, 50,  255) :
+                        powerup === 'psychoForce'  ? new Color(60,  230, 255, 255) :
+                        powerup === 'genocide'     ? new Color(180,  60, 240, 255) :
+                                                    new Color(180,  60, 240, 255);
+        Tween.stopAllByTarget(glowOp);
+        tween(glowOp)
+            .to(0.3, { opacity: 160 }, { easing: 'quadOut' })
+            .to(0.6, { opacity: 70  })
+            .to(0.6, { opacity: 160 })
+            .union()
+            .repeatForever()
+            .start();
     }
 
     private animateNextTransition(): void {
