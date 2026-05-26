@@ -37,8 +37,8 @@ export const WARRIORS: readonly WarriorData[] = [
     { id: 2, type: 'chicken', name: 'Chicken', maxLevel: 3, color: new Color(240, 210,  80), introRound: 1 },
     { id: 3, type: 'wolf',    name: 'Wolf',    maxLevel: 4, color: new Color(110, 110, 130), introRound: 3 },
     { id: 4, type: 'eagle',   name: 'Eagle',   maxLevel: 4, color: new Color(140,  90,  40), introRound: 5 },
-    { id: 5, type: 'lion',    name: 'Lion',    maxLevel: 5, color: new Color(220, 170,  40), introRound: 7 },
-    { id: 6, type: 'dragon',  name: 'Dragon',  maxLevel: 6, color: new Color(130,  50, 180), introRound: 9 },
+    { id: 5, type: 'lion',    name: 'Lion',    maxLevel: 4, color: new Color(220, 170,  40), introRound: 7 },
+    { id: 6, type: 'dragon',  name: 'Dragon',  maxLevel: 5, color: new Color(130,  50, 180), introRound: 9 },
 ];
 
 export function spawnTypesForRound(round: number): number {

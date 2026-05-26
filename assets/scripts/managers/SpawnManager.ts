@@ -16,6 +16,12 @@ export class SpawnManager extends Component {
     @property({ min: 0, max: 1, tooltip: 'Probability of biasing level toward a stranded warrior' })
     levelBiasChance = 0.3;
 
+    @property({ min: 0, max: 1, tooltip: 'Probability of matching type+level of warriors in the top rows (closest to launcher)' })
+    topRowBiasChance = 0.4;
+
+    @property({ min: 1, max: 20, tooltip: 'How many top warriors (by Y) to consider for top-row bias' })
+    topRowCount = 6;
+
     @property({ min: 1, max: 10, tooltip: 'A warrior is stranded if no compatible peer is within this × diameter' })
     strandedRadiusMultiplier = 3.0;
 
@@ -130,9 +136,38 @@ export class SpawnManager extends Component {
     }
 
     private _generateNext(): void {
+        if (this.topRowBiasChance > 0 && Math.random() < this.topRowBiasChance && this.getWarriors) {
+            const pick = this._tryTopRowPick();
+            if (pick) {
+                this._nextType  = pick.type;
+                this._nextLevel = pick.level;
+                this.onNextGenerated?.();
+                return;
+            }
+        }
         this._nextType  = this._pickSpecies();
         this._nextLevel = this._pickLevel(this._nextType);
         this.onNextGenerated?.();
+    }
+
+    private _tryTopRowPick(): { type: number; level: number } | null {
+        const available = this._availableLevels();
+        const onTrack   = this.getWarriors!()
+            .filter(w => w.crossedLine && !w.merging && w.node?.isValid);
+        // sort descending by Y → warriors closest to the launcher come first
+        onTrack.sort((a, b) => b.node.position.y - a.node.position.y);
+        const topRows = onTrack.slice(0, this.topRowCount);
+
+        const candidates = topRows.filter(w =>
+            this._currentBag.indexOf(w.type) >= 0 && available.indexOf(w.level) >= 0
+        );
+        if (candidates.length === 0) return null;
+
+        const picked = candidates[Math.floor(Math.random() * candidates.length)];
+        const idx = this._currentBag.indexOf(picked.type);
+        this._currentBag.splice(idx, 1);
+        this._refillIfEmpty();
+        return { type: picked.type, level: picked.level };
     }
 
     private _pickSpecies(): number {

@@ -58,7 +58,12 @@ const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
 
 function launchTimerForRound(round: number): number {
-    return Math.max(3, 15 - (round - 1) * 2);
+    if (round <= 1) return 15;
+    if (round <= 3) return 12;
+    if (round <= 5) return 10;
+    if (round <= 7) return 8;
+    if (round <= 10) return 5;
+    return 3;
 }
 
 function spawnMaxLevelForRound(round: number): number {
@@ -449,6 +454,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         });
         // this.warriors.push(...this.spawnMgr.prefill());
 
+        this._expireGenocide();
+        this._gnCooldownLaunches = 0;
+        this._bhCooldownLaunches = 0;
+        this._pfCooldownLaunches = 0;
         this.currentRound     = 1;
         this.totalMerges      = 0;
         this.mergesThisLaunch = 0;
@@ -638,7 +647,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             w.genocideInfected = true;
             const infectDelay = i * GENOCIDE_CASCADE_DELAY;
             this.scheduleOnce(() => {
-                if (!w.node?.isValid) return;
+                if (!w.node?.isValid) { w.genocideInfected = false; return; }
                 const gns = GenocideSparkleEffect.attach(w);
                 this.scheduleOnce(() => this._implodeGenocideWarrior(w, gns), GENOCIDE_IMPLODE_HOLD);
             }, infectDelay);
