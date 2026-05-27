@@ -18,7 +18,7 @@ import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 const { ccclass, property } = _decorator;
 
-const VERSION            = '0.8.20';
+const VERSION            = '0.8.21';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -493,6 +493,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this._activeLauncherWarrior, this.vfx.sparkleFrame, this.vfx.auraFrame);
             }
         }
+        this._updateNextPreviewPowerupGlow();
     }
 
     isBloodhoodAvailable(): boolean {
@@ -599,6 +600,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._genocideTriggered = false;
         this._genocideProxTimer = 0;
         this._gnTimerStarted    = false;
+        this._updateNextPreviewPowerupGlow();
     }
 
     private _tickGenocideProximity(): void {
@@ -851,14 +853,19 @@ export class GameManager extends Component implements IGameManagerDebug {
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
         this._recordSpawn(w.type, this.currentRound);
-        this._checkFirstAura(w);
+        const isFirstSpecies = this._checkFirstAura(w);
         if (w.mapper) w.mapper.animScale = 0;
         // PerspectiveMapper.lateUpdate hasn't run yet for this brand-new component — hide viewNode
         // immediately so it doesn't flash at (0,0) for the first rendered frame.
         if (w.viewNode?.isValid) w.viewNode.setScale(0, 0, 1);
         this.warriors.push(w);
         this.nextLaunchWarrior = w;
-        if (this._nextPowerup) this._nextPowerupPending = true;
+        if (this._nextPowerup) {
+            this._nextPowerupPending = true;
+        } else if (isFirstSpecies) {
+            this._nextPowerup = 'aura';
+            this._nextPowerupPending = true;
+        }
         return w;
     }
 
@@ -884,7 +891,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Genocide auto: ≥25 warrior sul track, cooldown 10 tiri
         const onTrack = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length;
-        if (onTrack >= 25 && this._gnCooldownLaunches === 0 && !this._genocideCarrier && this._nextPowerup !== 'aura') {
+        if (onTrack >= 25 && this._gnCooldownLaunches === 0 && !this._genocideCarrier && this._nextPowerup === null) {
             this._expireGenocide();
             const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
             ge.onExpired = () => this._expireGenocide();
@@ -913,6 +920,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._applyPendingPowerup(w, this._nextPowerup);
             this._nextPowerup = null;
         }
+
+        this._updateNextPreviewPowerupGlow();
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
@@ -936,7 +945,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._bhCooldownLaunches--;
         }
         if (this._genocideCarrier === w) {
-            this._gnCooldownLaunches = 10;
+            this._gnCooldownLaunches = 20;
         } else if (this._gnCooldownLaunches > 0) {
             this._gnCooldownLaunches--;
         }
@@ -1189,12 +1198,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._activeLauncherWarrior = nw;
         this.nextLaunchWarrior = nw;
 
-        this._checkFirstAura(nw);
+        const isFirstSpeciesNw = this._checkFirstAura(nw);
 
         this._launcherBloodhoodEffect?.detach();
         this._launcherBloodhoodEffect = null;
         if (pendingForNw) {
             this._applyPendingPowerup(nw, pendingForNw);
+        } else if (isFirstSpeciesNw) {
+            this._applyPendingPowerup(nw, 'aura');
         } else if (this.bloodhoodEnabled) {
             this._launcherBloodhoodEffect = BloodhoodEffect.attach(nw, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
@@ -2224,11 +2235,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._logOnTrack('aura-evolve');
     }
 
-    private _checkFirstAura(w: Warrior): void {
-        if (!AuraEffect.isEligible(w.type)) return;
-        if (this._firstLaunchSpecies.has(w.type)) return;
+    private _checkFirstAura(w: Warrior): boolean {
+        if (!AuraEffect.isEligible(w.type)) return false;
+        if (this._firstLaunchSpecies.has(w.type)) return false;
         this._firstLaunchSpecies.add(w.type);
-        AuraEffect.init(w, this.currentRound);
+        console.log(`[AuraEffect] first appearance: type=${w.type}`);
+        return true;
     }
 
     private checkTrackClearedBonus(x: number, yC: number): void {
@@ -2846,7 +2858,13 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _updateNextPreviewPowerupGlow(): void {
         if (!this.nextNextWarriorNode?.isValid) return;
-        const powerup = this._nextPowerup;
+
+        let powerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null = this._nextPowerup;
+        if (!powerup && this.bloodhoodEnabled) powerup = 'bloodhood';
+        if (!powerup && this._gnCooldownLaunches === 0 && !this._genocideCarrier) {
+            const onTrack = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
+            if (onTrack >= 25) powerup = 'genocide';
+        }
 
         if (!powerup) {
             if (this._nextPreviewGlowNode?.isValid) {
@@ -2879,8 +2897,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const glowOp = this._nextPreviewGlowNode.getComponent(UIOpacity)!;
         glowSp.color  = powerup === 'aura'        ? new Color(255, 200, 50,  255) :
                         powerup === 'psychoForce'  ? new Color(60,  230, 255, 255) :
-                        powerup === 'genocide'     ? new Color(180,  60, 240, 255) :
-                                                    new Color(180,  60, 240, 255);
+                        powerup === 'bloodhood'    ? new Color(220,  60,  60, 255) :
+                                                    new Color(180,  60, 240, 255); // genocide
         Tween.stopAllByTarget(glowOp);
         tween(glowOp)
             .to(0.3, { opacity: 160 }, { easing: 'quadOut' })
