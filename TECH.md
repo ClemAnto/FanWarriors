@@ -4,6 +4,27 @@
 
 ---
 
+## Settings — dialog opzioni centralizzato (MainMenu + Game) (2026-06-04, v0.8.22)
+
+**Decisione**: la logica del dialog opzioni (vibrazione / sfx / musica / fullscreen) vive in un'unica classe `Settings.ts` (`assets/scripts/managers/`), condivisa tra `MainMenu.scene` e `Game.scene`. Prima era duplicata dentro `GameManager` (`openMenu/closeMenu/toggle*`).
+
+**Perché**: una sola fonte di verità per le opzioni; lo stato mute è già persistito da `AudioManager` in localStorage (`fw_sfx_muted`/`fw_music_muted`) e la vibrazione in `fw_vibration`, quindi è condiviso tra scene automaticamente.
+
+**Come funziona**:
+- `Settings` espone via `@property` i riferimenti: `dialogNode`, `menuButton`, `closeButton`, e i 4 `Toggle`. Gestisce fade open/close, sync stato toggle, hide del fullscreen se non supportato. Aggiunge da sé un `cc.Button` su menu/close se mancante.
+- Vibrazione: fonte unica tramite getter statico `Settings.vibrationEnabled` (legge `fw_vibration`). `GameManager._vibrate()` lo usa.
+- Hook host (null in MainMenu): `canOpen` (veto apertura, es. game over), `onBeforeOpen`/`onAfterClose`. `GameManager` ci registra pausa/resume (`_enterSettingsPause`/`_exitSettingsPause`).
+- `GameManager` trova il componente con `(canvas).getComponentInChildren(Settings)` — indipendente dalla gerarchia.
+- `VERSION` è ora `export const` in `GameManager.ts` (importata da `MainMenu.ts`).
+
+**Gotcha**: `Settings` va su un nodo **sempre attivo** (es. Canvas) con `dialogNode` → il pannello Dialog; così il Dialog può restare disattivo nell'editor. Un componente su nodo disattivo non riceve `onLoad` → niente wiring. Vedi MEMO.
+
+---
+
+## MainMenu — scena di ingresso (2026-06-04, v0.8.22)
+
+**Decisione**: `MainMenu.scene` è la start scene; `MainMenu.ts` fa `director.loadScene('Game')` sul PLAY, riempie Best Score (`Best Score\n<n>`, da `fw_best_score`) e versione, e avvia l'audio. Il tutorial iniziale a popup è stato **rimosso** da `GameManager` (chiamata + metodo `showTutorial`, key `fw_tutorial_done` non più usata).
+
 ## Track — muri fisici derivati da TrackSprite (branch refactor/no-runtime-resize, 2026-05-12)
 
 **Decisione**: `buildWalls()` non usa più le costanti `TRACK_BOTTOM_Y`/`TRACK_TOP_Y`/`FUNNEL_OFFSET` per costruire i collider. Legge invece i bounds di `TrackSprite` direttamente (`UITransform.contentSize`, `anchorPoint`, `position`, `scale`).

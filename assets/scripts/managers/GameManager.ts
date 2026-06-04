@@ -218,7 +218,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
         initLayout();
-        this.sceneName = director.getScene()?.name || 'GameScene';
+        this.sceneName = director.getScene()?.name || 'Game';
         Warrior.linearDamping   = WARRIOR_LINEAR_DAMPING;
         Warrior.settledDamping  = WARRIOR_SETTLED_DAMPING;
         Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
@@ -299,7 +299,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.initHud();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
-            this.showTutorial(() => this.activateWarrior(firstWarrior));
+            this.activateWarrior(firstWarrior);
 
             if (DEBUG) {
                 const debugNode = new Node('DebugPanel');
@@ -2661,67 +2661,6 @@ export class GameManager extends Component implements IGameManagerDebug {
                 b.applyForce(new Vec2(-nx * f * msB, -ny * f * msB));
             }
         }
-    }
-
-    // --- tutorial ---
-
-    private showTutorial(onDone: () => void): void {
-        if (sys.localStorage.getItem('fw_tutorial_done') === '1') { onDone(); return; }
-
-        const messages = [
-            'Trascina verso il basso',
-            'Rilascia per lanciare',
-            'Unisci due uguali!',
-        ];
-        let idx = 0;
-
-        const showNext = () => {
-            if (idx >= messages.length) {
-                sys.localStorage.setItem('fw_tutorial_done', '1');
-                onDone();
-                return;
-            }
-
-            const overlay = new Node('TutOverlay');
-            overlay.setParent(this.uiLayer);
-            overlay.setPosition(0, 0);
-            const ot = overlay.addComponent(UITransform);
-            ot.setContentSize(720, 1280);
-
-            const popup = new Node('TutPopup');
-            popup.setParent(overlay);
-            popup.setPosition(0, 50);
-
-            const bg = popup.addComponent(Graphics);
-            bg.fillColor = new Color(20, 20, 40, 230);
-            bg.rect(-220, -40, 440, 80);
-            bg.fill();
-            bg.strokeColor = new Color(255, 220, 50, 200);
-            bg.lineWidth = 2;
-            bg.rect(-220, -40, 440, 80);
-            bg.stroke();
-
-            const textNode = new Node('TutText');
-            textNode.setParent(popup);
-            const msgLbl = textNode.addComponent(Label);
-            msgLbl.string = messages[idx];
-            msgLbl.fontSize = 30;
-            msgLbl.isBold = true;
-            msgLbl.color = new Color(255, 255, 255, 255);
-
-            const hintNode = new Node('TutHint');
-            hintNode.setParent(popup);
-            hintNode.setPosition(0, -58);
-            const hintLbl = hintNode.addComponent(Label);
-            hintLbl.string = 'tocca per continuare';
-            hintLbl.fontSize = 16;
-            hintLbl.color = new Color(180, 180, 180, 180);
-
-            idx++;
-            overlay.on(Node.EventType.TOUCH_START, () => { overlay.destroy(); showNext(); }, this);
-        };
-
-        showNext();
     }
 
     private showRoundUpBanner(): void {

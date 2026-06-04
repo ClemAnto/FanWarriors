@@ -194,7 +194,7 @@
 
 ### Settimana 7: UI completa *(18–24 giu)*
 
-- [ ] Schermata splash + menu principale
+- [x] Schermata splash + menu principale — `MainMenu.scene` + `MainMenu.ts` (PLAY → Game, Best Score, versione); loading screen con logo `title.png` (v0.8.22)
 - [ ] HUD definitivo:
   - [x] Punteggio con animazione **contachilometri** (tween su label) — `_scoreProxy`/`_scoreTween` in GameManager.ts (v0.7.2)
   - [ ] Round con animazione **scale-up + bounce** al cambio
@@ -204,7 +204,8 @@
 - [x] **Balestra** al posto della fionda: nodo rotante (punta UP a 0°) + bowstring a V + traiettoria puntini stile Puzzle Bubble (max 1 rimbalzo, stop alla game over line) — artwork da integrare
 - [ ] Anteprima NEXT definitiva
 - [ ] Schermata game over, pausa, tutorial popup definitivi
-- [ ] Pulsanti settings (audio on/off)
+- [x] Pulsanti settings — dialog opzioni centralizzato in `Settings.ts` (vibrazione/sfx/musica/fullscreen), condiviso MainMenu+Game (v0.8.22)
+- [x] ~~Tutorial popup iniziale~~ — **rimosso** in v0.8.22 (era in Fase 2)
 - [ ] **Milestone Fase 3** *(24 giu)*: il gioco assomiglia visivamente al prodotto finale
 
 ---
@@ -310,7 +311,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/BH); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).
+> Aggiornato al 2026-06-04 — v0.8.22: MainMenu scene (PLAY/Best Score/versione) + dialog opzioni centralizzato in `Settings.ts` (condiviso con Game); loading screen con logo `title.png`; tutorial iniziale rimosso.
+>
+> Storico 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/BH); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).
 
 1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
 2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)
@@ -319,7 +322,7 @@
 5. ~~**LevelBoost powerup**~~ ✅ riscritto come **AURA powerup** (v0.8.19) — forza repulsiva, warrior zappati diventano scintille colorate con volo cadenzato, evoluzione energetica sul target, round illimitati
 6. ~~**Smart bag spawn**~~ ✅ fatto (v0.7.1) — SpawnManager con bag Tetris-style + bias contestuale verso specie stranded + bias livello
 7. ~~**Track Cleared! bonus**~~ ✅ fatto (v0.8.1) — 1000×round, una volta per round, banner gold animato con sottotitolo
-8. **UI Fase 3**: HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa, tutorial definitivi
+8. **UI Fase 3**: ~~menu principale~~ ✅, ~~settings dialog~~ ✅, ~~tutorial~~ (rimosso); restano HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa
 9. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
 10. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
 11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)

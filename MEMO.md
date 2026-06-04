@@ -714,6 +714,9 @@ panel.init(this);
 | Settling non si completa mai | Guard `if (inPlay.length === 0) return` | Rimuovere il guard — `[].every()` è `true` |
 | pendingWarrior non attivato | Creato troppo tardi dopo merge veloce | Creare in `checkLineLogic`, non in `onWarriorLaunched` |
 | **Launcher bloccato in fase avanzata** | Warrior in volo fonde con warrior esistente prima di superare la linea → `state` resta `Inflight`, `checkLineLogic` non trova warrior da attivare | `inflightMerged` flag in `mergeWarriors` + `activateAfterInflightMerge()` — fixato in v0.3.6 |
+| **Componente su nodo disattivo non fa nulla** | Un `@ccclass` su un nodo con `_active:false` non riceve `onLoad` → wiring/eventi mai registrati (es. `Settings` sul Dialog disattivo: MenuButton non apriva) | Mettere il componente su un nodo **sempre attivo** e referenziare il nodo target via `@property` (es. `Settings.dialogNode`). Lo script nasconde il target a runtime in `onLoad` |
+| **Bottone senza `cc.Button` non emette CLICK** | `node.on(Button.EventType.CLICK, ...)` non scatta se il nodo non ha un componente `cc.Button` | Aggiungerlo via codice se manca: `node.getComponent(Button) ?? node.addComponent(Button)` (pattern in `Settings`/vecchio GameManager) |
+| **Loading screen non vede asset del bundle** | Lo splash HTML gira prima di Cocos: non può usare texture importate (nome hashato nel bundle) | Mettere una copia statica in `build-templates/web-mobile/` (es. `title.png`) e referenziarla relativa in `index.html`. Ricopiare se l'asset cambia |
 
 ### Bug — warrior inflight che fonde prima di superare la linea (RISOLTO v0.3.6)
 
