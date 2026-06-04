@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, Button, Toggle, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -16,9 +16,10 @@ import { BloodhoodEffect } from '../entities/BloodhoodEffect';
 import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
+import { Settings } from './Settings';
 const { ccclass, property } = _decorator;
 
-const VERSION            = '0.8.21';
+export const VERSION     = '0.8.22';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -164,16 +165,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _autoPaused = false;
     private _pauseOverlay: Node | null = null;
     private _pauseLabelNode: Node | null = null;
-    private _dialogNode: Node | null = null;
-    private _vibrToggle:  Toggle | null = null;
-    private _sfxToggle:   Toggle | null = null;
-    private _musicToggle: Toggle | null = null;
-    private _fsToggle:    Toggle | null = null;
-    private _syncingToggles = false;
-    private _musicLabel: Label | null = null;
-    private _sfxLabel:   Label | null = null;
-    private _vibraLabel: Label | null = null;
-    private _vibrationEnabled = true;
+    private _settings: Settings | null = null;
     private get gameOverLineLocal(): number {
         const sy = this.box2dLayer?.scale.y ?? 1;
         return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
@@ -223,7 +215,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         AudioManager.instance; // trigger singleton init + asset preload as early as possible
         this.scheduleOnce(() => AudioManager.instance.playMusic(), 0.5);
         AudioManager.instance.ensureMusic(); // fallback: play on first gesture if browser blocked autoplay
-        this._vibrationEnabled = sys.localStorage.getItem('fw_vibration') !== '0';
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
         initLayout();
@@ -2276,23 +2267,8 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
             if (versionLabel) versionLabel.string = `v${VERSION}`;
-            const menuNode = existingHud.getChildByName('menu');
-            if (menuNode) {
-                this._musicLabel     = menuNode.getChildByName('MusicBtn') ?.getChildByName('Label')?.getComponent(Label) ?? null;
-                this._sfxLabel       = menuNode.getChildByName('SfxBtn')   ?.getChildByName('Label')?.getComponent(Label) ?? null;
-                this._pauseLabelNode = menuNode.getChildByName('PauseBtn') ?.getChildByName('Label') ?? null;
-                this._vibraLabel     = menuNode.getChildByName('VibraBtn') ?.getChildByName('Label')?.getComponent(Label) ?? null;
-                if (this._musicLabel) this._musicLabel.color = AudioManager.instance.musicMuted
-                    ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
-                if (this._sfxLabel) this._sfxLabel.color = AudioManager.instance.sfxMuted
-                    ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
-                if (this._vibraLabel) this._vibraLabel.color = this._vibrationEnabled
-                    ? new Color(255, 255, 255, 220) : new Color(100, 100, 100, 150);
-                if (sys.isBrowser && !(document.documentElement as any).requestFullscreen) {
-                    const fsBtn = menuNode.getChildByName('FullscreenBtn');
-                    if (fsBtn) fsBtn.active = false;
-                }
-            }
+            // Legacy pause-label lookup (harmless if the old "menu" node is absent).
+            this._pauseLabelNode = existingHud.getChildByName('menu')?.getChildByName('PauseBtn')?.getChildByName('Label') ?? null;
             this.updateNextPreview();
             // Create ring nodes programmatically on existing HUD
             const roundSec = existingHud.getChildByName('RoundSec');
@@ -2300,41 +2276,14 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.roundProgressBar = roundSec.getChildByName('ProgressBar')
                     ?.getComponent(ProgressBar) ?? null;
             }
-            this._dialogNode = existingHud.getChildByName('Dialog') ?? null;
-            if (this._dialogNode) {
-                const op = this._dialogNode.getComponent(UIOpacity) ?? this._dialogNode.addComponent(UIOpacity);
-                op.opacity = 0;
-                this._dialogNode.active = false;
-                const closeBtn = this._dialogNode.getChildByName('wood')?.getChildByName('CloseButton');
-                closeBtn?.on(Button.EventType.CLICK, this.closeMenu, this);
-                const layout = this._dialogNode.getChildByName('Layout');
-                if (layout) {
-                    this._vibrToggle  = layout.getChildByName('Vibrations')?.getComponent(Toggle) ?? null;
-                    this._sfxToggle   = layout.getChildByName('Sfx')?.getComponent(Toggle)        ?? null;
-                    this._musicToggle = layout.getChildByName('Music')?.getComponent(Toggle)      ?? null;
-                    this._fsToggle    = layout.getChildByName('Fullscreen')?.getComponent(Toggle) ?? null;
-                    this._vibrToggle?.node.on('toggle', () => {
-                        if (!this._syncingToggles) this.toggleVibration();
-                    }, this);
-                    this._sfxToggle?.node.on('toggle', () => {
-                        if (!this._syncingToggles) this.toggleSFX();
-                    }, this);
-                    this._musicToggle?.node.on('toggle', () => {
-                        if (!this._syncingToggles) this.toggleMusic();
-                    }, this);
-                    this._fsToggle?.node.on('toggle', () => {
-                        if (!this._syncingToggles) this.toggleFullscreen();
-                    }, this);
-                    if (!sys.isBrowser || !(document.documentElement as any).requestFullscreen) {
-                        const fsNode = layout.getChildByName('Fullscreen');
-                        if (fsNode) fsNode.active = false;
-                    }
-                }
-            }
-            const menuButtonNode = existingHud.getChildByName('MenuButton');
-            if (menuButtonNode) {
-                const btn = menuButtonNode.getComponent(Button) ?? menuButtonNode.addComponent(Button);
-                btn.node.on(Button.EventType.CLICK, this.openMenu, this);
+            // Settings dialog is centralized in the Settings component on the Dialog node.
+            // GameManager only supplies the game-specific pause/resume hooks.
+            // Settings can live on any node under the Canvas (its own node, or an always-active one).
+            this._settings = (this.uiLayer.parent ?? this.uiLayer).getComponentInChildren(Settings) ?? null;
+            if (this._settings) {
+                this._settings.canOpen      = () => this.state !== GameState.GameOver && this.state !== GameState.Paused;
+                this._settings.onBeforeOpen = () => this._enterSettingsPause();
+                this._settings.onAfterClose = () => this._exitSettingsPause();
             }
             return;
         }
@@ -2395,67 +2344,22 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     togglePause(): void { this._togglePause(this._pauseLabelNode); }
 
-    openMenu(): void {
-        if (this.state === GameState.GameOver || this.state === GameState.Paused || !this._dialogNode) return;
+    /** Settings.onBeforeOpen hook — pause game, physics, audio and input while the dialog is up. */
+    private _enterSettingsPause(): void {
         this._stateBeforePause = this.state;
         this.state = GameState.Paused;
         PhysicsSystem2D.instance.enable = false;
         AudioManager.instance.muteForPause();
         this.inputCtrl.blocked = true;
-        const op = this._dialogNode.getComponent(UIOpacity)!;
-        this._dialogNode.active = true;
-        this._syncingToggles = true;
-        if (this._vibrToggle)  this._vibrToggle.isChecked  = this._vibrationEnabled;
-        if (this._sfxToggle)   this._sfxToggle.isChecked   = !AudioManager.instance.sfxMuted;
-        if (this._musicToggle) this._musicToggle.isChecked = !AudioManager.instance.musicMuted;
-        if (this._fsToggle)    this._fsToggle.isChecked    = sys.isBrowser && !!document.fullscreenElement;
-        this._syncingToggles = false;
-        op.opacity = 0;
-        tween(op).to(0.2, { opacity: 255 }).start();
     }
 
-    closeMenu(): void {
-        if (!this._dialogNode) return;
-        const op = this._dialogNode.getComponent(UIOpacity)!;
-        tween(op)
-            .to(0.2, { opacity: 0 })
-            .call(() => {
-                this._dialogNode!.active = false;
-                this.state = this._stateBeforePause ?? GameState.Aiming;
-                this._stateBeforePause = null;
-                PhysicsSystem2D.instance.enable = true;
-                AudioManager.instance.unmuteForPause();
-                this.inputCtrl.blocked = false;
-            })
-            .start();
-    }
-
-    toggleSFX(): void {
-        AudioManager.instance.toggleSfx();
-        if (this._sfxLabel) this._sfxLabel.color = AudioManager.instance.sfxMuted
-            ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
-    }
-
-    toggleMusic(): void {
-        AudioManager.instance.toggleMusic();
-        if (this._musicLabel) this._musicLabel.color = AudioManager.instance.musicMuted
-            ? new Color(100, 100, 100, 150) : new Color(255, 255, 255, 220);
-    }
-
-    toggleFullscreen(): void {
-        if (!sys.isBrowser) return;
-        if (!(document as any).fullscreenElement) {
-            (document.documentElement as any).requestFullscreen?.().catch?.(() => {});
-        } else {
-            (document as any).exitFullscreen?.().catch?.(() => {});
-        }
-    }
-
-    toggleVibration(): void {
-        this._vibrationEnabled = !this._vibrationEnabled;
-        sys.localStorage.setItem('fw_vibration', this._vibrationEnabled ? '1' : '0');
-        if (this._vibraLabel) this._vibraLabel.color = this._vibrationEnabled
-            ? new Color(255, 255, 255, 220) : new Color(100, 100, 100, 150);
+    /** Settings.onAfterClose hook — resume everything paused by _enterSettingsPause. */
+    private _exitSettingsPause(): void {
+        this.state = this._stateBeforePause ?? GameState.Aiming;
+        this._stateBeforePause = null;
+        PhysicsSystem2D.instance.enable = true;
+        AudioManager.instance.unmuteForPause();
+        this.inputCtrl.blocked = false;
     }
 
     private _checkProximityMerge(dt: number): void {
@@ -2509,7 +2413,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private _vibrate(ms: number): void {
-        if (!this._vibrationEnabled || !sys.isBrowser) return;
+        if (!Settings.vibrationEnabled || !sys.isBrowser) return;
         (navigator as any).vibrate?.(ms);
     }
 

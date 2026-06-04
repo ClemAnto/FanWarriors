@@ -391,50 +391,128 @@ Tutti gli sprite sono già presenti in `assets/warriors/`.
 - **Totale SFX: ~17** (escludendo varianti merge)
 - **Musica**: 1–2 loop tematici (medievale-festivo)
 
-## 15. LevelBoost Powerup
+## 15. AURA Powerup *(ex LevelBoost — riscritto v0.8.19)*
 
-Ogni warrior lanciato porta con sé un'**aura energetica** (anello dorato + scintille) che si attiva automaticamente al lancio.
+Powerup attivabile via debug (futuro: condizione automatica). Ha precedenza su BloodHood e PsychoForce — li disattiva se attivi.
 
-### Meccanica
+### Attivazione e durata
 
-- Il warrior lanciato ha un parametro `energy` (default 2)
-- Quando (energy > 0) il warrior tocca fisicamente un altro warrior (contatto Box2D), il target:
-  1. Riceve un'animazione gold flash + scale bump (0.27s)
-  2. Avanza di un livello (`level+1`)
-  3. Riceve una nuova aura con `energy = sourceEnergy - 1` — innescando una **catena**
-- Un warrior con energy = 0 mantiene l'aura visiva ma non trasmette nulla al contatto
-- L'aura si spegne 1s dopo che il warrior si è fermato (velocità < soglia)
-- Al lancio del warrior successivo, se il target appena ricevuto l'aura ha vicini già in contatto fisico, il boost si propaga immediatamente (`_checkAuraImmediateContacts`, range `(rA+rB)×2.0`)
+- Si attiva sul warrior in rampa tramite pulsante AURA nel debug panel
+- VFX: anello esterno arancione (r×3.8), anello interno giallo pulsante (r×2.4), cerchio d'influenza schiacciato 50% verticalmente (prospettiva)
+- Scintille dorate emesse ogni 0.12s attorno al warrior
+- Al lancio parte il timer di 5 secondi (`AURA_DURATION`)
+- L'aura svanisce immediatamente quando il warrior **si ferma** (`settled = true`); il sistema rimane attivo ancora **1 secondo** per consentire alle ultime scintille di partire, poi si spegne
 
-### Regole anti-double-boost
+### Forza repulsiva
 
-- Un warrior non può ricevere più di un boost per turno (`_boostedThisTurn`)
-- Un warrior che ha **trasmesso** un'aura non può **ricevere** boost nello stesso turno
-- Al lancio successivo `_boostedThisTurn` viene resettato
+Il warrior con AURA respinge i warrior vicini con forza proporzionale alla vicinanza:
+- Range: `AURA_REPEL_RANGE = 160 px` (design space)
+- Forza massima al centro: `AURA_REPEL_FORCE = 500 px` (scalata da `LAYOUT_SCALE`)
+- Formula: `f = baseF × (1 − dist/range)`, direzione radiale verso l'esterno
 
-### Swap Next↔Launcher
+### Meccanica di zap (warrior in range)
 
-Quando il giocatore fa tap sul NEXT preview, l'energia dell'aura **segue il warrior**: se il warrior in rampa aveva aura(N) e il next aveva energia -1 (nessuna), dopo lo swap il nuovo warrior in rampa ha aura(N) e il precedente launcher non ha aura.
+I warrior che restano nel cerchio d'influenza per **≥ 0.2s** (`AURA_ZAPP_HOLD`) vengono "zappati":
+
+1. **Collasso** — il warrior si rimpicciolisce (scale 1.5→0 in 0.18s) e il corpo Box2D viene distrutto
+2. **Scintilla** — appare una scintilla `120 × energy^0.35 px` colorata come la specie sorgente
+3. **Salita** — la scintilla sale di 150px in 0.9s (`quadOut`)
+4. **Flash** — scale pop 2× poi ritorno a 1× (0.15s)
+5. **Volo cadenzato** — le scintille partono verso il target una alla volta:
+   - Delay cumulativo: `gap(k) = 500ms × 0.6^k` → `cumDelay(i) = 1.25 × (1 − 0.6^i)` s
+   - Durante il volo: scia di dot `112px`, stessa tinta della scintilla
+   - Se il target originale è scomparso (merge), la scintilla si re-direziona verso il miglior target disponibile della stessa specie
+6. **Timer freeze** — dal momento della prima scintilla registrata al momento dell'ultima arrivata, il timer di lancio è congelato
+
+### Ricerca del target
+
+- Stessa specie (`type`), `crossedLine = true`, `node.isValid`, `!merging`
+- Tra tutti i candidati: scelto quello con la **Y canvas più alta** (il più in alto nella pista)
+- La ricerca avviene al momento del volo (non al momento del collasso) per massimizzare la validità del target
+
+### Sistema di evoluzione energetica
+
+Ogni scintilla porta l'energia del warrior sorgente: `energy = 2^(level−1)`
+
+Quando tutte le scintille destinate a un target sono arrivate:
+```
+energiaIniziale = 2^(target.level − 1)
+energiaFinale   = energiaIniziale + Σ(energie scintille ricevute)
+livelloFinale   = floor(log₂(energiaFinale)) + 1
+```
+- Se `livelloFinale ≤ maxLevel`: il target evolve in place (destroy + spawn al livello finale, animazione bubble)
+- Se `livelloFinale > maxLevel`: esplosione blackhole come da merge standard
+
+### Punteggio
+
+- **Per ogni scintilla che colpisce il target**: `5 × round × 2^(level−1)` — floating score compare sul target al momento dell'impatto
+- **Bonus evoluzione target**: `20 × round × (livelloFinale − livelloIniziale)` — floating score compare sopra il target; applicato sia nel ramo normale che nel ramo blackhole; contribuisce al round progress
+
+### Feedback visivo sul target
+
+- Al colpo di ogni scintilla: **flash giallo** (tint 140ms) + **saltello** 28px su `bounceY` + **pulse di scala** `1.0 + 0.10 × energy^0.35` (proporzionale all'energia della scintilla) che ritorna a 1.0 in 0.24s
+- All'evoluzione: `flashMerge` standard (0.32s) seguito da **animazione bubble** (scale 1.38→0.88→1.05→1.0 in ~430ms)
+- Alla fine dell'aura: `_restoreAuraScales()` riporta a 1.0 l'`animScale` di qualsiasi warrior rimasto con scala distorta (chiamato da tutti e 4 i punti di cleanup)
 
 ### Parametri tecnici
 
 | Parametro | Valore | File |
 |-----------|--------|------|
-| Energia iniziale per lancio | 2 | GameManager.ts `activateWarrior` |
-| `AURA_SETTLE_CD` | 1.0s | GameManager.ts |
-| `SETTLE_VELOCITY` | 0.4 | GameManager.ts |
-| Range check immediato (`_checkAuraImmediateContacts`) | `(rA+rB)×2.0` | GameManager.ts |
-| Animazione pre-boost | 0.27s (gold flash + scale) | GameManager.ts `_playBoostReceiveAnim` |
+| `AURA_DURATION` | 5.0s | `AuraEffect.ts` |
+| `AURA_REPEL_RANGE` | 160 px (baseline Eagle) | `GameManager.ts` — range effettivo: `(type+1)/5 × 160` |
+| `AURA_REPEL_FORCE` | 500 px | `GameManager.ts` |
+| `AURA_ZAPP_HOLD` | 0.2s | `GameManager.ts` |
+| Settle delay prima dello spegnimento | 1.0s | `GameManager.ts` update loop |
+| Stagger primo gap | 500ms | formula `1.25×(1−0.6^i)` s |
+| Dimensione scintilla | `120 × energy^0.35` px | `GameManager.ts _zappWarrior` |
+| Trail dot size | 112px | `GameManager.ts _flySparkToTarget` |
 
 ### VFX
 
-- Aura outer: sprite `particles/aura`, size r×3.4, colore (255,195,40), opacità 75 — con pulse
-- Aura inner: sprite `particles/aura`, size r×2.2, colore (255,235,120), opacità 120
-- Scintille dorate: sprite `particles/stardust`, emesse ogni 0.13s attorno al warrior
+- Aura outer: sprite `aura.png`, r×3.8, `Color(255,130,20)`, opacità 75
+- Aura inner: sprite `aura.png`, r×2.4, `Color(255,220,55)`, opacità 140, pulse ±20%
+- Range ring: r×2 wide, height=r (50% squish), `Color(255,200,60)`, opacità **12** (molto trasparente), pulse ±6%; ampiezza range dipende dalla specie: `_auraRangeForType(type) = 160 × (type+1)/5` px (Eagle type 4 = 160px baseline)
+- Scintille: sprite `sparkle.png`, ogni 0.12s, palette arancio/oro
+- Scintilla zap: sprite `sparkle.png`, colore specie sorgente, additive blend; **twinkle**: pulse opacità 230↔135 ogni 0.22s (shimmer durante salita e volo)
+- Trail: dot `sparkle.png` 112px, stessa tinta scintilla, fade 0.22s
 
 ---
 
-## 16. Out of scope per la v1
+## 16. BloodHood Powerup
+
+Powerup automatico: il launcher si incendia di sangue e al primo contatto con un warrior in pista scatena una cascata BHS (BloodHood Sparkle) che si propaga per contagio, poi implode accumulando punti.
+
+### Condizioni di attivazione
+
+Il BH si attiva sul warrior in rampa **solo se tutte e tre le condizioni sono soddisfatte**:
+
+1. **≥ 8 warrior della stessa specie del launcher** sono già in pista (`crossedLine = true`)
+2. **Cooldown 10 tiri** — devono essere passati almeno 10 lanci dall'ultimo BH
+3. **Nessun altro powerup sul launcher** — il launcher non deve avere un `levelBoost` attivo
+
+### Flusso BHS
+
+1. Il launcher porta l'effetto `BloodhoodEffect` (aura rossa) mentre è in rampa
+2. Al lancio, il warrior diventa "BH launcher" e al primo contatto fisico con un warrior in pista propaga `BloodhoodSparkleEffect` (contagio per contatto e prossimità)
+3. Il contagio si espande ai warrior vicini della stessa specie e di tipo qualsiasi (via proximity check ogni 0.08s, soglia `+60px` oltre i raggi)
+4. Quando il launcher si ferma, scatta la cascade di implosione BHS: i warrior contagiati implodono in ordine inverso di contagio, con moltiplicatore punti crescente (`+1.5×` per warrior)
+
+### Parametri
+
+| Parametro | Valore |
+|-----------|--------|
+| Soglia specie in pista | ≥ 8 |
+| Cooldown tra BH | 10 lanci |
+| Proximity check interval | 0.08s |
+| Proximity margin | 60px oltre i raggi |
+| Contact delay spread | 0s (immediato) |
+| Proximity delay spread | 0.15s |
+| Moltiplicatore implosione | +1.5× per warrior, start ×1 |
+| Punti per warrior BHS | `10 × round × implodeK` |
+
+---
+
+## 18. Out of scope per la v1
 
 Per mantenere lo scope realistico, **NON** includiamo nella v1:
 - Multiplayer
@@ -447,13 +525,13 @@ Per mantenere lo scope realistico, **NON** includiamo nella v1:
 
 > Tutte queste sono ottime feature per una v2 dopo aver validato il core.
 
-## 17. Monetizzazione
+## 19. Monetizzazione
 
 - **Revenue share Poki/CrazyGames** via SDK ufficiale
 - Banner ad + interstitial tra partite (frequenza moderata, mai durante il gameplay)
 - Nessuna IAP nella v1
 
-## 18. Metriche di successo
+## 20. Metriche di successo
 
 KPI da monitorare dopo il lancio:
 - **D1 retention**: target >35% (media Poki ~30%)

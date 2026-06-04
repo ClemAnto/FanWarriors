@@ -310,16 +310,17 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-05-24 — v0.8.3: preview AURA scala con energy (min −20%, +20%/livello, cap 2×); cache-busting `?v=VERSION` su tutti gli script in index.html via `scripts/patch-html.js`.
+> Aggiornato al 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/BH); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).
 
 1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
 2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)
 3. ~~**Blackhole VFX**~~ ✅ fatto (v0.6.14) — spirale perspective-corretta, stardust, merge ghost nero, implosione fisica
 4. ~~**Swap Next↔Launcher**~~ ✅ fatto (v0.6.15) — tap sul NextPreview scambia le due creature; abilitato solo quando il lancio è attivo
-5. ~~**LevelBoost powerup**~~ ✅ fatto (v0.7.0) — AURA attiva al primo lancio di ogni specie (dal Lupo in poi); ora visibile già sul launcher (v0.7.1)
+5. ~~**LevelBoost powerup**~~ ✅ riscritto come **AURA powerup** (v0.8.19) — forza repulsiva, warrior zappati diventano scintille colorate con volo cadenzato, evoluzione energetica sul target, round illimitati
 6. ~~**Smart bag spawn**~~ ✅ fatto (v0.7.1) — SpawnManager con bag Tetris-style + bias contestuale verso specie stranded + bias livello
 7. ~~**Track Cleared! bonus**~~ ✅ fatto (v0.8.1) — 1000×round, una volta per round, banner gold animato con sottotitolo
 8. **UI Fase 3**: HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa, tutorial definitivi
 9. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
 10. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
 11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
+12. **Condizione auto-attivazione AURA**: definire quando si attiva automaticamente (ora solo debug)

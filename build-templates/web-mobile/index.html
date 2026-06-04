@@ -39,14 +39,11 @@
       opacity: 0;
       pointer-events: none;
     }
-    .ls-title {
-      font-family: Helvetica, Arial, sans-serif;
-      font-size: 2.6em;
-      font-weight: bold;
-      color: #fff;
-      letter-spacing: 5px;
-      text-transform: uppercase;
+    .ls-logo {
+      width: min(70vw, 360px);
+      height: auto;
       margin-bottom: 6px;
+      image-rendering: -webkit-optimize-contrast;
     }
     .ls-subtitle {
       font-family: Helvetica, Arial, sans-serif;
@@ -79,7 +76,7 @@
 <body>
 
   <div id="loading-screen">
-    <div class="ls-title">FunWarriors</div>
+    <img class="ls-logo" src="title.png" alt="FunWarriors"/>
     <div class="ls-subtitle">Loading</div>
     <div class="ls-spinner"></div>
     <div class="ls-version">v__VERSION__</div>

@@ -328,42 +328,43 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 ---
 
-## LevelBoost Powerup (v0.6.16)
+## AURA Powerup (v0.8.19) *(ex LevelBoost)*
 
 ### Architettura
-- `LevelBoostPowerup` — Component attaccato a `warrior.viewNode`, classe dedicata per il solo effetto (regola: ogni VFX ha la propria classe)
-- Interfaccia `ILevelBoost` in `Warrior.ts` — evita import circolare; espone `energy`, `activationMs`, `detach`, `resetActivation`
-- VFX: Sprite `aura.png` (additive blend) con `UIOpacity` per fade-in/out — **mai usare Graphics per VFX** (UIOpacity non ha effetto su Graphics in CC3)
+- `AuraEffect` — Component in `entities/AuraEffect.ts`, attaccato a `warrior.viewNode`
+- Attivazione via `GameManager.activateAura()` (debug) — ha precedenza su BH e PF (li disattiva)
+- `_auraWarrior`, `_auraEffect`, `_auraProxTimers`, `_zapTargetEnergy`, `_zapTimerFrozen`, `_zapSparkGlobalIdx` (static) in GameManager
 
 ### Parametri chiave
-| Costante | Valore | File | Note |
-|----------|--------|------|------|
-| Energia iniziale per lancio | 2 | GameManager.ts `activateWarrior` | |
-| `AURA_SETTLE_CD` | 1.0s | GameManager.ts | countdown post-settle prima del detach |
-| `SETTLE_VELOCITY` | 0.4 | GameManager.ts | soglia velocità Box2D per considerare il warrior fermo |
-| Range check immediato | `(rA+rB)×2.0` | GameManager.ts `_checkAuraImmediateContacts` | per warrior già in contatto al momento dell'attach |
-| Fade-in aura | 1.2s outer / 0.9s inner | LevelBoostPowerup.ts | opacity 75 / 120 |
-| Pre-upgrade anim | 0.27s | GameManager.ts | gold flash sprite + scale bump 1.38→0.90→1.0 |
+| Costante | Valore | File |
+|----------|--------|------|
+| `AURA_DURATION` | **1.5s** | `AuraEffect.ts` |
+| `AURA_REPEL_RANGE` | 160 px (baseline Eagle type 4) | `GameManager.ts` — range effettivo per specie: `_auraRangeForType(type) = 160 × (type+1)/5` |
+| `AURA_REPEL_FORCE` | 500 px | `GameManager.ts` |
+| `AURA_ZAPP_HOLD` | 0.2s | `GameManager.ts` |
+| Stagger primo gap | 500ms → decrescente | `1.25×(1−0.6^i)` s |
+| Spark size | `120 × energy^0.35` px | `_zappWarrior` |
+| Trail dot size | 112px | `_flySparkToTarget` |
+| Range ring opacity | 12 (molto trasparente) | `AuraEffect.ts _build` |
+| Spark twinkle | opacità 230↔135 ogni 0.11s, `repeatForever` su `sparkOp` | `_zappWarrior startSpark` |
 
-### Flusso per turno
-1. `activateWarrior` → `LevelBoostPowerup.attach(w, energy=2)` + `w.onAuraContact = _onAuraContact` + `_boostedThisTurn.clear()` — **AURA visibile sul launcher** (v0.7.1)
-2. Warrior lanciato attraversa la linea → `w.levelBoost.resetActivation()` (timer expiry parte da qui, non dal lancio)
-3. Contatto fisico Box2D: `Warrior.onBeginContact` → se `this.levelBoost && crossedLine` → `scheduleOnce(0)` → `onAuraContact(source, target)`
-4. `_onAuraContact` — guard energy>0 + crossedLine + non in `_boostedThisTurn` → `applyLevelBoost`
-5. `applyLevelBoost` — aggiunge source+target a `_boostedThisTurn`; anima; upgradie livello; se `chainEnergy >= 0`: attach AURA(chainEnergy) al target + `_checkAuraImmediateContacts`
-6. `_checkAuraImmediateContacts` — proximity check range `(rA+rB)×2.0` sui warrior già fisicamente vicini al nuovo portatore di AURA
-7. Expiry: `_tickPowerupExpiry` — quando `velocity < SETTLE_VELOCITY`, countdown `AURA_SETTLE_CD`; poi detach
+### Ciclo di vita aura (fix 2026-05-26)
+- Il timer parte in `onWarriorLaunched` → `startTimer()` → scade dopo `AURA_DURATION`
+- `onExpired` chiama `detach()` (fade-out visual) + cleanup GameManager (`_auraWarrior = null` ecc.)
+- **Non** si spegne su `settled` — in passato `settled = true` veniva impostato nello stesso frame di `crossedLine`, causando detach immediato senza nessun frame di repel
+- **Merge**: se il warrior con aura si fonde, l'aura viene trasferita al `merged` (con timer fresco); nel caso blackhole viene solo cleanup pulito
+- **Nuovo lancio**: se un warrior con aura è già in pista, il visual principale viene rimosso al lancio del warrior successivo (effetti zap già in propagazione continuano)
+- **Lancio fallito (malus)**: il powerup è perso — `activateWarrior(w)` detacca l'aura al ritorno del warrior
 
-### Regole anti-doppio-boost
-- `_boostedThisTurn: Set<Warrior>` — svuotato in `activateWarrior`; aggiunge sia source che target al primo boost; impedisce upgrade multipli per turno
-- Un warrior che ha trasmesso non può più ricevere nello stesso turno (source aggiunto al set)
+### Flusso zap
+1. Warrior in range ≥ `AURA_ZAPP_HOLD` → `_zappWarrior(w)`: `w.merging=true`, collapse anim, poi `startSpark()`
+2. `startSpark()`: rimuove warrior da lista, **score zap** (`5 × round × 2^(level−1)`), crea scintilla colorata (colore specie), cerca target (stessa specie, `crossedLine`, `!merging`, max Y), registra in `_zapTargetEnergy`
+3. Rise 150px + flash, poi `doFly` con stagger geometrico; al volo: ri-cerca target se invalido (`_redirectSparkTarget`)
+4. `_onSparkHit`: score zap (`5×round×energy`) + flash+hop+pulse scala (`1.0+0.10×energy^0.35`) sul target, accumula energia, se `count=0` chiama `_evolveWarrior`
+5. `_evolveWarrior`: `finalLevel = floor(log₂(initEnergy + accEnergy)) + 1` → **score evoluzione** (`20 × round × ΔLevel`) → spawn evolved o blackhole; animazione bubble post-flash
 
-### Swap launcher ↔ next
-- `_nextSlotBoostEnergy` — traccia l'energia del powerup nel "next slot"
-- Swap: scambio bidirezionale — `curEnergy → _nextSlotBoostEnergy`, `nextEnergy → nw.levelBoost`
-- Preview aura: `updateNextPreview` mostra nodo aura su `nextNextWarriorNode` se `_nextSlotBoostEnergy >= 0`
-- `activateWarrior`: usa `_nextSlotBoostEnergy` se >= 0, altrimenti default (2 in test)
-- **Preview AURA size (v0.8.3)**: dimensione calcolata dinamicamente — `min = 148 × 0.8`, `size = min × 1.2^(energy−1)`, capped a `min × 2` (118→142→170→205 px per energy 1–4)
+### Round illimitati
+`MAX_ROUND` rimosso. `_roundThreshold(round)` usa `ROUND_THRESHOLDS[round]` per i round 1–7, poi `round × 20` per i round successivi.
 
 ### Gotcha Tween
 **`Tween.stopAllByTarget(component)` quando non ci sono tween attivi corrompe il sistema tween CC3** — i tween successivi sullo stesso target completano istantaneamente. Usare sempre la reference all'istanza: `this._myTween = tween(...).start()` poi `this._myTween?.stop()`.
@@ -438,6 +439,107 @@ Formato log:
 - `checkLineLogic(dt)`
 
 **Regola generale**: mai applicare forze a body Box2D mentre `PhysicsSystem2D.instance.enable = false`. Il buffer si accumula senza essere consumato → crash al prossimo `Step()`.
+
+---
+
+## BloodHood Powerup — attivazione
+
+### Condizioni (in `activateWarrior`)
+
+```typescript
+const sameTypeOnTrack = warriors.filter(w => w.crossedLine && w.node?.isValid && w.type === launcher.type).length;
+if (sameTypeOnTrack >= 8 && _bhCooldownLaunches === 0 && !launcher.levelBoost) {
+    bloodhoodEnabled = true;
+}
+```
+
+| Regola | Valore |
+|--------|--------|
+| Stessa specie in pista | ≥ 8 |
+| Cooldown tra BH | 10 lanci (`_bhCooldownLaunches`, resettato al trigger) |
+| Blocker | `launcher.levelBoost != null` |
+
+- `_bhCooldownLaunches` viene impostato a 10 in `onWarriorLaunched` quando BH è attivo, decrementato di 1 ad ogni lancio non-BH.
+- BH e PsychoForce sono **mutualmente esclusivi**: PF si valuta solo se `!bloodhoodEnabled`.
+
+---
+
+## PsychoForce Powerup (v0.8.9)
+
+### Concetto
+Powerup "jolly": crea spazio prima della endline permettendo merge cross-species per 5 secondi.
+
+### Architettura
+- `PsychoForceEffect` — Component dedicato in `entities/PsychoForceEffect.ts`, attaccato a `warrior.viewNode` (regola: ogni VFX ha la propria classe)
+- `IPsychoForce` interface in `Warrior.ts` — `{ detach(): void; resetTimer(): void; }` — evita import circolare
+- `Warrior.psychoForce: IPsychoForce | null` + `Warrior.onPsychoContact: callback | null`
+
+### Flusso di contagio (scatter a cascata)
+1. Warrior con PsychoForce tocca warrior in-track → `Warrior.onBeginContact` chiama `onPsychoContact(source, target)` (one-shot: callback azzerata subito in `_onPsychoContact`)
+2. `_onPsychoContact`: calcola Y media del contatto; raccoglie tutti i warrior in `TRACK_W × 70%` centrato su quella Y; ordina per distanza dal source; lancia scatter `scheduleOnce` (0.04s + 0.12s × i)
+3. `_infectWarrior(w)`: se già infetto → `resetTimer()`; altrimenti `PsychoForceEffect.attach` + `onExpired → _deinfectWarrior`
+4. `_playPsychoInfectAnim`: scale bump `1.30 → 1.0` (0.07s + 0.20s elasticOut) su `viewNode`
+5. `_deinfectWarrior`: detach effetto + azzera `psychoForce` e `onPsychoContact`
+
+### Cross-species merge
+In `Warrior.onBeginContact`: se livelli uguali ma specie diverse, merge consentito solo se almeno uno dei due ha `psychoForce != null`.
+
+In `mergeWarriors`:
+- `isPsychoMerge = a.type !== b.type && (a.psychoForce || b.psychoForce)`
+- Tipo risultante = tipo del warrior che **non** porta PsychoForce (per conservare il tipo ospite)
+- `parentWasPsycho = a.psychoForce || b.psychoForce` → se vero, il merged eredita l'infezione via `_infectWarrior(merged)`
+- Cleanup: `a.psychoForce?.detach()` + `b.psychoForce?.detach()` prima di distruggere a e b (sia per merge normale che per branch BH maxLevel)
+
+### Timer e scadenza
+- Expiry: 5s (`EXPIRE_SECS` in `PsychoForceEffect.ts`)
+- Timer parte (o resetta) in `checkLineLogic` quando il warrior attraversa la linea: `w.psychoForce.resetTimer()` + assign `onPsychoContact`
+- `resetTimer` cancella e ripianifica `this.scheduleOnce(this._expireCb, 5.0)`
+
+### VFX (PsychoForceEffect.ts)
+| Layer | Size | Color | Opacity | Behavior |
+|-------|------|-------|---------|----------|
+| `PsychoTint` | radius × 2.1 | `(60,230,255)` | 55 | Static body wash |
+| `PsychoGlow` (outer) | radius × 3.2 | `(40,210,255)` | 85 | Pulse scale 1.0↔1.20, 0.45s/ciclo, additive blend |
+
+Usa `auraFrame` (stessa texture di LevelBoost), blend `SRC_ALPHA + ONE`.
+
+### Parametri chiave
+| Costante | Valore | Note |
+|----------|--------|------|
+| `EXPIRE_SECS` | 5.0s | In `PsychoForceEffect.ts` |
+| Spread range | ±35% `TRACK_W` | In local-Y: `TRACK_W * 0.35 / box2dLayer.scale.y` |
+| Scatter initial delay | 0.04s | Primo contagiato |
+| Scatter interval | 0.12s | Tra contagiati successivi |
+
+---
+
+## Sistema powerup su swap Next↔Launcher (2026-05-26)
+
+Quando un warrior con powerup (aura/PsychoForce/bloodhood) viene swappato nel next, **il powerup segue il warrior**, non lo slot.
+
+### Meccanismo (`GameManager.ts`)
+- `_nextPowerup: 'aura' | 'psychoForce' | 'bloodhood' | null` — powerup salvato per il warrior nel next slot
+- `_nextPowerupPending: boolean` — flag impostato da `createWarrior()`, consumato da `activateWarrior()`
+- `_applyPendingPowerup(w, powerup)` — applica il powerup salvato al warrior che torna al launcher
+
+### Flusso swap→swap
+1. `swapNextWithLauncher()`: rileva il powerup di `cur`, salva `_nextPowerup = curPowerup`; applica `pendingForNw` (dal swap precedente) al nuovo launcher
+2. Swap successivo: il warrior con powerup torna al launcher con `_applyPendingPowerup`
+
+### Flusso swap→lancio normale
+1. `createWarrior()` imposta `_nextPowerupPending = true` se `_nextPowerup !== null`
+2. `activateWarrior(w)` al termine applica il powerup e svuota entrambe le flag
+3. `penaliseAndReturn`: NON consuma `_nextPowerupPending` (il warrior non viene da `createWarrior()`) → powerup preservato per il prossimo genuino promuovimento
+
+### Glow nel next preview
+- `_nextPreviewGlowNode` — nodo figlio di `nextNextWarriorNode`, 86×86, blend additivo
+- Colori: arancio-giallo (aura), ciano (PsychoForce), viola (bloodhood)
+- Animazione pulsante `repeatForever`; fade-out quando `_nextPowerup = null`
+- `_updateNextPreviewPowerupGlow()` chiamato alla fine di ogni `updateNextPreview()`
+
+### Regole lifecycle powerup
+- **Lancio warrior Y**: se warrior X (già in pista) ha ancora aura/PF visual attivo, viene rimosso al momento del lancio di Y (effetti già propagati continuano)
+- **Lancio fallito (malus)**: `penaliseAndReturn` fa cleanup esplicito di PF (`_pfLaunchWarrior`) e BH (`_bhLaunchWarrior`) — powerup perso al ritorno del warrior
 
 ---
 
