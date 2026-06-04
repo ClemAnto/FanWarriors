@@ -717,6 +717,7 @@ panel.init(this);
 | **Componente su nodo disattivo non fa nulla** | Un `@ccclass` su un nodo con `_active:false` non riceve `onLoad` → wiring/eventi mai registrati (es. `Settings` sul Dialog disattivo: MenuButton non apriva) | Mettere il componente su un nodo **sempre attivo** e referenziare il nodo target via `@property` (es. `Settings.dialogNode`). Lo script nasconde il target a runtime in `onLoad` |
 | **Bottone senza `cc.Button` non emette CLICK** | `node.on(Button.EventType.CLICK, ...)` non scatta se il nodo non ha un componente `cc.Button` | Aggiungerlo via codice se manca: `node.getComponent(Button) ?? node.addComponent(Button)` (pattern in `Settings`/vecchio GameManager) |
 | **Loading screen non vede asset del bundle** | Lo splash HTML gira prima di Cocos: non può usare texture importate (nome hashato nel bundle) | Mettere una copia statica in `build-templates/web-mobile/` (es. `title.png`) e referenziarla relativa in `index.html`. Ricopiare se l'asset cambia |
+| **`loadScene` "not in build settings"** | Nome scena errato passato a `director.loadScene`. `director.getScene()?.name` può restituire vuoto → scattava il fallback con nome stale `'GameScene'`, ma la scena ora si chiama `'Game'` (retry/new-game game over+vittoria non ricaricavano) | Fallback con il nome reale della scena (`'Game'`); il file `.scene` ha `_name` autoritativo. Fixato v0.8.22 |
 
 ### Bug — warrior inflight che fonde prima di superare la linea (RISOLTO v0.3.6)
 
