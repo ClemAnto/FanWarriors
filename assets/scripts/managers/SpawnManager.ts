@@ -17,7 +17,7 @@ export class SpawnManager extends Component {
     levelBiasChance = 0.3;
 
     @property({ min: 0, max: 1, tooltip: 'Probability of matching type+level of warriors in the top rows (closest to launcher)' })
-    topRowBiasChance = 0.4;
+    topRowBiasChance = 0.25;
 
     @property({ min: 1, max: 20, tooltip: 'How many top warriors (by Y) to consider for top-row bias' })
     topRowCount = 6;
@@ -59,6 +59,14 @@ export class SpawnManager extends Component {
         const w = Warrior.spawn(this._parent!, this._visualParent!, this._nextType, this._nextLevel, 0, this._spawnY);
         w.onMergeReady = this.onMergeReady;
         this._generateNext();
+        return w;
+    }
+
+    /** Spawn a launcher of an explicit type/level at the launch position — does not touch bag/next.
+     *  Used to rebuild the launcher when restoring a saved game state. */
+    spawnAt(type: number, level: number): Warrior {
+        const w = Warrior.spawn(this._parent!, this._visualParent!, type, level, 0, this._spawnY);
+        w.onMergeReady = this.onMergeReady;
         return w;
     }
 

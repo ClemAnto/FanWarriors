@@ -85,7 +85,7 @@ export interface IGameManagerDebug {
     getTotalMerges(): number;
     setTotalMerges(n: number): void;
     getWarriors(): readonly Warrior[];
-    addDebugWarrior(type: number, level: number, x: number, y: number): void;
+    addDebugWarrior(type: number, level: number, x: number, y: number): Warrior;
     cycleDebugWarriorLevel(w: Warrior): void;
     saveDebugState(): void;
     loadDebugState(): void;

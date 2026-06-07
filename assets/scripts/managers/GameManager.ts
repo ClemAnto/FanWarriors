@@ -19,7 +19,7 @@ import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 import { Settings } from './Settings';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.23';
+export const VERSION     = '0.8.25';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -59,6 +59,37 @@ const NEW_BEST_MIN_SCORE = 10000;  // min score for the "new best" message to ap
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
 const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
 
+// ── Resumable game state (localStorage snapshot) ──
+// Saved at the start of every turn (settled board + launcher ready) so a runtime error can be
+// recovered by reloading the scene and rebuilding the exact turn-start situation.
+const STATE_KEY = 'fw_game_state';
+
+type PowerupKind = 'aura' | 'psychoForce' | 'bloodhood' | 'genocide';
+
+interface WarriorSnap {
+    type: number;
+    level: number;
+    x: number;
+    y: number;
+    pu?: PowerupKind;   // residual powerup carried by an on-track warrior (only aura persists)
+}
+
+interface GameSnapshot {
+    version: string;
+    score: number;
+    round: number;
+    totalMerges: number;
+    cooldowns: { bh: number; pf: number; gn: number };
+    firstLaunchSpecies: number[];
+    trackClearedBonusUsed: boolean;
+    bestSingle: { score: number; desc: string };
+    spawnLog: [number, [number, number][]][];
+    launcher: { type: number; level: number; powerup: PowerupKind | null };
+    nextPowerup: PowerupKind | null;
+    next: { type: number; level: number };
+    warriors: WarriorSnap[];
+}
+
 function launchTimerForRound(round: number): number {
     if (round <= 1) return 15;
     if (round <= 3) return 12;
@@ -69,8 +100,8 @@ function launchTimerForRound(round: number): number {
 }
 
 function spawnMaxLevelForRound(round: number): number {
-    if (round <= 2) return 1;
-    if (round <= 5) return 2;
+    if (round <= 1) return 1;   // onboarding: round 1 launches only level-1 warriors
+    if (round <= 5) return 2;   // level 2 unlocked from round 2 (was round 3) for more early variety
     return 3;
 }
 
@@ -159,10 +190,16 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _bestSingleScore = 0;
     private _bestSingleScoreDesc = '';
     private _spawnLog: Map<number, Map<number, number>> = new Map();
+    private _seqLogN = 0; // TEMP: counts logged launchers for the launch-order verification (remove later)
 
     get bestSingleScore(): number { return this._bestSingleScore; }
     get bestSingleScoreDesc(): string { return this._bestSingleScoreDesc; }
     private vfx!: VFXManager;
+    // Set just before a scene reload triggered by the "RIPRISTINA" button — the fresh GameManager
+    // detects it in start() and rebuilds the board from the saved snapshot instead of a new game.
+    private static _pendingRestore = false;
+    private _errorPanel: Node | null = null;
+    private _errorDialogShown = false;
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
     private _pauseOverlay: Node | null = null;
@@ -184,6 +221,16 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private readonly _onWindowBlur  = (): void => this._autoPause();
     private readonly _onWindowFocus = (): void => this._autoResume();
+
+    private readonly _onGlobalError = (ev: ErrorEvent): void => {
+        if (!ev.error) return; // ignore resource-load errors (no Error object attached)
+        console.error('[GameManager] global error captured:', ev.error);
+        this._handleRuntimeError();
+    };
+    private readonly _onUnhandledRejection = (ev: PromiseRejectionEvent): void => {
+        console.error('[GameManager] unhandled promise rejection captured:', ev.reason);
+        this._handleRuntimeError();
+    };
 
     private readonly onBrowserResize = (): void => {
         cancelAnimationFrame(this.resizeRafId);
@@ -294,14 +341,21 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
-            const prefilled = this.spawnMgr.prefill();
-            prefilled.forEach(w => this._recordSpawn(w.type, this.currentRound));
-            this.warriors.push(...prefilled);
-            const firstWarrior = this.createWarrior();
             this.initHud();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
-            this.activateWarrior(firstWarrior);
+
+            const restoring = GameManager._pendingRestore;
+            GameManager._pendingRestore = false;
+            if (!(restoring && this._restoreSnapshot())) {
+                // Fresh game: clear any leftover snapshot, then start normally.
+                this._clearSnapshot();
+                const prefilled = this.spawnMgr.prefill();
+                prefilled.forEach(w => this._recordSpawn(w.type, this.currentRound));
+                this.warriors.push(...prefilled);
+                const firstWarrior = this.createWarrior();
+                this.activateWarrior(firstWarrior);
+            }
 
             if (DEBUG) {
                 const debugNode = new Node('DebugPanel');
@@ -315,6 +369,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 document.addEventListener('visibilitychange', this._onVisibilityChange);
                 window.addEventListener('blur',  this._onWindowBlur);
                 window.addEventListener('focus', this._onWindowFocus);
+                window.addEventListener('error', this._onGlobalError);
+                window.addEventListener('unhandledrejection', this._onUnhandledRejection);
             }
         });
     }
@@ -326,6 +382,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
             window.removeEventListener('blur',  this._onWindowBlur);
             window.removeEventListener('focus', this._onWindowFocus);
+            window.removeEventListener('error', this._onGlobalError);
+            window.removeEventListener('unhandledrejection', this._onUnhandledRejection);
         }
     }
 
@@ -377,13 +435,14 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     getWarriors(): readonly Warrior[] { return this.warriors; }
 
-    addDebugWarrior(type: number, level: number, x: number, y: number): void {
+    addDebugWarrior(type: number, level: number, x: number, y: number): Warrior {
         const w = Warrior.spawn(this.box2dLayer, this.warriorsLayer, type, level, x, y);
         w.crossedLine = true;
         w.fired = true;
         w.settle();
         w.onMergeReady = this.timerPaused ? null : (a, b) => this.mergeWarriors(a, b);
         this.warriors.push(w);
+        return w;
     }
 
     cycleDebugWarriorLevel(w: Warrior): void {
@@ -838,6 +897,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.updateDebugLabel();
         } catch (e) {
             console.error('[GameManager] update error (skipping frame):', e);
+            this._handleRuntimeError();
         }
     }
 
@@ -864,6 +924,13 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private activateWarrior(w: Warrior): void {
         this._activeLauncherWarrior = w;
+        // TEMP verification log — reload the game a few times and compare the first 8 lines to
+        // check whether the launch ORDER is genuinely random or fixed. Remove once verified.
+        if (this._seqLogN < 8) {
+            this._seqLogN++;
+            const nx = this.spawnMgr.next;
+            console.log(`[SeqCheck] #${this._seqLogN} launcher=${WARRIORS[w.type]?.name ?? w.type} lv${w.level}  |  next=${WARRIORS[nx.type]?.name ?? nx.type} lv${nx.level}`);
+        }
         this.inputCtrl.setWarrior(w);
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.mergesThisLaunch = 0;
@@ -915,6 +982,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
 
         this._updateNextPreviewPowerupGlow();
+
+        // Snapshot the turn-start situation so a runtime error can be recovered to exactly here.
+        this._saveSnapshot();
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
@@ -2398,6 +2468,214 @@ export class GameManager extends Component implements IGameManagerDebug {
         PhysicsSystem2D.instance.enable = true;
         AudioManager.instance.unmuteForPause();
         this.inputCtrl.blocked = false;
+    }
+
+    // ── Resumable state: save / restore / reset ──────────────────────────────
+
+    private _powerupOf(w: Warrior | null): PowerupKind | null {
+        if (!w?.node?.isValid) return null;
+        if (this._auraWarrior === w) return 'aura';
+        if (w.psychoForce != null) return 'psychoForce';
+        if (this.bloodhoodEnabled && this._launcherBloodhoodEffect) return 'bloodhood';
+        if (this._genocideCarrier === w) return 'genocide';
+        return null;
+    }
+
+    private _serializeSpawnLog(): [number, [number, number][]][] {
+        return [...this._spawnLog.entries()].map(([r, m]) => [r, [...m.entries()]]);
+    }
+
+    private _deserializeSpawnLog(data: [number, [number, number][]][] | undefined): Map<number, Map<number, number>> {
+        const out = new Map<number, Map<number, number>>();
+        for (const [r, entries] of data ?? []) out.set(r, new Map(entries));
+        return out;
+    }
+
+    /** Persist the full turn-start situation to localStorage. Called on every warrior activation. */
+    private _saveSnapshot(): void {
+        if (this.state === GameState.GameOver) return;
+        const launcher = this._activeLauncherWarrior;
+        const snap: GameSnapshot = {
+            version:     VERSION,
+            score:       this.score,
+            round:       this.currentRound,
+            totalMerges: this.totalMerges,
+            cooldowns:   { bh: this._bhCooldownLaunches, pf: this._pfCooldownLaunches, gn: this._gnCooldownLaunches },
+            firstLaunchSpecies:    [...this._firstLaunchSpecies],
+            trackClearedBonusUsed: this._trackClearedBonusUsed,
+            bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
+            spawnLog:    this._serializeSpawnLog(),
+            launcher: launcher?.node?.isValid
+                ? { type: launcher.type, level: launcher.level, powerup: this._powerupOf(launcher) }
+                : { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level, powerup: null },
+            nextPowerup: this._nextPowerup,
+            next:        { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level },
+            warriors:    this.warriors
+                .filter(w => w.crossedLine && w !== launcher && w.node?.isValid)
+                .map(w => {
+                    const s: WarriorSnap = { type: w.type, level: w.level, x: w.node.position.x, y: w.node.position.y };
+                    if (this._auraWarrior === w) s.pu = 'aura';
+                    return s;
+                }),
+        };
+        try {
+            sys.localStorage.setItem(STATE_KEY, JSON.stringify(snap));
+        } catch (e) {
+            console.warn('[GameManager] snapshot save failed:', e);
+        }
+    }
+
+    private _clearSnapshot(): void {
+        try { sys.localStorage.removeItem(STATE_KEY); } catch { /* ignore */ }
+    }
+
+    private _reattachAura(w: Warrior): void {
+        if (!w?.node?.isValid) return;
+        this._auraEffect?.detach();
+        this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
+        this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+        this._auraEffect.startTimer();
+        this._auraWarrior = w;
+    }
+
+    /** Rebuild the board from the saved snapshot. Returns false (→ fresh game) if none/invalid. */
+    private _restoreSnapshot(): boolean {
+        const raw = sys.localStorage.getItem(STATE_KEY);
+        if (!raw) return false;
+        let snap: GameSnapshot;
+        try { snap = JSON.parse(raw) as GameSnapshot; } catch { return false; }
+        if (!snap || typeof snap.round !== 'number' || !snap.launcher || !snap.next) return false;
+
+        try {
+            this.currentRound  = Math.max(1, snap.round);
+            this.totalMerges   = Math.max(0, snap.totalMerges ?? 0);
+            this.score         = Math.max(0, snap.score ?? 0);
+            this._scoreProxy.val = this.score;
+            this._bhCooldownLaunches = snap.cooldowns?.bh ?? 0;
+            this._pfCooldownLaunches = snap.cooldowns?.pf ?? 0;
+            this._gnCooldownLaunches = snap.cooldowns?.gn ?? 0;
+            this._firstLaunchSpecies    = new Set(snap.firstLaunchSpecies ?? []);
+            this._trackClearedBonusUsed = !!snap.trackClearedBonusUsed;
+            this._bestSingleScore       = snap.bestSingle?.score ?? 0;
+            this._bestSingleScoreDesc   = snap.bestSingle?.desc ?? '';
+            this._spawnLog              = this._deserializeSpawnLog(snap.spawnLog);
+
+            this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
+            this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
+
+            // On-track warriors
+            const created: Warrior[] = (snap.warriors ?? []).map(s => this.addDebugWarrior(s.type, s.level, s.x, s.y));
+
+            const launcherPU = snap.launcher.powerup ?? null;
+
+            // Re-attach residual aura to its on-track carrier (skip if the launcher also takes aura).
+            if (launcherPU !== 'aura') {
+                const auraIdx = (snap.warriors ?? []).findIndex(s => s.pu === 'aura');
+                if (auraIdx >= 0 && created[auraIdx]?.node?.isValid) this._reattachAura(created[auraIdx]);
+            }
+
+            // Next-preview queue
+            this.spawnMgr.setNext(snap.next.type, snap.next.level);
+
+            // Launcher — spawned at the launch position, then activated with its powerup.
+            const launcher = this.spawnMgr.spawnAt(snap.launcher.type, snap.launcher.level);
+            if (launcher.mapper) launcher.mapper.animScale = 0;
+            if (launcher.viewNode?.isValid) launcher.viewNode.setScale(0, 0, 1);
+            this.warriors.push(launcher);
+            this.nextLaunchWarrior = launcher;
+
+            this._nextPowerup        = launcherPU;
+            this._nextPowerupPending = launcherPU != null;
+            this.activateWarrior(launcher); // applies launcherPU and re-saves the snapshot
+
+            // _nextPowerup is consumed for the launcher above — restore the genuine pending value.
+            this._nextPowerup = snap.nextPowerup ?? null;
+
+            this.updateScoreLabel();
+            this.updateRoundLabel();
+            this.updateRoundProgress();
+            this.updateNextPreview();
+            this._updateNextPreviewPowerupGlow();
+            this._saveSnapshot();
+            console.log('[GameManager] state restored from snapshot');
+            return true;
+        } catch (e) {
+            console.error('[GameManager] restore failed, starting fresh:', e);
+            return false;
+        }
+    }
+
+    // ── Unexpected-error dialog ──────────────────────────────────────────────
+
+    private _handleRuntimeError(): void {
+        if (this._errorDialogShown || this.state === GameState.GameOver) return;
+        try { this._showErrorDialog(); }
+        catch (e) { console.error('[GameManager] failed to show error dialog:', e); }
+    }
+
+    private _showErrorDialog(): void {
+        if (this._errorDialogShown) return;
+        this._errorDialogShown = true;
+
+        // Freeze the game so the failing code path stops re-running every frame.
+        if (this.state !== GameState.Paused) this._stateBeforePause = this.state;
+        this.state = GameState.Paused;
+        try { PhysicsSystem2D.instance.enable = false; } catch { /* ignore */ }
+        if (this.inputCtrl) this.inputCtrl.blocked = true;
+
+        const panel = new Node('ErrorPanel');
+        panel.setParent(this.uiLayer);
+        const bg = panel.addComponent(Graphics);
+        const vs = view.getVisibleSize();
+        bg.fillColor = new Color(0, 0, 0, 200);
+        bg.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
+        bg.fill();
+
+        this.makeLabel(panel, 'Errore non previsto', 0, 90, 42, new Color(255, 90, 90, 255));
+        this.makeLabel(panel, 'Qualcosa è andato storto durante il gioco.', 0, 36, 22, new Color(210, 210, 210, 255));
+
+        const contBtn = this._makeDialogButton(panel, 'CONTINUA', 0, -40, new Color(35, 110, 60, 255));
+        const onCont = () => this._dismissErrorDialog();
+        contBtn.on(Node.EventType.TOUCH_START, onCont, this);
+        contBtn.on(Node.EventType.MOUSE_DOWN,  onCont, this);
+
+        const restoreBtn = this._makeDialogButton(panel, 'RIPRISTINA', 0, -120, new Color(150, 80, 20, 255));
+        const onRestore = () => {
+            GameManager._pendingRestore = true;
+            director.loadScene(this.sceneName);
+        };
+        restoreBtn.on(Node.EventType.TOUCH_START, onRestore, this);
+        restoreBtn.on(Node.EventType.MOUSE_DOWN,  onRestore, this);
+
+        this._errorPanel = panel;
+    }
+
+    private _dismissErrorDialog(): void {
+        if (this._errorPanel?.isValid) this._errorPanel.destroy();
+        this._errorPanel = null;
+        this._errorDialogShown = false;
+        this.state = this._stateBeforePause ?? GameState.Aiming;
+        this._stateBeforePause = null;
+        try { PhysicsSystem2D.instance.enable = true; } catch { /* ignore */ }
+        if (this.inputCtrl) this.inputCtrl.blocked = false;
+    }
+
+    private _makeDialogButton(parent: Node, text: string, x: number, y: number, color: Color): Node {
+        const node = new Node(text);
+        node.setParent(parent);
+        node.setPosition(x, y);
+        const w = 300, h = 64;
+        node.addComponent(UITransform).setContentSize(w, h);
+        const g = node.addComponent(Graphics);
+        g.fillColor = color;
+        g.roundRect(-w / 2, -h / 2, w, h, 12);
+        g.fill();
+        g.strokeColor = new Color(255, 255, 255, 170);
+        g.lineWidth = 2;
+        g.roundRect(-w / 2, -h / 2, w, h, 12);
+        g.stroke();
+        this.makeLabel(node, text, 0, 0, 30, new Color(255, 255, 255, 255)).isBold = true;
+        return node;
     }
 
     private _checkProximityMerge(dt: number): void {
