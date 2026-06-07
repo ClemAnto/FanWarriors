@@ -204,6 +204,15 @@ Se il nodo figlio ha una UITransform height sproporzionata (es. 680 invece di 80
 ### `scheduleOnce` / `unschedule` — reference alla callback
 `this.unschedule(cb)` richiede la stessa **reference** alla funzione passata a `scheduleOnce`. Per questo il merge usa `mergeCallbacks: Map<Warrior, () => void>` — la callback viene salvata per poterla annullare in `onEndContact`.
 
+### Deploy web + cache del browser — usare `md5Cache=true`
+Su GitHub Pages i bundle Cocos (`assets/main/`, `assets/resources/`) hanno nomi stabili → il browser (specie mobile) li serve da cache anche dopo un nuovo deploy, mostrando codice/asset vecchi pur con `index.html` aggiornato. **Soluzione**: `scripts/build.js` builda con `md5Cache=true` → ogni file prende un hash nel nome, quindi un nuovo build = nuovi nomi = niente stale cache. `patch-html.js` cache-busta gli `<script src>` locali ma **non** gli URL assoluti (CDN Firebase). Deploy = `npm run build` poi `npm run deploy` (force-push su `gh-pages`), MAI in automatico.
+
+### `director.getScene().name` è `""` in `onLoad` (nei build) — NON usarlo per il comportamento
+Tentativo (abbandonato) di far cambiare comportamento a `LeaderboardPanel` via `director.getScene()?.name === 'Ranking'` in `onLoad`: nei build il nome scena è **stringa vuota** durante `onLoad` → la detection falliva e il pannello si auto-nascondeva ("vedo solo lo sfondo"). Non basare la logica di `onLoad`/`start` sul nome della scena. Se serve distinguere contesti, passare un dato esplicito (es. `static pendingScore` impostato prima di `loadScene`) — è così che oggi il game-over consegna lo score alla scena Ranking.
+
+### `.node.off(...)` su componente già distrutto in `onDestroy` → crash
+`if (this._comp) this._comp.node.off(...)` NON basta: un componente CCObject distrutto resta **truthy** ma `.node` è `null` → `null.off(...)` ("Cannot read properties of null (reading 'off')"). Emerge nel teardown scena (es. game-over → `loadScene('Ranking')`). Guardare `isValid`: `const n = this._comp?.node; if (n?.isValid) n.off(...)`. Vedi `Track.onDestroy`.
+
 ---
 
 ## Architettura del sistema di settling

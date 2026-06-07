@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Button, Label, Color, UIOpacity, tween, resources, Prefab, instantiate } from 'cc';
+import { _decorator, Component, Node, Button, Label, Color, UIOpacity, tween, director, view, ResolutionPolicy } from 'cc';
 import { TOP_N, ENABLED } from '../config/LeaderboardConfig';
 import { LeaderboardEntry } from '../services/LeaderboardService';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
@@ -6,34 +6,33 @@ import { NameEntry } from './NameEntry';
 
 const { ccclass, property } = _decorator;
 
-/** resources path (assets/resources/LeaderboardPanel.prefab). */
-const PREFAB_PATH = 'LeaderboardPanel';
+/** Scene to return to when closing the leaderboard view. */
+const BACK_SCENE = 'MainMenu';
 
 /**
- * Self-contained leaderboard overlay. ONE prefab, two child sub-panels:
- *   - Board     : the top-N list (this component fills it)
- *   - NameEntry : the arcade name selector (its own NameEntry component, nested)
+ * Leaderboard view — the whole content of the Ranking scene (no longer a modal).
  *
- * The ROOT node (this.node) is the modal gate: active = overlay shown + input
- * blocked (BlockInputEvents on the root), inactive = nothing shown / passthrough.
- * It starts active so onLoad runs and bindings register, then onLoad hides it.
- * CC3 activates synchronously, so re-activating the root runs the nested
- * NameEntry.onLoad before we call into it — no deferred-binding race.
+ * Two ways the scene is entered:
+ *   - From the menu "Leaderboard" button → just show the top-N board.
+ *   - From game-over, when the score qualifies → GameManager sets
+ *     {@link LeaderboardPanel.pendingScore} and loads this scene; start() then
+ *     runs the name-entry → submit → board flow.
  *
- * `boardNode` is the Board sub-panel we fade; the nested NameEntry fades itself.
- *
- * Two entry points:
- *   - open()       : just show the board (e.g. a menu "Leaderboard" button)
- *   - runEndGame() : qualify → name entry → submit → board (game-over flow)
- *
- * Behavior only — layout lives in the LeaderboardPanel prefab. Each Board row node
- * must contain child Labels named "Rank", "Name", "Score".
+ * Layout lives in the scene; this component only drives behavior. Each Board row
+ * node must contain child Labels named "Rank", "Name", "Score".
  */
 @ccclass('LeaderboardPanel')
 export class LeaderboardPanel extends Component {
-    @property({ type: Node, tooltip: 'The Board sub-panel (faded/toggled to show the list).' })
+    /**
+     * Score handed off from the game-over flow. Set by GameManager right before
+     * loading the Ranking scene; consumed once in start(). Null when the scene is
+     * opened just to view the board (e.g. from the menu).
+     */
+    static pendingScore: number | null = null;
+
+    @property({ type: Node, tooltip: 'The Board sub-panel (the list; hidden during name entry).' })
     boardNode: Node | null = null;
-    @property({ type: NameEntry, tooltip: 'The nested NameEntry component (name selector sub-panel).' })
+    @property({ type: NameEntry, tooltip: 'The NameEntry component (arcade name selector).' })
     nameEntry: NameEntry | null = null;
     @property({ type: [Node], tooltip: 'One row node per rank (top→bottom). Each contains child Labels "Rank","Name","Score". Length = TOP_N.' })
     rowNodes: Node[] = [];
@@ -47,28 +46,8 @@ export class LeaderboardPanel extends Component {
     normalColor: Color = new Color(255, 255, 255, 255);
 
     private _boardOp: UIOpacity | null = null;
-    private _onClose: (() => void) | null = null;
     private _highlightName = '';
     private _highlightScore = -1;
-
-    /**
-     * Load the prefab from resources and instantiate it under `parent` (top sibling).
-     * The robust, editor-free way to get a working overlay: callers don't need a
-     * pre-placed scene instance nor an @property binding. Resolves null on failure.
-     */
-    static spawn(parent: Node, cb: (panel: LeaderboardPanel | null) => void): void {
-        resources.load(PREFAB_PATH, Prefab, (err, prefab) => {
-            if (err || !prefab) {
-                console.warn('[LeaderboardPanel] resources.load failed:', err);
-                cb(null);
-                return;
-            }
-            const node = instantiate(prefab);
-            node.setParent(parent);
-            node.setSiblingIndex(parent.children.length - 1);
-            cb(node.getComponent(LeaderboardPanel));
-        });
-    }
 
     /** The Board sub-panel, or the root as a fallback when unbound. */
     private get _board(): Node {
@@ -82,53 +61,53 @@ export class LeaderboardPanel extends Component {
     onLoad(): void {
         const board = this._board;
         this._boardOp = board.getComponent(UIOpacity) ?? board.addComponent(UIOpacity);
-        this._boardOp.opacity = 0;
-        if (this._hasBoardChild) board.active = false;
-        this.node.active = false; // whole overlay hidden → input passthrough
         this.closeButton?.node.on(Button.EventType.CLICK, this._close, this);
     }
 
-    /** Show only the board (no name entry). For a menu "Leaderboard" button. */
-    open(opts?: { highlightName?: string; highlightScore?: number; onClose?: () => void }): void {
-        this._onClose = opts?.onClose ?? null;
-        this._showBoard(opts?.highlightName, opts?.highlightScore);
-    }
-
-    /**
-     * Full game-over flow: qualify → name entry → submit → board (own row highlighted).
-     * No-op (resolves) when the leaderboard is disabled or the player doesn't qualify.
-     */
-    async runEndGame(score: number, opts?: { onClose?: () => void }): Promise<void> {
-        if (!ENABLED) return;
-        this._onClose = opts?.onClose ?? null;
-        const svc = LeaderboardProvider.get();
-        try {
-            await svc.init();
-            if (!(await svc.qualifies(score))) return;
-        } catch {
-            return;
-        }
-        this.node.active = true; // overlay on (also runs nested NameEntry.onLoad first time)
-        if (this._hasBoardChild) this.boardNode!.active = false; // board hidden during entry
-        if (this.nameEntry) {
-            this.nameEntry.open(score, (name) => {
-                void (async () => {
-                    try { await svc.submit({ name, score, createdAt: Date.now() }); } catch { /* show board anyway */ }
-                    this._showBoard(name, score);
-                })();
-            });
+    start(): void {
+        view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
+        const pending = LeaderboardPanel.pendingScore;
+        LeaderboardPanel.pendingScore = null; // consume once
+        if (pending != null) {
+            this._runNameEntry(pending);
         } else {
             this._showBoard();
         }
     }
 
+    /**
+     * Name entry → submit → board (own row highlighted). The score has already
+     * qualified (GameManager checked before loading this scene), so we go straight
+     * to the selector. Falls back to just showing the board if NameEntry is unbound.
+     */
+    private _runNameEntry(score: number): void {
+        if (!ENABLED || !this.nameEntry) { this._showBoard(); return; }
+        const svc = LeaderboardProvider.get();
+        if (this._hasBoardChild) this.boardNode!.active = false; // board hidden during entry
+        // Activate the NameEntry node first so its onLoad (binds buttons + self-hides) runs
+        // BEFORE open(); otherwise open()'s own activation would trigger onLoad and re-hide it.
+        this.nameEntry.node.active = true;
+        this.nameEntry.open(score, (name) => {
+            void (async () => {
+                try {
+                    await svc.init();
+                    await svc.submit({ name, score, createdAt: Date.now() });
+                } catch (e) {
+                    console.warn('[LeaderboardPanel] submit failed:', e); // show board anyway
+                }
+                this._showBoard(name, score);
+            })();
+        });
+    }
+
     private _showBoard(highlightName?: string, highlightScore?: number): void {
         this._highlightName = highlightName ?? '';
         this._highlightScore = highlightScore ?? -1;
-        this.node.active = true;
         this._board.active = true;
-        if (this._boardOp) tween(this._boardOp).to(0.25, { opacity: 255 }, { easing: 'sineOut' }).start();
-
+        if (this._boardOp) {
+            this._boardOp.opacity = 0;
+            tween(this._boardOp).to(0.25, { opacity: 255 }, { easing: 'sineOut' }).start();
+        }
         this._setStatus('Loading…');
         this._clearRows();
         void this._load();
@@ -138,7 +117,7 @@ export class LeaderboardPanel extends Component {
         const svc = LeaderboardProvider.get();
         await svc.init();
         const entries = await svc.getTop(TOP_N);
-        if (!this.node.active) return; // closed while awaiting
+        if (!this.node?.isValid) return; // scene changed while awaiting
         this._render(entries);
     }
 
@@ -178,14 +157,6 @@ export class LeaderboardPanel extends Component {
     }
 
     private _close(): void {
-        const done = () => {
-            if (this._hasBoardChild) this.boardNode!.active = false;
-            this.node.active = false; // overlay off → passthrough
-            const cb = this._onClose;
-            this._onClose = null;
-            cb?.();
-        };
-        if (!this._boardOp) { done(); return; }
-        tween(this._boardOp).to(0.2, { opacity: 0 }, { easing: 'sineIn' }).call(done).start();
+        director.loadScene(BACK_SCENE);
     }
 }

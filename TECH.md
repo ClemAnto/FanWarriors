@@ -345,7 +345,13 @@ Fallback `touch.y < 0` se i bounds non sono ancora settati. Le coordinate sono i
 
 **Flusso game over** (`GameManager._runLeaderboardFlow`, chiamato da `triggerGameOver`/`triggerVictory`): `_bringToFront()` (riparenta l'overlay sotto `uiLayer` come ultimo sibling, sopra al GameOverPanel runtime) + `leaderboardPanel.runEndGame(score)`. Tutta la logica `qualifies → NameEntry → submit → board` vive in `LeaderboardPanel.runEndGame` (async, no-throw). Flag off o `leaderboardPanel` non bindato = comportamento invariato.
 
-**MainMenu:** pulsante LEADERBOARD → `MainMenu.onLeaderboard()` → `leaderboardPanel.open({})`.
+**MainMenu:** pulsante LEADERBOARD → `MainMenu.onLeaderboard()` → `director.loadScene('Ranking')`.
 
-**Lavoro editor residuo** (l'instancing di prefab in `.scene` è fragile, non automatizzato):
-- Game.scene + MainMenu.scene: piazzare/ri-trascinare UNA istanza di `LeaderboardPanel.prefab` (in Game sotto UILayer) e bindare `Leaderboard Panel` sul componente (GameManager / MainMenu). Il pulsante LEADERBOARD del menu è già wirato.
+### Pivot 2026-06-08 — Ranking è una SCENA dedicata (non più modale dal menu)
+L'approccio modale dal menu (`resources.load` + `getComponent`/duck-typing per istanziare l'overlay) si è rivelato inaffidabile sul deploy (bug irrisolto: il componente risolto era del nodo "Rank" senza `open`). **Soluzione**: una scena `Ranking.scene` con dentro una **PrefabInstance** di `LeaderboardPanel` — al load la istanzia il motore (path standard, affidabile).
+- `LeaderboardPanel` rileva `director.getScene()?.name === 'Ranking'` (costante `STANDALONE_SCENE`) → modalità **standalone**: `onLoad` NON nasconde; `start()` imposta `view.setDesignResolutionSize(720,1280,FIXED_HEIGHT)` e chiama `_showBoard()`; il tasto Close fa `director.loadScene('MainMenu')`.
+- Negli altri contesti (Game scene) il pannello resta **modale**: `onLoad` nasconde, `open()`/`runEndGame()` mostrano. Stessa classe, due comportamenti.
+- `md5Cache=true` aggiunto a `scripts/build.js` per evitare bundle (incl. `resources`) serviti da cache stale.
+- Prefab spostato in **`assets/resources/`** (loadabile via `resources.load('LeaderboardPanel')` per il path modale del game over).
+
+**Stato/deploy**: deploy manuale su gh-pages (`npm run build` + `npm run deploy`). NIENTE build/deploy automatici (vedi memoria workflow). Firestore in test-mode.

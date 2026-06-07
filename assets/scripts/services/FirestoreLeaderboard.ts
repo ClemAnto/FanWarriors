@@ -1,6 +1,10 @@
 import { LeaderboardEntry, LeaderboardService, SubmitResult } from './LeaderboardService';
 import { COLLECTION, FIREBASE_CONFIG, REQUEST_TIMEOUT_MS, SCORE_CAP, TOP_N } from '../config/LeaderboardConfig';
 
+/** Firebase compat SDK version — keep in sync with build-templates/web-mobile/index.html. */
+const FIREBASE_SDK_VERSION = '10.12.2';
+const FIREBASE_SDK_BASE = `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}`;
+
 /**
  * Real online leaderboard backed by Firebase Firestore.
  *
@@ -30,9 +34,15 @@ export class FirestoreLeaderboard implements LeaderboardService {
 
     private async _doInit(): Promise<boolean> {
         try {
-            const fb = (globalThis as any).firebase;
+            let fb = (globalThis as any).firebase;
+            // The CDN tags only exist in real builds (build-templates index.html), not in
+            // the editor Preview. Load the SDK ourselves when it's missing so the
+            // leaderboard works everywhere without depending on HTML injection.
             if (!fb || !fb.firestore) {
-                console.warn('[Leaderboard] Firebase compat SDK not found on window — is the CDN injected?');
+                fb = await this._loadSdk();
+            }
+            if (!fb || !fb.firestore) {
+                console.warn('[Leaderboard] Firebase compat SDK unavailable (CDN missing and dynamic load failed).');
                 return false;
             }
             if (!fb.apps || fb.apps.length === 0) {
@@ -45,6 +55,33 @@ export class FirestoreLeaderboard implements LeaderboardService {
             this._db = null;
             return false;
         }
+    }
+
+    /** Inject the Firebase compat SDK from the CDN at runtime. Resolves to window.firebase or null. */
+    private async _loadSdk(): Promise<any> {
+        const g = globalThis as any;
+        if (g.firebase?.firestore) return g.firebase;
+        const doc = g.document;
+        if (!doc || !doc.head) return null; // non-browser (headless) — can't inject
+        const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
+            const existing = Array.from(doc.scripts || []).find((s: any) => s.src === src) as any;
+            if (existing) {
+                if (existing._loaded) { resolve(); return; }
+                existing.addEventListener('load', () => resolve());
+                existing.addEventListener('error', () => reject(new Error(`failed to load ${src}`)));
+                return;
+            }
+            const el = doc.createElement('script');
+            el.src = src;
+            el.async = false; // preserve order: app before firestore
+            el.addEventListener('load', () => { el._loaded = true; resolve(); });
+            el.addEventListener('error', () => reject(new Error(`failed to load ${src}`)));
+            doc.head.appendChild(el);
+        });
+        console.log('[Leaderboard] Firebase SDK not present — loading from CDN at runtime...');
+        await loadScript(`${FIREBASE_SDK_BASE}/firebase-app-compat.js`);
+        await loadScript(`${FIREBASE_SDK_BASE}/firebase-firestore-compat.js`);
+        return g.firebase ?? null;
     }
 
     async getTop(limit: number): Promise<LeaderboardEntry[]> {

@@ -18,14 +18,18 @@ import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 import { Settings } from './Settings';
 import { LeaderboardPanel } from './LeaderboardPanel';
-import { ENABLED as LEADERBOARD_ENABLED } from '../config/LeaderboardConfig';
+import { LeaderboardProvider } from '../services/LeaderboardProvider';
+import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.41';
+export const VERSION     = '0.8.53';
+/** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
+const RANKING_SCENE      = 'Ranking';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const SHOW_ENDLINE_DEBUG = false;  // set true to draw the purple dashed game-over threshold line (debug)
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
+const TEST_FIRST_LAUNCH_GAMEOVER = false; // TEST: first launch forces game-over @15k to exercise the leaderboard flow
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
 const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
 const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
@@ -37,6 +41,7 @@ const LAUNCH_CHECK_DELAY   = 0.8;   // seconds before checking if launched warri
 const FAILED_LAUNCH_MALUS  = 50;    // score penalty when launched warrior fails to cross the line
 const CROSS_LINE_FRAMES    = 3;     // consecutive frames above gol before crossedLine is committed (prevents grazing false-positive)
 const GAME_OVER_FRAMES     = 3;     // consecutive frames below gol before game over triggers (prevents physics-jitter false-positive)
+const GAME_OVER_DESCENT_RADII = 6;  // how far below the line (in warrior radii) the physics centre must sink before game over — the visual base passes the line only after a large physics descent (perspective compresses Y by 4×). Tune for "base fully past the line".
 
 const BHS_PROX_INTERVAL      = 0.08; // seconds between BHS proximity spread checks
 const AURA_REPEL_RANGE       = 160;  // design-px — max distance at which repelling force is applied
@@ -112,8 +117,6 @@ function spawnMaxLevelForRound(round: number): number {
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManagerDebug {
     @property(Prefab) psychoSparklePrefab: Prefab | null = null;
-    /** Leaderboard overlay — instantiated from resources at start (no editor binding). */
-    private leaderboardPanel: LeaderboardPanel | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -191,6 +194,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _gnTimerStarted     = false;
     private _activeVortices: { x: number; y: number; range: number; force: number; ttl: number }[] = [];
     private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
+    private _didFirstLaunchRefresh = false; // one-shot track-geometry refresh on the very first launch
     private _trackClearedBonusUsed = false;
     private _bestSingleScore = 0;
     private _bestSingleScoreDesc = '';
@@ -228,6 +232,31 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private syncInputBounds(): void {
         this.inputCtrl.setTrackBounds(WALL_LB, WALL_LT, WALL_RB, WALL_RT);
+    }
+
+    /** Re-run the full layout: rebuild Box2D walls + refresh exported geometry and input bounds. */
+    private _refreshTrackGeometry(): void {
+        this.track?.relayout();
+        this.inputCtrl?.relayout(LAYOUT_SCALE);
+        this.syncInputBounds();
+    }
+
+    /**
+     * TEST_FIRST_LAUNCH_GAMEOVER: force a game-over with a score guaranteed to qualify —
+     * the current last (lowest) leaderboard entry + 1000. Falls back to 15000 on error.
+     */
+    private async _testForceGameOver(): Promise<void> {
+        let target = 15000;
+        try {
+            const svc = LeaderboardProvider.get();
+            await svc.init();
+            const top = await svc.getTop(TOP_N);
+            if (top.length > 0) target = top[top.length - 1].score + 1000;
+        } catch { /* keep fallback */ }
+        console.log(`[GameManager] TEST_FIRST_LAUNCH_GAMEOVER → forcing game-over @${target}`);
+        this.score = target;
+        this.updateScoreLabel();
+        this.triggerGameOver();
     }
 
     private readonly _onVisibilityChange = (): void => {
@@ -335,11 +364,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Ensure uiLayer renders on top of all game-world nodes
         this.uiLayer.setSiblingIndex(canvas.children.length - 1);
 
-        // Leaderboard: use the @property binding if set, else load+instantiate the prefab
-        // from resources (works with zero editor wiring).
-        if (!this.leaderboardPanel && LEADERBOARD_ENABLED) {
-            LeaderboardPanel.spawn(this.uiLayer, (p) => { this.leaderboardPanel = p; });
-        }
         this.vfx = new VFXManager(this.vfxLayer, this.uiLayer, this.worldNode, this.warriorsLayer);
         this.vfx.preloadSparkle();
 
@@ -1011,6 +1035,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
+        // First launch: force one last full relayout so the Box2D walls, exported wall
+        // geometry (WALL_*), game-over line and input bounds are all final before flight —
+        // the responsive TrackSprite size may have settled only after Track/GameManager start().
+        if (!this._didFirstLaunchRefresh) {
+            this._didFirstLaunchRefresh = true;
+            this._refreshTrackGeometry();
+            if (TEST_FIRST_LAUNCH_GAMEOVER) {
+                void this._testForceGameOver();
+                return;
+            }
+        }
         const launchY = w.node.position.y;
         if (launchY >= this.gameOverLineLocal) {
             console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
@@ -1171,9 +1206,12 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this.framesAboveLine.delete(w);
                 }
             } else if (w.crossedLine && w.settled && w.fired) {
-                const bottom = y - w.radius;
-                if (w !== this.inflightWarrior && bottom <= gol) anyDanger = true;
-                if (y < gol) {
+                // Danger pulse when the warrior's bottom edge reaches the line.
+                if (w !== this.inflightWarrior && (y - w.radius) <= gol) anyDanger = true;
+                // Game over only when the warrior has sunk well below the line so its base has fully
+                // passed it. The perspective compresses Y by 4× (sprite moves ¼ of the physics delta),
+                // so the centre must drop GAME_OVER_DESCENT_RADII radii before the visual base clears.
+                if (y < gol - GAME_OVER_DESCENT_RADII * w.radius) {
                     // Require sustained below-line to avoid single-frame physics-jitter game over
                     const n = (this.framesBelowLine.get(w) ?? 0) + 1;
                     this.framesBelowLine.set(w, n);
@@ -1337,25 +1375,26 @@ export class GameManager extends Component implements IGameManagerDebug {
         } catch (e) {
             console.error('[GameManager] triggerGameOver side-effect failed (screen still shown):', e);
         }
-        this._runLeaderboardFlow(this.score);
+        void this._runLeaderboardFlow(this.score);
     }
 
     /**
-     * Online leaderboard at end of game (no-op when disabled or unbound). The whole
-     * qualify → name entry → submit → board flow lives in LeaderboardPanel.runEndGame;
-     * here we just bring the overlay in front of the runtime game-over panel and fire it.
+     * Online leaderboard at end of game. When the score qualifies for the top-N we
+     * hand it off to the Ranking scene (via LeaderboardPanel.pendingScore) which
+     * runs the name-entry → submit → board flow. Non-qualifying scores are a no-op,
+     * leaving the player on the game-over panel.
      */
-    private _runLeaderboardFlow(score: number): void {
-        if (!LEADERBOARD_ENABLED || !this.leaderboardPanel) return;
-        this._bringToFront(this.leaderboardPanel.node);
-        void this.leaderboardPanel.runEndGame(score);
-    }
-
-    /** Reparent under uiLayer (if needed) and make it the top-most sibling. */
-    private _bringToFront(n: Node): void {
-        if (!n?.isValid) return;
-        if (n.parent !== this.uiLayer) n.setParent(this.uiLayer);
-        n.setSiblingIndex(this.uiLayer.children.length - 1);
+    private async _runLeaderboardFlow(score: number): Promise<void> {
+        if (!LEADERBOARD_ENABLED) return;
+        const svc = LeaderboardProvider.get();
+        try {
+            await svc.init();
+            if (!(await svc.qualifies(score))) return;
+        } catch {
+            return;
+        }
+        LeaderboardPanel.pendingScore = score;
+        director.loadScene(RANKING_SCENE);
     }
 
     private triggerVictory(): void {
@@ -1507,13 +1546,17 @@ export class GameManager extends Component implements IGameManagerDebug {
         scoreLbl.fontSize = 32;
         scoreLbl.color = new Color(255, 220, 50, 255);
 
-        const bestNode = new Node('BestScore');
-        bestNode.setParent(panel);
-        bestNode.setPosition(0, -50);
-        const bestLbl = bestNode.addComponent(Label);
-        bestLbl.string = `Best: ${this.bestScore}`;
-        bestLbl.fontSize = 22;
-        bestLbl.color = new Color(160, 210, 255, 255);
+        // Show the stored best ONLY when the player did NOT beat it; otherwise the
+        // animated "NEW BEST SCORE!" message above is the only best-related text.
+        if (!this._newBest) {
+            const bestNode = new Node('BestScore');
+            bestNode.setParent(panel);
+            bestNode.setPosition(0, -50);
+            const bestLbl = bestNode.addComponent(Label);
+            bestLbl.string = `Best Score: ${this.bestScore}`;
+            bestLbl.fontSize = 22;
+            bestLbl.color = new Color(160, 210, 255, 255);
+        }
 
         const retryNode = new Node('Retry');
         retryNode.setParent(panel);

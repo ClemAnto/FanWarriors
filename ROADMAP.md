@@ -29,6 +29,26 @@
 
 ## Log sessioni recenti
 
+### 2026-06-08 (v0.8.52 → v0.8.53) — Leaderboard consolidata nella scena Ranking
+- 🧹 **Eliminato del tutto il modale**: la leaderboard è ora interamente la **scena `Ranking`** (LeaderboardPanel + NameEntry come nodi normali). `LeaderboardPanel.ts` riscritto: `static pendingScore` (handoff dal game-over), `start()` → name-entry se c'è uno score, altrimenti board; `_close()` → MainMenu. Rimossi `spawn`/`_findIn`/`open`/`runEndGame`/detection scena.
+- 🏁 **Game-over**: `GameManager._runLeaderboardFlow` fa `qualifies(score)` → se top-10 imposta `pendingScore` e `loadScene('Ranking')` (name-entry→submit→board). Altrimenti resta sul pannello game-over.
+- 🐞 **Causa "vedo solo lo sfondo" trovata**: `director.getScene().name` è `""` in `onLoad` nei build → detection standalone falliva. Risolto eliminando il modale.
+- 🔥 **Firebase SDK caricato dal CDN a runtime** (`FirestoreLeaderboard._loadSdk`) se `window.firebase` manca → funziona anche nella Preview dell'editor (dove i tag CDN non sono iniettati).
+- 🌱 **`scripts/seed-leaderboard.js`** (`npm run seed:leaderboard`): seed di 10 entry default via REST + transform `REQUEST_TIME`. Collection seedata con 10 `FAN` (100k→10k).
+- 🛠️ **Fix crash scena**: `Track.onDestroy` ora guarda `isValid` (componente distrutto = truthy ma `.node` null → crash "reading 'off'") — emergeva col nuovo `loadScene` al game-over.
+- 🔄 **Refresh geometria al primo lancio** (`_refreshTrackGeometry`, one-shot): rebuild walls Box2D + bounds prima del volo.
+- 🧪 Flag di test `TEST_FIRST_LAUNCH_GAMEOVER` (default OFF) e debug `SHOW_ENDLINE_DEBUG` (OFF). `DEBUG`/`DEBUG_ENGINE` OFF.
+
+### 2026-06-08 (v0.8.42 → v0.8.51) — Leaderboard: pivot a scena dedicata
+- 🔄 **Ranking ora è una SCENA dedicata** (`assets/scenes/Ranking.scene`) con dentro una PrefabInstance di `LeaderboardPanel`, non più una modale. Abbandonato l'approccio modale via `resources.load`/`getComponent` perché si comportava in modo assurdo sul deploy (bug mai capito: `getComponent` restituiva un componente del nodo "Rank" senza `open` — vedi memoria `project_leaderboard`). In una scena il pannello lo istanzia il motore = path affidabile.
+- `LeaderboardPanel` rileva `director.getScene().name === 'Ranking'` → **standalone**: sempre visibile, imposta design resolution, Close → `loadScene('MainMenu')`. Altrove resta modale (game over).
+- `MainMenu.onLeaderboard()` → `director.loadScene('Ranking')`. Rimossa tutta la diagnostica alert.
+- Build: **`md5Cache=true`** in `scripts/build.js` (evita bundle serviti da cache stale); `patch-html.js` non riscrive URL assoluti (CDN Firebase).
+- 🌐 **Deploy GitHub Pages** verificato dal vivo (l'utente testa da telefono): `npm run build` + `npm run deploy` → https://clemanto.github.io/FanWarriors/. Firestore in **test mode** (rules temporanee).
+- 🇬🇧 **Tutte le label di gioco in inglese** (game over/victory: `YOU WIN!`, `New Game`, `Retry`, `NEW BEST SCORE!`; Settings `Restart`; pannello: `LEADERBOARD`, `Loading…`, `No scores yet.`, `CLOSE`).
+- 🏆 **Game over**: `Best Score: XXX` mostrato SOLO se non si è battuto il record; altrimenti solo `NEW BEST SCORE!` (mutuamente esclusivi).
+- ⚠️ **Stato a fine sessione**: working tree a **v0.8.51 NON committato**; ultimo deploy = **v0.8.50** (le modifiche Best Score/new best v0.8.51 sono solo locali, da deployare quando l'utente lo chiede). Regola ribadita: **niente build/deploy automatici**.
+
 ### 2026-06-07 (v0.8.24 → v0.8.41)
 - ✅ **Stato di gioco ripristinabile**: snapshot completo in `localStorage` salvato a ogni turno; dialog "Errore non previsto" con CONTINUA / RIPRISTINA (reload scena + ricostruzione). Vedi TECH.md.
 - ✅ **Hardening errori**: `unhandledrejection` non apre più il dialog (rumore async leaderboard); `window.error` solo dal nostro bundle; `_saveSnapshot` interamente in try/catch (fix "errore a ogni lancio").

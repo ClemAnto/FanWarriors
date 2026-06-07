@@ -63,11 +63,15 @@ export class Track extends Component {
     }
 
     onDestroy() {
-        if (this._spriteUIT) {
-            this._spriteUIT.node.off(UITransform.EventType.SIZE_CHANGED,   this.buildWalls, this);
-            this._spriteUIT.node.off(Node.EventType.TRANSFORM_CHANGED,     this.buildWalls, this);
-            this._spriteUIT = null;
+        // A destroyed component is still a truthy reference but its .node is null, so
+        // guard on isValid — otherwise scene teardown (e.g. game-over → Ranking) crashes
+        // with "Cannot read properties of null (reading 'off')".
+        const spriteNode = this._spriteUIT?.node;
+        if (spriteNode?.isValid) {
+            spriteNode.off(UITransform.EventType.SIZE_CHANGED,   this.buildWalls, this);
+            spriteNode.off(Node.EventType.TRANSFORM_CHANGED,     this.buildWalls, this);
         }
+        this._spriteUIT = null;
     }
 
     relayout(): void {
