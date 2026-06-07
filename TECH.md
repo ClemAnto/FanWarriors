@@ -126,6 +126,28 @@ viewNode.setScale(scale, scale, 1);
 
 ---
 
+## Stato di gioco ripristinabile + dialog "Errore non previsto" (v0.8.x)
+
+**Decisione**: snapshot completo della partita in `localStorage` (`fw_game_state`), salvato a **ogni attivazione di warrior** (= inizio turno, board assestata) in `_saveSnapshot()`, e ripristinabile dopo un crash.
+
+**Cosa contiene lo STATO** (`GameSnapshot`): score, round, totalMerges, cooldown powerup (bh/pf/gn), `firstLaunchSpecies`, `trackClearedBonusUsed`, best-single, spawnLog, launcher (tipo/livello/**powerup**), `nextPowerup`, next (tipo/livello), e tutti i warrior on-track (tipo/livello/x/y + aura residua). Reset a inizio partita (`_clearSnapshot`).
+
+**Ripristino**: il bottone `RIPRISTINA` del dialog setta un flag **statico** `GameManager._pendingRestore` e fa `director.loadScene` → al nuovo `start()` il board viene ricostruito da `_restoreSnapshot()` invece di partire una partita nuova. Ricaricare la scena (anziché ripristino in-place) è robusto: l'errore può aver lasciato tween/callback/body corrotti.
+
+**Dialog errore**: `CONTINUA` (chiude, riprende) / `RIPRISTINA`. Intercetta: il `try/catch` di `update()`; `window 'error'` **solo se dal nostro bundle** (filtra CDN/Firebase); `unhandledrejection` **log-only** (i rejection async di rete/SDK non devono interrompere il gioco). Mostra il testo reale dell'errore. Guard `_errorDialogShown` + grace `_errorSuppressed` (1.5s dopo CONTINUA).
+
+**Regola**: il salvataggio dello STATO è un effetto collaterale **non critico** → `_saveSnapshot()` è interamente in `try/catch`: non deve mai propagare un errore nel game-loop (era la causa del bug "errore a ogni lancio" — `_serializeSpawnLog` lanciava fuori dal try).
+
+---
+
+## Pausa — tap-to-resume + blocco input (v0.8.x)
+
+**Decisione**: durante la pausa (auto o manuale, `_togglePause`) si **blocca l'input** (`inputCtrl.blocked = true`) e l'overlay "PAUSE" è tappabile per riprendere (TOUCH_END/MOUSE_UP → resume).
+
+**Perché**: (1) un tap di ripresa non deve avviare per sbaglio una mira/lancio (l'overlay riceve il tap, l'InputController è bloccato); (2) recupero immediato da pause spurie (su mobile `blur` può scattare per la tastiera o gesti di sistema). Testo "PAUSE" (UI tradotta in inglese).
+
+---
+
 ## Linea di game over — editor-driven (v0.5.0)
 
 **Decisione**: la quota `GAME_OVER_LINE_Y` è ora derivabile da un nodo scena, non solo dalla formula matematica.
@@ -134,7 +156,23 @@ viewNode.setScale(scale, scale, 1);
 
 **Perché**: permette di spostare la linea nell'editor senza toccare il codice. Su resize, `relayout()` ricalcola automaticamente dalla posizione del nodo (se dotato di Widget proporzionale).
 
-**Coordinare con gameOverLineLocal**: `GameManager` espone un getter privato `gameOverLineLocal = GAME_OVER_LINE_Y / box2dLayer.scale.y`. Tutti i check di attraversamento linea (`checkLineLogic`, `checkLaunchResult`, `onWarriorLaunched`) usano `w.node.position.y` vs `gameOverLineLocal` — mai `worldPosition.y` vs `GAME_OVER_LINE_Y`.
+**Coordinare con gameOverLineLocal**: `GameManager` espone un getter privato `gameOverLineLocal`. Tutti i check di attraversamento linea (`checkLineLogic`, `checkLaunchResult`, `onWarriorLaunched`) usano `w.node.position.y` vs `gameOverLineLocal` — mai `worldPosition.y` vs `GAME_OVER_LINE_Y`.
+
+### Correzione soglia prospettica (v0.8.41)
+
+**Bug**: il game-over scattava quando il warrior era **nettamente sopra** la linea rossa dello sprite. Causa: `gameOverLineLocal` valeva `GAME_OVER_LINE_Y / sy`, con `GAME_OVER_LINE_Y = goEditorNode.worldPosition.y`. Ma `worldPosition.y` è world-space (centro≈640) mentre il valore veniva usato come canvas design-centrato → la mappatura prospettica `physToVisual` collocava la soglia **più in alto** della posizione reale del nodo (verificato con linea viola di debug su WarriorsLayer).
+
+**Fix**: `gameOverLineLocal` ora deriva la soglia fisica **invertendo la stessa mappatura di rendering** dei warrior, a partire dalla posizione **visiva reale** del nodo `GameOverLine`:
+```typescript
+const visualY = this._endlineNode.worldPosition.y - this.warriorsLayer.worldPosition.y; // WarriorsLayer-local
+return this.coords.visualToPhys(visualY);                                                // → physLocalY
+```
+- `_endlineNode` risolto in `start()` (`TrackSprite > GameOverLine`).
+- Calcolato **live ad ogni accesso** (getter) → robusto a layout/resize/rotazione e ai problemi di timing del `worldPosition` durante `start()`.
+- Per costruzione `physToVisual(gameOverLineLocal)` ricade esattamente sul nodo → la linea fisica coincide con la rossa dello sprite.
+- Resta un debug toggle `SHOW_ENDLINE_DEBUG` (flag in GameManager): linea viola tratteggiata su WarriorsLayer a `physToVisual(gol)`. Off in produzione, codice conservato.
+
+> L'override storico `GAME_OVER_LINE_Y = worldPosition.y` in `Track.buildWalls` resta come fallback, ma non è più la fonte usata dal game-over (lo è il getter sopra).
 
 ---
 

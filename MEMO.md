@@ -35,7 +35,9 @@ I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UIT
 
 **CRITICO — `worldPosition.y` in CC3 2D restituisce la Y LOCALE** (senza applicare la scala del parent). Confermato da `PerspectiveMapper` che moltiplica manualmente `wp.y * sy` per ottenere la Y canvas. Per convertire in canvas-space: `localY * parentScaleY`. Il confronto con `GAME_OVER_LINE_Y` (canvas space) deve quindi essere fatto in spazio locale: `w.node.position.y >= GAME_OVER_LINE_Y / box2dLayer.scaleY`.
 
-**2DBox layer ha scaleY = 0.5**: canvas Y di un warrior = `w.node.position.y * 0.5`. Il getter `GameManager.gameOverLineLocal` centralizza questa conversione: `GAME_OVER_LINE_Y / box2dLayer.scale.y = −320` (con GAME_OVER_LINE_Y=−160).
+**2DBox layer ha scaleY = 0.5**: canvas Y di un warrior = `w.node.position.y * 0.5`. Il getter `GameManager.gameOverLineLocal` centralizza la conversione della soglia di game-over.
+
+**ENDLINE — soglia prospettica corretta (v0.8.41)**: NON usare `GAME_OVER_LINE_Y / sy` (con `GAME_OVER_LINE_Y = node.worldPosition.y`): è world-space usato come canvas-centrato → la soglia finiva troppo in alto rispetto alla linea rossa dello sprite (il game-over scattava col warrior nettamente sopra). `gameOverLineLocal` ora fa `coords.visualToPhys(endlineNode.worldPosition.y − warriorsLayer.worldPosition.y)` → inverte la stessa mappatura di rendering, calcolato live ogni accesso (robusto a resize/timing). Debug: flag `SHOW_ENDLINE_DEBUG` → linea viola su WarriorsLayer a `physToVisual(gol)` (coincide con la rossa). Dettagli in TECH.md.
 
 **CRITICO — live values da Track:** le `export let` primitive importate possono essere snapshot al momento dell'import nei bundle CC3. `trackLayout` è stato rimosso — usare direttamente `TRACK_TOP_Y` / `TRACK_BOTTOM_Y` leggendoli nel momento in cui servono (non in fase di import), oppure chiamare `initLayout()` prima di leggerli.
 
@@ -292,6 +294,10 @@ Il gioco si mette in pausa automaticamente quando l'app perde il focus (backgrou
 Vengono deregistrati in `onDestroy()`. Il flag `_autoPaused` distingue la pausa automatica da quella manuale — evita che `_autoResume` sblocchi una pausa manuale premuta dall'utente.
 
 Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o `Idle`.
+
+**Trigger (riepilogo)**: solo perdita di focus/visibilità — NESSUNA pausa per inattività/timeout. Pausa su: cambio scheda, finestra minimizzata, altra app/finestra (blur), schermo bloccato (mobile). Ripresa su visible/focus.
+
+**Tap-to-resume + blocco input (v0.8.x)**: in `_togglePause` la pausa imposta `inputCtrl.blocked = true` e l'overlay "PAUSE" è tappabile (TOUCH_END/MOUSE_UP → resume). Il blocco evita che il tap di ripresa avvii una mira/lancio; recupera anche da pause spurie da `blur` (mobile). Testo "PAUSE" (UI in inglese).
 
 **AudioManager**: `muteForPause()` azzera il volume music senza modificare le preferenze utente; `unmuteForPause()` lo ripristina. SFX bloccati tramite flag `_pauseMuted` controllato in `play()`.
 

@@ -27,6 +27,18 @@
 
 ---
 
+## Log sessioni recenti
+
+### 2026-06-07 (v0.8.24 → v0.8.41)
+- ✅ **Stato di gioco ripristinabile**: snapshot completo in `localStorage` salvato a ogni turno; dialog "Errore non previsto" con CONTINUA / RIPRISTINA (reload scena + ricostruzione). Vedi TECH.md.
+- ✅ **Hardening errori**: `unhandledrejection` non apre più il dialog (rumore async leaderboard); `window.error` solo dal nostro bundle; `_saveSnapshot` interamente in try/catch (fix "errore a ogni lancio").
+- ✅ **Pausa**: "PAUSE" (tradotto) + tap-to-resume + blocco input durante pausa (recupera da blur spuri su mobile).
+- ✅ **Endline game-over**: fix soglia prospettica — derivata da `visualToPhys` della posizione visiva del nodo `GameOverLine` (prima scattava col warrior sopra la linea). Debug toggle `SHOW_ENDLINE_DEBUG` (linea viola).
+- ✅ **Varietà early-game**: livello 2 dal round 2; `topRowBiasChance` 0.4 → 0.25.
+- 📋 Leaderboard Firestore committata (config/services/LeaderboardPanel/NameEntry/prefab/rules) — resta il lavoro editor di piazzare le PrefabInstance in scena (vedi TECH.md).
+
+---
+
 ## FASE 1 — Setup e prototipo greybox *(7–20 mag 2026)* ✅ chiusa 2026-05-09
 
 **Obiettivo**: prototipo cliccabile con lancio a fionda, rimbalzi corretti e merge funzionante.
