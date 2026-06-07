@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Toggle, Button, UIOpacity, tween, sys } from 'cc';
+import { _decorator, Component, Node, Toggle, Button, UIOpacity, tween, sys, instantiate, Label, UITransform } from 'cc';
 import { AudioManager } from './AudioManager';
 
 const { ccclass, property } = _decorator;
@@ -29,6 +29,8 @@ export class Settings extends Component {
     menuButton: Node | null = null;
     @property({ type: Node, tooltip: 'Button that closes this dialog.' })
     closeButton: Node | null = null;
+    @property({ type: Node, tooltip: 'Optional pre-made "Restart" button. If unset, one is cloned from closeButton when onRestart is provided (Game scene only).' })
+    restartButton: Node | null = null;
     @property({ type: Toggle, tooltip: 'Vibration on/off.' })
     vibrToggle: Toggle | null = null;
     @property({ type: Toggle, tooltip: 'SFX on/off.' })
@@ -42,9 +44,12 @@ export class Settings extends Component {
     canOpen:      (() => boolean) | null = null;
     onBeforeOpen: (() => void)    | null = null;
     onAfterClose: (() => void)    | null = null;
+    /** Restart the current game. Set by GameManager (Game scene only); null in MainMenu → no button. */
+    onRestart:    (() => void)    | null = null;
 
     private _op: UIOpacity | null = null;
     private _syncing = false;
+    private _restartBtn: Node | null = null;
 
     /** Shared source of truth for the vibration preference. */
     static get vibrationEnabled(): boolean {
@@ -71,6 +76,10 @@ export class Settings extends Component {
             this.closeButton.getComponent(Button) ?? this.closeButton.addComponent(Button);
             this.closeButton.on(Button.EventType.CLICK, this.close, this);
         }
+        if (this.restartButton) {
+            this.restartButton.getComponent(Button) ?? this.restartButton.addComponent(Button);
+            this.restartButton.on(Button.EventType.CLICK, this._doRestart, this);
+        }
 
         this.vibrToggle?.node.on('toggle',  () => { if (!this._syncing) this._toggleVibration(); }, this);
         this.sfxToggle?.node.on('toggle',   () => { if (!this._syncing) AudioManager.instance.toggleSfx(); }, this);
@@ -89,6 +98,9 @@ export class Settings extends Component {
         if (this.canOpen && !this.canOpen()) return;
         this.onBeforeOpen?.();
         dlg.active = true;
+        this._ensureRestartButton();
+        const restartNode = this.restartButton ?? this._restartBtn;
+        if (restartNode) restartNode.active = !!this.onRestart;
         this._syncToggles();
         if (this._op) {
             this._op.opacity = 0;
@@ -111,6 +123,36 @@ export class Settings extends Component {
                 this.onAfterClose?.();
             })
             .start();
+    }
+
+    private _doRestart(): void {
+        if (!this.onRestart) return;
+        const restart = this.onRestart;
+        this.close();
+        restart();
+    }
+
+    /**
+     * Build a "Ricomincia" button by cloning closeButton the first time the dialog opens with
+     * an onRestart hook set (Game scene only). No-op if a dedicated restartButton was assigned
+     * in the editor, or if there's no closeButton to clone, or in MainMenu (onRestart null).
+     */
+    private _ensureRestartButton(): void {
+        if (this._restartBtn || this.restartButton || !this.onRestart || !this.closeButton) return;
+        const cb    = this.closeButton;
+        const clone = instantiate(cb);
+        clone.name  = 'RestartButton';
+        clone.setParent(cb.parent);
+        // Sit just above the close button (clone shares its parent space, scale and styling).
+        const uit = cb.getComponent(UITransform);
+        const dy  = (uit ? uit.contentSize.height : 40) * cb.scale.y * 1.4;
+        const p   = cb.position;
+        clone.setPosition(p.x, p.y + dy, p.z);
+        const lbl = clone.getComponentInChildren(Label);
+        if (lbl) { lbl.string = 'Ricomincia'; lbl.overflow = Label.Overflow.SHRINK; }
+        clone.getComponent(Button) ?? clone.addComponent(Button);
+        clone.on(Button.EventType.CLICK, this._doRestart, this);
+        this._restartBtn = clone;
     }
 
     private _syncToggles(): void {

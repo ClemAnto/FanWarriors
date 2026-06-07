@@ -19,7 +19,7 @@ import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 import { Settings } from './Settings';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.22';
+export const VERSION     = '0.8.23';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
@@ -54,6 +54,7 @@ const VORTEX_FORCE_BASE      = 220;  // force units per level
 const VORTEX_TTL_BASE        = 0.5;  // base vortex duration in seconds
 const VORTEX_TTL_LEVEL       = 0.15; // extra seconds per level
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
+const NEW_BEST_MIN_SCORE = 10000;  // min score for the "new best" message to appear
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
 const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
@@ -97,6 +98,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     // game state
     private score = 0;
     private bestScore = 0;
+    private _newBest = false;   // true when this game's score beat the previous stored best
     private currentRound = 1;
     private totalMerges = 0;
     private mergesThisLaunch = 0;
@@ -1223,17 +1225,25 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._slowmoTimer = 0;
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
-        this.vfx.screenShake(12, 0.35);
         this._activeLauncherWarrior = null;
-        this.inputCtrl.clearWarrior();
-        AudioManager.instance.stopMusic();
-        AudioManager.instance.play(SFX.GAME_OVER);
-        if (this.score > this.bestScore) {
-            this.bestScore = this.score;
-            sys.localStorage.setItem('fw_best_score', String(this.bestScore));
-        }
-        this._logSpawnReport();
+        // Schedule the screen FIRST: triggerGameOver runs inside update()'s try/catch, which
+        // swallows exceptions. If a side-effect below threw before this line, the game would
+        // freeze on state=GameOver with no screen ever shown (red warrior, no message).
         this.scheduleOnce(() => this.showGameOverScreen(), 0);
+        try {
+            this.vfx.screenShake(12, 0.35);
+            this.inputCtrl.clearWarrior();
+            AudioManager.instance.stopMusic();
+            AudioManager.instance.play(SFX.GAME_OVER);
+            this._newBest = this.bestScore > 0 && this.score > this.bestScore && this.score > NEW_BEST_MIN_SCORE;
+            if (this.score > this.bestScore) {
+                this.bestScore = this.score;
+                sys.localStorage.setItem('fw_best_score', String(this.bestScore));
+            }
+            this._logSpawnReport();
+        } catch (e) {
+            console.error('[GameManager] triggerGameOver side-effect failed (screen still shown):', e);
+        }
     }
 
     private triggerVictory(): void {
@@ -1245,6 +1255,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.clearWarrior();
         this.vfx.screenShake(18, 0.6);
         this._activeLauncherWarrior = null;
+        this._newBest = this.bestScore > 0 && this.score > this.bestScore && this.score > NEW_BEST_MIN_SCORE;
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
             sys.localStorage.setItem('fw_best_score', String(this.bestScore));
@@ -1271,15 +1282,20 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.score += bonus;
         this.updateScoreLabel();
 
-        AudioManager.instance.duckMusicTo(0.15);
-        AudioManager.instance.play(SFX.WIN);
-
-        this._logSpawnReport();
         const delay = Math.max(1.0, toExplode.length * 0.08 + 0.6);
+        // Schedule the victory screen before the fragile audio/log calls so a thrown
+        // side-effect (swallowed by update()'s try/catch) can't freeze the game with no screen.
         this.scheduleOnce(() => {
             AudioManager.instance.unduckMusic();
             this.showVictoryScreen();
         }, delay);
+        try {
+            AudioManager.instance.duckMusicTo(0.15);
+            AudioManager.instance.play(SFX.WIN);
+            this._logSpawnReport();
+        } catch (e) {
+            console.error('[GameManager] triggerVictory side-effect failed (screen still shown):', e);
+        }
     }
 
     private showVictoryScreen(): void {
@@ -1348,6 +1364,27 @@ export class GameManager extends Component implements IGameManagerDebug {
         title.fontSize = 64;
         title.isBold = true;
         title.color = new Color(220, 40, 40, 255);
+
+        if (this._newBest) {
+            const bestMsgNode = new Node('NewBestMsg');
+            bestMsgNode.setParent(panel);
+            bestMsgNode.setPosition(0, 22);
+            const bestMsg = bestMsgNode.addComponent(Label);
+            bestMsg.string = 'HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!';
+            bestMsg.fontSize = 24;
+            bestMsg.isBold = true;
+            bestMsg.color = new Color(255, 215, 60, 255);
+            bestMsg.enableOutline = true;
+            bestMsg.outlineColor  = new Color(0, 0, 0, 200);
+            bestMsg.outlineWidth  = 2;
+            tween(bestMsgNode)
+                .repeatForever(
+                    tween<Node>()
+                        .to(0.45, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineOut' })
+                        .to(0.45, { scale: new Vec3(1.0, 1.0, 1) },   { easing: 'sineIn'  })
+                )
+                .start();
+        }
 
         const scoreNode = new Node('FinalScore');
         scoreNode.setParent(panel);
@@ -2284,6 +2321,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._settings.canOpen      = () => this.state !== GameState.GameOver && this.state !== GameState.Paused;
                 this._settings.onBeforeOpen = () => this._enterSettingsPause();
                 this._settings.onAfterClose = () => this._exitSettingsPause();
+                this._settings.onRestart    = () => director.loadScene(this.sceneName);
             }
             return;
         }

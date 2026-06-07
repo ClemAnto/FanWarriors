@@ -411,6 +411,9 @@ export class Warrior extends Component {
         rb.angularDamping = 1.5;
         rb.fixedRotation  = false;
         rb.enabledContactListener = true;
+        // Continuous collision detection — prevents a fast-launched warrior from tunnelling
+        // through the thin funnel walls in a single physics step and sliding off-screen.
+        rb.bullet = true;
 
         const col = this.node.addComponent(CircleCollider2D);
         col.radius      = this.radius;
