@@ -640,6 +640,14 @@ Mappatura colore in `Warrior.setDangerTint`: `gb = Math.max(0, Math.round(255 - 
 
 **Condizione game-over — frame sostenuti**: la condizione non è più una singola transizione di frame (`prev >= gol && y < gol`) ma richiede `GAME_OVER_FRAMES = 3` frame consecutivi sotto la linea. Analogamente, `crossedLine = true` richiede `CROSS_LINE_FRAMES = 3` frame consecutivi sopra la linea. Questo elimina i false positive da jitter fisico e da "sfioramento" della linea per un solo frame.
 
+**CRITICO — game over robusto (v0.8.23)**: `triggerGameOver()`/`triggerVictory()` schedulano la schermata **prima** di eseguire i side-effect (audio/log/score), che sono ora in `try/catch`. Motivo: queste funzioni girano dentro il `try/catch` di `update()` che **inghiotte le eccezioni**; se un side-effect lanciava dopo aver impostato `state = GameOver` ma prima di schedulare `showGameOverScreen`, il gioco restava congelato con warrior rosso e nessuna schermata. (Era il sospetto per il **bug 2**.)
+
+**⚠️ FOLLOW-UP bug 2 (da verificare nella prossima sessione)**: esiste `Warrior.setDangerTint` (vedi sopra, riga ~628) che tinge il warrior di rosso in base alla **prossimità del bordo inferiore** alla linea, mentre il game-over richiede il **centro** sotto la linea per 3 frame. Quindi un warrior può apparire **completamente rosso (danger tint)** senza che scatti il game over — possibile spiegazione alternativa del "warrior rosso ma niente game over". Il fix v0.8.23 copre solo il caso freeze-da-eccezione; **verificare se il bug 2 si ripresenta** e in tal caso indagare il danger tint / lo stato bloccato in `Settling`.
+
+**Anti-tunneling muri (v0.8.23)**: i warrior hanno `rb.bullet = true` (continuous collision detection) in `Warrior.buildPhysics()`. Senza, un lancio veloce poteva attraversare le pareti sottili del funnel in un singolo step fisico e scivolare fuori dalla pista (**bug 1**). Se il bug 1 si ripresenta nonostante `bullet`, sospetto di riserva: corruzione del broadphase Box2D quando `PhysicsSystem2D.enable` viene spento nei path di pausa/auto-pausa mentre un callback di merge/spawn crea/distrugge body (i path di pausa non hanno il defer che ha il round-up — vedi sezione round-up).
+
+**Messaggio nuovo record (v0.8.23)**: in `showGameOverScreen`, se `_newBest` → label "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (oro, pulse). `_newBest` settato in `triggerGameOver`/`triggerVictory` **prima** di sovrascrivere `bestScore`: vero solo se `bestScore_precedente > 0 && score > bestScore_precedente && score > NEW_BEST_MIN_SCORE` (10000).
+
 ---
 
 ## resetPhysics() — ripristino parametri fisici

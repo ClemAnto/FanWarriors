@@ -243,6 +243,31 @@ this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLaunch
 
 **Rimosso da InputController**: campi `onSwapNext`, `swapHitNode`, `_swapTapStart`; metodo `_isOnSwapNode`; blocchi in `handleDragStart`/`handleDragEnd`.
 
+---
+
+## Game over / victory — schermata garantita (v0.8.23)
+
+**Decisione**: in `triggerGameOver()`/`triggerVictory()` la schermata viene **schedulata prima** dei side-effect (audio, log, salvataggio best), che sono racchiusi in `try/catch`.
+
+**Perché**: entrambe le funzioni vengono raggiunte da `checkLineLogic`/merge, che girano dentro il `try/catch` di `update()`. Quel catch **inghiotte** le eccezioni. Se un side-effect lanciava *dopo* `state = GameOver` ma *prima* di schedulare la schermata, lo stato restava `GameOver` (→ `update()` esce subito ogni frame), il warrior restava rosso e **nessuna schermata appariva**. Schedulando per prima la schermata, un'eccessione nei side-effect non può più bloccare il flusso (viene solo loggata).
+
+---
+
+## Settings — host hook `onRestart` + tasto "Ricomincia" (v0.8.23)
+
+**Decisione**: il dialog `Settings` (condiviso MainMenu+Game) espone un host hook `onRestart`. Il `GameManager` lo imposta a `() => director.loadScene(sceneName)`; in MainMenu resta `null`.
+
+**Visibilità scena-specifica senza duplicare il dialog**: il tasto "Ricomincia" è mostrato in `open()` solo se `onRestart` è settato → compare **solo nella scena Game**. Se non è assegnato un nodo dedicato (`restartButton` @property), alla prima apertura ne viene **clonato uno da `closeButton`** (stesso stile), rietichettato e posizionato sopra di esso. Stesso pattern degli host hook esistenti (`canOpen`/`onBeforeOpen`/`onAfterClose`).
+
+---
+
+## Leaderboard globale (Firebase) — pianificato (v0.8.23)
+
+Architettura decisa (non ancora implementata — dettagli e checklist in `ROADMAP.md`):
+- **`LeaderboardService`** astratto (`getTop10`/`qualifies`/`submit`) con impl **Firestore / Null / Mock**, selezionata da una factory in base al flag **`LEADERBOARD_ENABLED`** → backend intercambiabile e leaderboard interno **spegnibile** (per i portali che hanno il loro).
+- Firestore, rules-only (v1), selettore arcade a 3 lettere.
+- SDK Firebase **compat via CDN** iniettato in `index.html` (step `patch-html.js`) per evitare il bundling npm in Cocos.
+
 **Bug aperto (v0.8.6)**: dopo questa modifica il MenuButton ha smesso di aprire il menu. Causa sospettata ma non confermata: possibile interferenza del `TOUCH_END` registrato su `nextPreviewNode` (nodo World) con il `Button.EventType.CLICK` del MenuButton (nodo UILayer) via il sistema di dispatching CC3. Da investigare nella prossima sessione.
 
 ---
@@ -259,3 +284,30 @@ const rx = rwA.x + (rwB.x - rwA.x) * t;
 return touch.x >= lx && touch.x <= rx;
 ```
 Fallback `touch.y < 0` se i bounds non sono ancora settati. Le coordinate sono in canvas-centered space (stesso sistema di `WALL_L*`/`WALL_R*` esportati da Track.ts).
+
+---
+
+## Leaderboard online (Firebase Firestore) — architettura riusabile
+
+**Obiettivo:** classifica top-10 riusabile in altri progetti, spegnibile per i portali.
+
+**Stratificazione (perché):**
+- `config/LeaderboardConfig.ts` è l'**unico file da editare per progetto** (flag `ENABLED`/`BACKEND`, `FIREBASE_CONFIG`, costanti). Tutto il resto è agnostico.
+- `services/` è **TS puro, zero dipendenze da scena/engine UI** → la parte davvero portabile. `LeaderboardService` è il contratto; `Null`/`Mock`/`Firestore` le impl; `LeaderboardProvider.get()` sceglie via flag e fa da singleton.
+- I metodi del service **non lanciano mai**: errori di rete/SDK si risolvono in vuoto/false/`{ok:false}`. Così la UI non ha try/catch e un backend morto degrada senza freeze.
+- I componenti UI portano **solo comportamento** e si legano a un **prefab** via `@property` (niente UI costruita da codice — preferenza esplicita). Layout editabile nell'editor; testi in inglese.
+
+**UN solo prefab contenitore:** `LeaderboardPanel.prefab` contiene due sotto-pannelli figli — `Board` (lista) e `NameEntry` (selettore, con il suo componente `NameEntry.ts` annidato). Il root resta **sempre attivo** come gate modale (BlockInputEvents fullscreen): `LeaderboardPanel` accende/spegne `this.node` e fa sfumare `boardNode`; `NameEntry` sfuma il proprio nodo. Serve perché in CC3 un nodo che parte inattivo non riceve `onLoad` (binding non registrati); l'attivazione CC3 è **sincrona**, quindi riattivare il root esegue `NameEntry.onLoad` prima di chiamarlo. Non esiste più un `NameEntry.prefab` standalone.
+
+**Firebase compat via CDN (non npm):** i due `<script>` in `build-templates/web-mobile/index.html` espongono `window.firebase`; il bundle dell'engine resta Firebase-free. `patch-html.js` non riscrive gli URL assoluti (sono già version-pinned). `FirestoreLeaderboard` tocca solo `window.firebase`.
+
+**Anti-cheat v1 (rules-only):** `firestore.rules` valida forma (`name` `[A-Z]{3}`, `score` int 0..1e6, `createdAt==request.time`, no update/delete, read pubblica). Cheating entro il cap accettato per la v1; App Check come hardening futuro. Le costanti delle rules vanno tenute in sync con `LeaderboardConfig.ts` (NAME_LEN, SCORE_CAP).
+
+**Prefab generato a tavolino:** `scripts/gen-leaderboard-prefabs.js` emette `LeaderboardPanel.prefab` (layout + wiring `@property` già fatto) calcolando la forma compressa dell'UUID script (algoritmo Cocos: 5 hex literali + base64 a gruppi di 3 hex). Gli sprite frame usati sono `hud/wood.png` (pannelli) e `hud/button.png` (bottoni); font MedievalSharp; le frecce ▲/▼ usano il **system font** (MedievalSharp non ha i glifi triangolo). Rigenerabile con `node scripts/gen-leaderboard-prefabs.js`. ⚠️ Rigenerare cambia i `fileId`: le `PrefabInstance` già piazzate in scena vanno ri-trascinate (override orfani).
+
+**Flusso game over** (`GameManager._runLeaderboardFlow`, chiamato da `triggerGameOver`/`triggerVictory`): `_bringToFront()` (riparenta l'overlay sotto `uiLayer` come ultimo sibling, sopra al GameOverPanel runtime) + `leaderboardPanel.runEndGame(score)`. Tutta la logica `qualifies → NameEntry → submit → board` vive in `LeaderboardPanel.runEndGame` (async, no-throw). Flag off o `leaderboardPanel` non bindato = comportamento invariato.
+
+**MainMenu:** pulsante LEADERBOARD → `MainMenu.onLeaderboard()` → `leaderboardPanel.open({})`.
+
+**Lavoro editor residuo** (l'instancing di prefab in `.scene` è fragile, non automatizzato):
+- Game.scene + MainMenu.scene: piazzare/ri-trascinare UNA istanza di `LeaderboardPanel.prefab` (in Game sotto UILayer) e bindare `Leaderboard Panel` sul componente (GameManager / MainMenu). Il pulsante LEADERBOARD del menu è già wirato.

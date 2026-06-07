@@ -289,6 +289,40 @@
 
 ---
 
+## Feature — Leaderboard globale (Firebase) *(in pianificazione, 2026-06-07)*
+
+**Obiettivo**: classifica online con i **primi 10 punteggi**; l'utente inserisce **3 lettere** come nome. Pensata per la build standalone (GitHub Pages); sui portali si usa il leaderboard nativo, quindi è **disattivabile**.
+
+**Decisioni prese:**
+- **Backend**: Firebase **Firestore** (collezione `leaderboard`, doc `{ name:"ABC", score:int, createdAt }`; query `orderBy('score','desc').limit(10)`).
+- **Anti-cheat v1**: solo **security rules** (validano forma: `name [A-Z]{3}`, `score` int 0..cap, `createdAt==request.time`, no update/delete). Cheating entro il cap accettato per la v1; App Check come hardening futuro.
+- **Inserimento nome**: **selettore arcade a 3 slot** (A–Z con frecce su/giù + conferma), non EditBox.
+- **Flag di esclusione**: `LEADERBOARD_ENABLED` + astrazione `LeaderboardService` (impl Firestore / Null / Mock) → backend intercambiabile e leaderboard interno spegnibile per i portali.
+- **Integrazione Cocos**: SDK Firebase **compat via CDN** iniettato in `index.html` (step `scripts/patch-html.js`) — niente bundling npm.
+
+**Checklist:**
+- [x] [manuale] Progetto Firebase + Firestore (production) + Web App + config — config fornita (progetto `fanwarriors-2026`), in `LeaderboardConfig.ts`
+- [ ] [manuale] Applicare security rules v1 — file pronto in `firestore.rules` (da incollare in console Firebase)
+- [x] `config/LeaderboardConfig.ts` — flag (`ENABLED`/`BACKEND`), config Firebase, costanti (TOP_N=10, NAME_LEN=3, SCORE_CAP=1e6, REQUEST_TIMEOUT_MS)
+- [x] `services/LeaderboardService.ts` — interfaccia (`init`/`getTop`/`qualifies`/`submit`) + tipi `LeaderboardEntry`/`SubmitResult`
+- [x] `services/NullLeaderboard.ts` (no-op) + `services/MockLeaderboard.ts` (localStorage, seeded)
+- [x] `services/FirestoreLeaderboard.ts` — impl reale (init lazy coalesced, timeout, no-throw, serverTimestamp)
+- [x] `services/LeaderboardProvider.ts` — factory Null/Mock/Firestore in base al flag (singleton)
+- [x] Build: iniezione SDK Firebase compat via CDN in `index.html` (+ patch-html non riscrive URL assoluti)
+- [x] `managers/NameEntry.ts` — selettore arcade 3 slot (comportamento; layout nel prefab `NameEntry.prefab`)
+- [x] `managers/LeaderboardPanel.ts` — pannello top 10 (comportamento; layout in `LeaderboardPanel.prefab`)
+- [x] Prefab `NameEntry.prefab` + `LeaderboardPanel.prefab` generati (vedi `scripts/gen-leaderboard-prefabs.js`)
+- [x] Integrazione flusso game over in `GameManager._runLeaderboardFlow` (qualifies → NameEntry → submit → classifica; flag off/unbound = invariato)
+- [x] Tasto LEADERBOARD nel MainMenu (`MainMenu.onLeaderboard` + `leaderboardButton`/`leaderboardPanel`)
+- [x] Robustezza rete (timeout per richiesta, no-throw end-to-end, stato "Caricamento…", guard doppio-confirm)
+- [ ] [manuale editor] Piazzare le istanze prefab in scena (Game: sotto UILayer → bind GameManager; MainMenu: + pulsante LEADERBOARD → bind)
+- [ ] Test end-to-end (Mock poi Firestore reale + rules)
+- [ ] Versioning (bump al prossimo serve) + deploy
+
+> **BACKEND attuale: `firestore`** (config reale). Per sviluppo offline mettere `BACKEND='mock'` in `LeaderboardConfig.ts`.
+
+---
+
 ## Strumenti raccomandati
 
 - **Cocos Creator 3.8.8** — engine
@@ -311,7 +345,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-06-04 — v0.8.22: MainMenu scene (PLAY/Best Score/versione) + dialog opzioni centralizzato in `Settings.ts` (condiviso con Game); loading screen con logo `title.png`; tutorial iniziale rimosso.
+> Aggiornato al 2026-06-07 — v0.8.23: fix bug 1 (anti-tunneling muri, `rb.bullet=true`) + bug 2 (game over/victory robusti: schermata schedulata prima dei side-effect in `try/catch`); messaggio "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (score > 10000); tasto "Ricomincia" nel dialog Settings (solo scena Game, via host hook `onRestart`). ⚠️ Bug 2 da riverificare: il rosso può venire anche da `setDangerTint` (vedi MEMO).
+>
+> Storico 2026-06-04 — v0.8.22: MainMenu scene (PLAY/Best Score/versione) + dialog opzioni centralizzato in `Settings.ts` (condiviso con Game); loading screen con logo `title.png`; tutorial iniziale rimosso.
 >
 > Storico 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/BH); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).
 
@@ -327,3 +363,4 @@
 10. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
 11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
 12. **Condizione auto-attivazione AURA**: definire quando si attiva automaticamente (ora solo debug)
+13. **Leaderboard globale (Firebase)**: in pianificazione — vedi sezione dedicata. Decisioni: Firestore + rules-only + selettore arcade 3 lettere + flag `LEADERBOARD_ENABLED` con service astratto. Bloccato sul setup manuale del progetto Firebase + config.

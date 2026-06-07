@@ -11,9 +11,11 @@ function patchHtml(html, version) {
     // 1. Version placeholder
     html = html.replace(/__VERSION__/g, v);
 
-    // 2. Cache-bust <script src="path.js|.json"> — strip any previous ?v=... first
+    // 2. Cache-bust <script src="path.js|.json"> — strip any previous ?v=... first.
+    //    Skip absolute URLs (http/https, e.g. the Firebase CDN) — they're version-pinned
+    //    already and must not be rewritten.
     html = html.replace(
-        /(<script\b[^>]*\bsrc=")([^"?]+\.(?:js|json))(?:\?[^"]*)?(")/g,
+        /(<script\b[^>]*\bsrc=")(?!https?:)([^"?]+\.(?:js|json))(?:\?[^"]*)?(")/g,
         (_, open, file, close) => `${open}${file}?v=${v}${close}`
     );
 

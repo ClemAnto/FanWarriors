@@ -149,7 +149,7 @@ export class Settings extends Component {
         const p   = cb.position;
         clone.setPosition(p.x, p.y + dy, p.z);
         const lbl = clone.getComponentInChildren(Label);
-        if (lbl) { lbl.string = 'Ricomincia'; lbl.overflow = Label.Overflow.SHRINK; }
+        if (lbl) { lbl.string = 'Restart'; lbl.overflow = Label.Overflow.SHRINK; }
         clone.getComponent(Button) ?? clone.addComponent(Button);
         clone.on(Button.EventType.CLICK, this._doRestart, this);
         this._restartBtn = clone;

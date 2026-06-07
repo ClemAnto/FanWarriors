@@ -88,6 +88,12 @@
     </div>
   </div>
 
+<!-- Firebase compat SDK (leaderboard). Loaded as window.firebase; the engine bundle
+     stays Firebase-free. Remove these two tags for portal builds that use a native
+     leaderboard (and set BACKEND='null' in LeaderboardConfig.ts). -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
 <script src="src/polyfills.bundle.js" charset="utf-8"> </script>
 <script src="src/system.bundle.js" charset="utf-8"> </script>
 <script src="src/import-map.json" type="systemjs-importmap" charset="utf-8"> </script>
