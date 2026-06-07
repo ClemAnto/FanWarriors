@@ -17,11 +17,14 @@ import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 import { Settings } from './Settings';
+import { LeaderboardPanel } from './LeaderboardPanel';
+import { ENABLED as LEADERBOARD_ENABLED } from '../config/LeaderboardConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.25';
+export const VERSION     = '0.8.41';
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
+const SHOW_ENDLINE_DEBUG = false;  // set true to draw the purple dashed game-over threshold line (debug)
 const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
 const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
@@ -109,6 +112,8 @@ function spawnMaxLevelForRound(round: number): number {
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManagerDebug {
     @property(Prefab) psychoSparklePrefab: Prefab | null = null;
+    /** Leaderboard overlay — instantiated from resources at start (no editor binding). */
+    private leaderboardPanel: LeaderboardPanel | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -190,7 +195,6 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _bestSingleScore = 0;
     private _bestSingleScoreDesc = '';
     private _spawnLog: Map<number, Map<number, number>> = new Map();
-    private _seqLogN = 0; // TEMP: counts logged launchers for the launch-order verification (remove later)
 
     get bestSingleScore(): number { return this._bestSingleScore; }
     get bestSingleScoreDesc(): string { return this._bestSingleScoreDesc; }
@@ -199,14 +203,26 @@ export class GameManager extends Component implements IGameManagerDebug {
     // detects it in start() and rebuilds the board from the saved snapshot instead of a new game.
     private static _pendingRestore = false;
     private _errorPanel: Node | null = null;
+    private _endlineDebugNode: Node | null = null;
     private _errorDialogShown = false;
+    private _errorSuppressed = false;   // brief window after CONTINUA where the dialog won't re-pop
+    private _lastErrorText = '';
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
     private _pauseOverlay: Node | null = null;
     private _pauseLabelNode: Node | null = null;
     private _settings: Settings | null = null;
+    private _endlineNode: Node | null = null;  // scene GameOverLine node (under TrackSprite)
     private get gameOverLineLocal(): number {
         const sy = this.box2dLayer?.scale.y ?? 1;
+        // Derive the physics-Y threshold from the GameOverLine node's *visual* position, inverting
+        // the same perspective mapping used to render warriors. This makes the threshold land on the
+        // red art line (not above it) and self-corrects for layout/resize timing. Computed live each
+        // call — during gameplay all world positions are final.
+        if (this._endlineNode?.isValid && this.warriorsLayer?.isValid && this.coords) {
+            const visualY = this._endlineNode.worldPosition.y - this.warriorsLayer.worldPosition.y;
+            return this.coords.visualToPhys(visualY);
+        }
         return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
     }
 
@@ -224,12 +240,18 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private readonly _onGlobalError = (ev: ErrorEvent): void => {
         if (!ev.error) return; // ignore resource-load errors (no Error object attached)
+        // Only surface errors thrown by OUR game bundle. 3rd-party/CDN scripts (e.g. the
+        // Firebase leaderboard) live on a different file and must not pop the gameplay dialog.
+        const file = ev.filename ?? '';
+        const fromGame = file === '' || /index\.js|application\.js|\/assets\/|chunks/i.test(file);
+        if (!fromGame) { console.warn('[GameManager] ignoring non-game error from', file, ev.error); return; }
         console.error('[GameManager] global error captured:', ev.error);
-        this._handleRuntimeError();
+        this._handleRuntimeError('window.error', ev.error);
     };
     private readonly _onUnhandledRejection = (ev: PromiseRejectionEvent): void => {
-        console.error('[GameManager] unhandled promise rejection captured:', ev.reason);
-        this._handleRuntimeError();
+        // Promise rejections are almost always async SDK/network noise (e.g. the leaderboard
+        // Firestore calls). Log them but NEVER interrupt gameplay with the error dialog.
+        console.warn('[GameManager] unhandled promise rejection (ignored for dialog):', ev.reason);
     };
 
     private readonly onBrowserResize = (): void => {
@@ -312,6 +334,12 @@ export class GameManager extends Component implements IGameManagerDebug {
             })();
         // Ensure uiLayer renders on top of all game-world nodes
         this.uiLayer.setSiblingIndex(canvas.children.length - 1);
+
+        // Leaderboard: use the @property binding if set, else load+instantiate the prefab
+        // from resources (works with zero editor wiring).
+        if (!this.leaderboardPanel && LEADERBOARD_ENABLED) {
+            LeaderboardPanel.spawn(this.uiLayer, (p) => { this.leaderboardPanel = p; });
+        }
         this.vfx = new VFXManager(this.vfxLayer, this.uiLayer, this.worldNode, this.warriorsLayer);
         this.vfx.preloadSparkle();
 
@@ -320,6 +348,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this.track) this.track.showDebugLine = DEBUG_ENGINE;
         this.track?.relayout();
         this.nextPreviewNode = this.track?.node.getChildByName('NextPreview') ?? null;
+        this._endlineNode = this.track?.node.getChildByName('TrackSprite')?.getChildByName('GameOverLine') ?? null;
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.worldNode;
@@ -786,6 +815,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.vfx.tick(dt);
         this.tickSlowmo(dt);
         this._sortWarriorLayerByY();
+        if (SHOW_ENDLINE_DEBUG) this._drawEndlineDebug();
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
         if (!this.roundUpPause) this._checkProximityMerge(dt);
         if (this.debugOverlay) {
@@ -897,7 +927,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.updateDebugLabel();
         } catch (e) {
             console.error('[GameManager] update error (skipping frame):', e);
-            this._handleRuntimeError();
+            this._handleRuntimeError('update', e);
         }
     }
 
@@ -924,13 +954,6 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private activateWarrior(w: Warrior): void {
         this._activeLauncherWarrior = w;
-        // TEMP verification log — reload the game a few times and compare the first 8 lines to
-        // check whether the launch ORDER is genuinely random or fixed. Remove once verified.
-        if (this._seqLogN < 8) {
-            this._seqLogN++;
-            const nx = this.spawnMgr.next;
-            console.log(`[SeqCheck] #${this._seqLogN} launcher=${WARRIORS[w.type]?.name ?? w.type} lv${w.level}  |  next=${WARRIORS[nx.type]?.name ?? nx.type} lv${nx.level}`);
-        }
         this.inputCtrl.setWarrior(w);
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.mergesThisLaunch = 0;
@@ -1314,6 +1337,25 @@ export class GameManager extends Component implements IGameManagerDebug {
         } catch (e) {
             console.error('[GameManager] triggerGameOver side-effect failed (screen still shown):', e);
         }
+        this._runLeaderboardFlow(this.score);
+    }
+
+    /**
+     * Online leaderboard at end of game (no-op when disabled or unbound). The whole
+     * qualify → name entry → submit → board flow lives in LeaderboardPanel.runEndGame;
+     * here we just bring the overlay in front of the runtime game-over panel and fire it.
+     */
+    private _runLeaderboardFlow(score: number): void {
+        if (!LEADERBOARD_ENABLED || !this.leaderboardPanel) return;
+        this._bringToFront(this.leaderboardPanel.node);
+        void this.leaderboardPanel.runEndGame(score);
+    }
+
+    /** Reparent under uiLayer (if needed) and make it the top-most sibling. */
+    private _bringToFront(n: Node): void {
+        if (!n?.isValid) return;
+        if (n.parent !== this.uiLayer) n.setParent(this.uiLayer);
+        n.setSiblingIndex(this.uiLayer.children.length - 1);
     }
 
     private triggerVictory(): void {
@@ -1366,6 +1408,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         } catch (e) {
             console.error('[GameManager] triggerVictory side-effect failed (screen still shown):', e);
         }
+        this._runLeaderboardFlow(this.score);
     }
 
     private showVictoryScreen(): void {
@@ -1382,7 +1425,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         titleNode.setParent(panel);
         titleNode.setPosition(0, 80);
         const title = titleNode.addComponent(Label);
-        title.string = 'HAI VINTO!';
+        title.string = 'YOU WIN!';
         title.fontSize = 72;
         title.isBold = true;
         title.color = new Color(255, 220, 50, 255);
@@ -1407,7 +1450,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         retryNode.setParent(panel);
         retryNode.setPosition(0, -90);
         const retry = retryNode.addComponent(Label);
-        retry.string = 'Nuova partita';
+        retry.string = 'New Game';
         retry.fontSize = 36;
         retry.color = new Color(255, 255, 255, 255);
         retryNode.getComponent(UITransform)?.setContentSize(340, 60);
@@ -1440,7 +1483,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             bestMsgNode.setParent(panel);
             bestMsgNode.setPosition(0, 22);
             const bestMsg = bestMsgNode.addComponent(Label);
-            bestMsg.string = 'HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!';
+            bestMsg.string = 'NEW BEST SCORE!';
             bestMsg.fontSize = 24;
             bestMsg.isBold = true;
             bestMsg.color = new Color(255, 215, 60, 255);
@@ -1476,7 +1519,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         retryNode.setParent(panel);
         retryNode.setPosition(0, -95);
         const retry = retryNode.addComponent(Label);
-        retry.string = 'Riprova';
+        retry.string = 'Retry';
         retry.fontSize = 36;
         retry.color = new Color(255, 255, 255, 255);
         retryNode.getComponent(UITransform)?.setContentSize(300, 60);
@@ -2482,7 +2525,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private _serializeSpawnLog(): [number, [number, number][]][] {
-        return [...this._spawnLog.entries()].map(([r, m]) => [r, [...m.entries()]]);
+        const out: [number, [number, number][]][] = [];
+        const log = this._spawnLog;
+        if (!log || typeof log.forEach !== 'function') return out;
+        log.forEach((m, r) => { out.push([r, m ? [...m] : []]); });
+        return out;
     }
 
     private _deserializeSpawnLog(data: [number, [number, number][]][] | undefined): Map<number, Map<number, number>> {
@@ -2494,34 +2541,36 @@ export class GameManager extends Component implements IGameManagerDebug {
     /** Persist the full turn-start situation to localStorage. Called on every warrior activation. */
     private _saveSnapshot(): void {
         if (this.state === GameState.GameOver) return;
-        const launcher = this._activeLauncherWarrior;
-        const snap: GameSnapshot = {
-            version:     VERSION,
-            score:       this.score,
-            round:       this.currentRound,
-            totalMerges: this.totalMerges,
-            cooldowns:   { bh: this._bhCooldownLaunches, pf: this._pfCooldownLaunches, gn: this._gnCooldownLaunches },
-            firstLaunchSpecies:    [...this._firstLaunchSpecies],
-            trackClearedBonusUsed: this._trackClearedBonusUsed,
-            bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
-            spawnLog:    this._serializeSpawnLog(),
-            launcher: launcher?.node?.isValid
-                ? { type: launcher.type, level: launcher.level, powerup: this._powerupOf(launcher) }
-                : { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level, powerup: null },
-            nextPowerup: this._nextPowerup,
-            next:        { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level },
-            warriors:    this.warriors
-                .filter(w => w.crossedLine && w !== launcher && w.node?.isValid)
-                .map(w => {
-                    const s: WarriorSnap = { type: w.type, level: w.level, x: w.node.position.x, y: w.node.position.y };
-                    if (this._auraWarrior === w) s.pu = 'aura';
-                    return s;
-                }),
-        };
+        // The snapshot is a non-critical side effect: it must NEVER bubble an error into the
+        // game loop. The whole body (object construction included) is guarded.
         try {
+            const launcher = this._activeLauncherWarrior;
+            const snap: GameSnapshot = {
+                version:     VERSION,
+                score:       this.score,
+                round:       this.currentRound,
+                totalMerges: this.totalMerges,
+                cooldowns:   { bh: this._bhCooldownLaunches, pf: this._pfCooldownLaunches, gn: this._gnCooldownLaunches },
+                firstLaunchSpecies:    [...this._firstLaunchSpecies],
+                trackClearedBonusUsed: this._trackClearedBonusUsed,
+                bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
+                spawnLog:    this._serializeSpawnLog(),
+                launcher: launcher?.node?.isValid
+                    ? { type: launcher.type, level: launcher.level, powerup: this._powerupOf(launcher) }
+                    : { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level, powerup: null },
+                nextPowerup: this._nextPowerup,
+                next:        { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level },
+                warriors:    this.warriors
+                    .filter(w => w.crossedLine && w !== launcher && w.node?.isValid)
+                    .map(w => {
+                        const s: WarriorSnap = { type: w.type, level: w.level, x: w.node.position.x, y: w.node.position.y };
+                        if (this._auraWarrior === w) s.pu = 'aura';
+                        return s;
+                    }),
+            };
             sys.localStorage.setItem(STATE_KEY, JSON.stringify(snap));
         } catch (e) {
-            console.warn('[GameManager] snapshot save failed:', e);
+            console.warn('[GameManager] snapshot save failed (ignored):', e);
         }
     }
 
@@ -2607,8 +2656,15 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     // ── Unexpected-error dialog ──────────────────────────────────────────────
 
-    private _handleRuntimeError(): void {
-        if (this._errorDialogShown || this.state === GameState.GameOver) return;
+    private _handleRuntimeError(source: string, err?: unknown): void {
+        if (this._errorDialogShown || this._errorSuppressed || this.state === GameState.GameOver) return;
+        const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err ?? 'unknown');
+        this._lastErrorText = `[${source}] ${msg}`;
+        // Persist the full stack so it can be retrieved later via localStorage.getItem('fw_last_error').
+        try {
+            const full = `[${source}] ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
+            sys.localStorage.setItem('fw_last_error', full);
+        } catch { /* ignore */ }
         try { this._showErrorDialog(); }
         catch (e) { console.error('[GameManager] failed to show error dialog:', e); }
     }
@@ -2624,15 +2680,23 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this.inputCtrl) this.inputCtrl.blocked = true;
 
         const panel = new Node('ErrorPanel');
+        panel.layer = this.uiLayer.layer;
         panel.setParent(this.uiLayer);
+        panel.setSiblingIndex(this.uiLayer.children.length - 1); // top-most → receives touches first
         const bg = panel.addComponent(Graphics);
         const vs = view.getVisibleSize();
-        bg.fillColor = new Color(0, 0, 0, 200);
+        bg.fillColor = new Color(0, 0, 0, 210);
         bg.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
         bg.fill();
 
-        this.makeLabel(panel, 'Errore non previsto', 0, 90, 42, new Color(255, 90, 90, 255));
-        this.makeLabel(panel, 'Qualcosa è andato storto durante il gioco.', 0, 36, 22, new Color(210, 210, 210, 255));
+        this.makeLabel(panel, 'Errore non previsto', 0, 150, 42, new Color(255, 90, 90, 255));
+        this.makeLabel(panel, 'Qualcosa è andato storto durante il gioco.', 0, 104, 22, new Color(210, 210, 210, 255));
+
+        // Show the actual error so it can be diagnosed.
+        const det = this.makeLabel(panel, this._lastErrorText, 0, 40, 16, new Color(255, 175, 175, 255));
+        det.overflow = Label.Overflow.RESIZE_HEIGHT;
+        det.enableWrapText = true;
+        det.getComponent(UITransform)?.setContentSize(600, 90);
 
         const contBtn = this._makeDialogButton(panel, 'CONTINUA', 0, -40, new Color(35, 110, 60, 255));
         const onCont = () => this._dismissErrorDialog();
@@ -2658,10 +2722,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._stateBeforePause = null;
         try { PhysicsSystem2D.instance.enable = true; } catch { /* ignore */ }
         if (this.inputCtrl) this.inputCtrl.blocked = false;
+        // Brief grace period so a recurring error doesn't instantly re-pop the dialog.
+        this._errorSuppressed = true;
+        this.scheduleOnce(() => { this._errorSuppressed = false; }, 1.5);
     }
 
     private _makeDialogButton(parent: Node, text: string, x: number, y: number, color: Color): Node {
         const node = new Node(text);
+        node.layer = parent.layer;
         node.setParent(parent);
         node.setPosition(x, y);
         const w = 300, h = 64;
@@ -2674,7 +2742,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         g.lineWidth = 2;
         g.roundRect(-w / 2, -h / 2, w, h, 12);
         g.stroke();
-        this.makeLabel(node, text, 0, 0, 30, new Color(255, 255, 255, 255)).isBold = true;
+        const lbl = this.makeLabel(node, text, 0, 0, 30, new Color(255, 255, 255, 255));
+        lbl.isBold = true;
+        lbl.node.layer = node.layer;
         return node;
     }
 
@@ -2728,6 +2798,32 @@ export class GameManager extends Component implements IGameManagerDebug {
         sorted.forEach((child, i) => child.setSiblingIndex(i));
     }
 
+    /** TEMP debug: purple dashed line on WarriorsLayer marking the real game-over threshold. */
+    private _drawEndlineDebug(): void {
+        if (!this.warriorsLayer?.isValid || !this.coords) return;
+        if (!this._endlineDebugNode?.isValid) {
+            const n = new Node('EndlineDebug');
+            n.layer = this.warriorsLayer.layer;
+            n.setParent(this.warriorsLayer);
+            n.addComponent(Graphics);
+            this._endlineDebugNode = n;
+        }
+        const g = this._endlineDebugNode.getComponent(Graphics)!;
+        g.clear();
+        g.lineWidth   = 5;
+        g.strokeColor = new Color(190, 70, 255, 230); // purple
+        const y = this.coords.physToVisual(this.gameOverLineLocal);
+        const dash = 16, gap = 10;
+        let x = -TRACK_W / 2;
+        while (x < TRACK_W / 2) {
+            g.moveTo(x, y);
+            g.lineTo(Math.min(x + dash, TRACK_W / 2), y);
+            x += dash + gap;
+        }
+        g.stroke();
+        this._endlineDebugNode.setSiblingIndex(this.warriorsLayer.children.length - 1);
+    }
+
     private _vibrate(ms: number): void {
         if (!Settings.vibrationEnabled || !sys.isBrowser) return;
         (navigator as any).vibrate?.(ms);
@@ -2743,20 +2839,34 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (labelNode) labelNode.getComponent(Label)!.string = '⏸️';
             if (this._pauseOverlay?.isValid) this._pauseOverlay.destroy();
             this._pauseOverlay = null;
+            if (this.inputCtrl) this.inputCtrl.blocked = false;
             AudioManager.instance.unmuteForPause();
         } else {
             this._stateBeforePause = this.state;
             this.state = GameState.Paused;
             PhysicsSystem2D.instance.enable = false;
+            // Block input while paused so a resume-tap can't also start an aim/launch.
+            if (this.inputCtrl) this.inputCtrl.blocked = true;
             if (labelNode) labelNode.getComponent(Label)!.string = '▶️';
             const overlay = new Node('PauseOverlay');
+            overlay.layer = this.uiLayer.layer;
             overlay.setParent(this.uiLayer);
-            const g = overlay.addComponent(Graphics);
+            overlay.setSiblingIndex(this.uiLayer.children.length - 1); // top → catches the tap
             const vs = view.getVisibleSize();
+            overlay.addComponent(UITransform).setContentSize(vs.width, vs.height);
+            const g = overlay.addComponent(Graphics);
             g.fillColor = new Color(0, 0, 0, 140);
             g.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
             g.fill();
-            this.makeLabel(overlay, 'PAUSA', 0, 60, 64, new Color(255, 255, 255, 230));
+            this.makeLabel(overlay, 'PAUSE', 0, 60, 64, new Color(255, 255, 255, 230));
+            this.makeLabel(overlay, 'Tap to resume', 0, -10, 26, new Color(200, 200, 200, 220));
+            // Tap anywhere to resume — also recovers from a spurious blur-pause.
+            const onResumeTap = () => {
+                this._autoPaused = false;
+                if (this.state === GameState.Paused) this._togglePause(this._pauseLabelNode);
+            };
+            overlay.on(Node.EventType.TOUCH_END, onResumeTap, this);
+            overlay.on(Node.EventType.MOUSE_UP,  onResumeTap, this);
             this._pauseOverlay = overlay;
             AudioManager.instance.muteForPause();
         }
