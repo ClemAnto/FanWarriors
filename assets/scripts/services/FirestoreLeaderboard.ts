@@ -1,5 +1,5 @@
 import { LeaderboardEntry, LeaderboardService, SubmitResult } from './LeaderboardService';
-import { COLLECTION, FIREBASE_CONFIG, REQUEST_TIMEOUT_MS, SCORE_CAP, TOP_N } from '../config/LeaderboardConfig';
+import { COLLECTION, DOCUMENT_ID, FIREBASE_CONFIG, REQUEST_TIMEOUT_MS, ROUND_CAP, SCORE_CAP, TOP_N, VERSION_MAX_LEN } from '../config/LeaderboardConfig';
 
 /** Firebase compat SDK version — keep in sync with build-templates/web-mobile/index.html. */
 const FIREBASE_SDK_VERSION = '10.12.2';
@@ -8,14 +8,18 @@ const FIREBASE_SDK_BASE = `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VER
 /**
  * Real online leaderboard backed by Firebase Firestore.
  *
- * Uses the Firebase **compat** SDK loaded as a global via CDN (no npm bundling) —
- * see scripts/patch-html.js / build-templates index.html, which inject
- * firebase-app-compat + firebase-firestore-compat. We touch only `window.firebase`,
- * so the engine bundle stays free of Firebase.
+ * SINGLE-DOCUMENT model: the whole board lives in one doc (COLLECTION/DOCUMENT_ID)
+ * as an `entries` array. Each submit runs a transaction that reads the array, inserts
+ * the new entry, sorts desc by score, caps at TOP_N and writes it back — so Firestore
+ * is self-pruning (it never accumulates excess rows). getTop just reads that array.
  *
- * Anti-cheat v1 lives entirely in Firestore security rules (validate name shape,
- * score range, createdAt == request.time, no update/delete). This client only
- * mirrors the same shape so well-formed writes pass.
+ * Uses the Firebase **compat** SDK loaded as a global via CDN (no npm bundling); we
+ * touch only `window.firebase`, so the engine bundle stays free of Firebase.
+ *
+ * Anti-cheat note (v1): with an array doc the rules can only cap the array length
+ * (Firestore rules can't iterate to validate each element nor enforce a server
+ * timestamp), so per-entry shape and `createdAt` are client-trusted. Acceptable for
+ * a casual portal game; App Check is the planned hardening step.
  *
  * No method throws: network/SDK problems resolve to empty/false/{ok:false}.
  */
@@ -84,22 +88,16 @@ export class FirestoreLeaderboard implements LeaderboardService {
         return g.firebase ?? null;
     }
 
+    /** The single board document reference. */
+    private _docRef(): any {
+        return this._db.collection(COLLECTION).doc(DOCUMENT_ID);
+    }
+
     async getTop(limit: number): Promise<LeaderboardEntry[]> {
         if (!(await this.init())) return [];
         try {
-            const snap: any = await this._withTimeout(
-                this._db.collection(COLLECTION).orderBy('score', 'desc').limit(limit).get(),
-            );
-            const out: LeaderboardEntry[] = [];
-            snap.forEach((doc: any) => {
-                const d = doc.data();
-                out.push({
-                    name: String(d.name ?? '???'),
-                    score: Number(d.score ?? 0),
-                    createdAt: FirestoreLeaderboard._toMillis(d.createdAt),
-                });
-            });
-            return out;
+            const snap: any = await this._withTimeout(this._docRef().get());
+            return FirestoreLeaderboard._readEntries(snap).slice(0, limit);
         } catch (e) {
             console.warn('[Leaderboard] getTop failed:', e);
             return [];
@@ -108,10 +106,9 @@ export class FirestoreLeaderboard implements LeaderboardService {
 
     async qualifies(score: number): Promise<boolean> {
         if (!Number.isInteger(score) || score <= 0 || score > SCORE_CAP) return false;
-        // Fetch the current top; we have it cheaply and avoid a count query.
+        if (!(await this.init())) return false; // fail-closed: don't prompt if we can't confirm
         const top = await this.getTop(TOP_N);
-        if (top.length === 0) return this._db != null; // empty board → anyone qualifies (if we reached it)
-        if (top.length < TOP_N) return true;
+        if (top.length < TOP_N) return true; // empty / not-full board → anyone qualifies
         return score > top[TOP_N - 1].score;
     }
 
@@ -119,21 +116,35 @@ export class FirestoreLeaderboard implements LeaderboardService {
         if (!Number.isInteger(entry.score) || entry.score < 0 || entry.score > SCORE_CAP) {
             return { ok: false, rank: null, error: 'score out of range' };
         }
+        if (!Number.isInteger(entry.round) || entry.round < 1 || entry.round > ROUND_CAP) {
+            return { ok: false, rank: null, error: 'round out of range' };
+        }
+        if (typeof entry.version !== 'string' || entry.version.length === 0 || entry.version.length > VERSION_MAX_LEN) {
+            return { ok: false, rank: null, error: 'version invalid' };
+        }
         if (!(await this.init())) return { ok: false, rank: null, error: 'backend unavailable' };
+        // Normalize the row we persist (no extra fields, plain values only).
+        const row: LeaderboardEntry = {
+            name: entry.name,
+            score: entry.score,
+            round: entry.round,
+            version: entry.version,
+            createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : 0,
+        };
         try {
-            const fb = (globalThis as any).firebase;
-            await this._withTimeout(
-                this._db.collection(COLLECTION).add({
-                    name: entry.name,
-                    score: entry.score,
-                    // Server-stamped so it matches the `createdAt == request.time` rule.
-                    createdAt: fb.firestore.FieldValue.serverTimestamp(),
-                }),
-            );
-            // Re-read the board to report the achieved rank (best effort).
-            const top = await this.getTop(TOP_N);
-            const idx = top.findIndex(e => e.name === entry.name && e.score === entry.score);
-            return { ok: true, rank: idx >= 0 ? idx + 1 : null };
+            const ref = this._docRef();
+            let rank: number | null = null;
+            await this._withTimeout(this._db.runTransaction(async (tx: any) => {
+                const snap = await tx.get(ref);
+                const entries = FirestoreLeaderboard._readEntries(snap);
+                entries.push(row);
+                entries.sort((a, b) => b.score - a.score || a.createdAt - b.createdAt);
+                const capped = entries.slice(0, TOP_N);
+                tx.set(ref, { entries: capped });
+                const idx = capped.indexOf(row);
+                rank = idx >= 0 ? idx + 1 : null;
+            }));
+            return { ok: true, rank };
         } catch (e) {
             console.warn('[Leaderboard] submit failed:', e);
             return { ok: false, rank: null, error: String(e) };
@@ -151,12 +162,18 @@ export class FirestoreLeaderboard implements LeaderboardService {
         });
     }
 
-    /** Firestore Timestamp | number | undefined → epoch millis. */
-    private static _toMillis(v: any): number {
-        if (v == null) return 0;
-        if (typeof v === 'number') return v;
-        if (typeof v.toMillis === 'function') return v.toMillis();
-        if (typeof v.seconds === 'number') return v.seconds * 1000;
-        return 0;
+    /** Pull a sanitized, score-sorted entries array out of a board-document snapshot. */
+    private static _readEntries(snap: any): LeaderboardEntry[] {
+        const data = snap && snap.exists ? snap.data() : null;
+        const raw = data && Array.isArray(data.entries) ? data.entries : [];
+        return raw
+            .map((d: any) => ({
+                name: String(d?.name ?? '???'),
+                score: Number(d?.score ?? 0),
+                round: Number(d?.round ?? 1),
+                version: String(d?.version ?? ''),
+                createdAt: Number(d?.createdAt ?? 0),
+            }))
+            .sort((a, b) => b.score - a.score || a.createdAt - b.createdAt);
     }
 }

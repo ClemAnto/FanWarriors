@@ -38,6 +38,18 @@ export const NAME_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
  */
 export const SCORE_CAP = 1_000_000;
 
+/**
+ * Upper bound for a submittable round. Anti-cheat v1 (Firestore security rules)
+ * rejects rounds outside [1, ROUND_CAP]. Keep this in sync with the rules.
+ */
+export const ROUND_CAP = 100_000;
+
+/**
+ * Max length of the stored app version string. Anti-cheat v1 (Firestore security
+ * rules) rejects longer values. Keep this in sync with the rules.
+ */
+export const VERSION_MAX_LEN = 16;
+
 /** Network timeout (ms) for any single leaderboard request. */
 export const REQUEST_TIMEOUT_MS = 8000;
 
@@ -55,5 +67,12 @@ export const FIREBASE_CONFIG = {
     measurementId: 'G-XCRKW0TZVL',
 } as const;
 
-/** Firestore collection that holds the leaderboard documents. */
+/** Firestore collection that holds the leaderboard document. */
 export const COLLECTION = 'leaderboard';
+
+/**
+ * Single document (inside COLLECTION) that holds the whole board as an `entries`
+ * array. The board is one self-pruning doc: each submit rewrites the array sorted
+ * desc and capped at TOP_N — so Firestore never accumulates excess entries.
+ */
+export const DOCUMENT_ID = 'top';

@@ -77,6 +77,7 @@ export class MockLeaderboard implements LeaderboardService {
         const base = 1_700_000_000_000;
         const names = ['ACE', 'BOB', 'CAT', 'DOG', 'EVE', 'FOX', 'GUS', 'HAL', 'IVY', 'JET'];
         const scores = [9800, 8400, 7100, 6050, 5200, 4300, 3600, 2900, 1800, 900];
-        return names.map((name, i) => ({ name, score: scores[i], createdAt: base + i * 1000 }));
+        const rounds = [12, 11, 9, 8, 7, 6, 5, 4, 3, 2];
+        return names.map((name, i) => ({ name, score: scores[i], round: rounds[i], version: '0.0.0', createdAt: base + i * 86_400_000 }));
     }
 }

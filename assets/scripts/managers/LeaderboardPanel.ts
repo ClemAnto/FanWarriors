@@ -29,6 +29,17 @@ export class LeaderboardPanel extends Component {
      * opened just to view the board (e.g. from the menu).
      */
     static pendingScore: number | null = null;
+    /**
+     * Round reached, handed off alongside {@link pendingScore} from the game-over
+     * flow. Submitted with the score; consumed once in start(). Defaults to 1 when
+     * unset (e.g. older callers).
+     */
+    static pendingRound: number = 1;
+    /**
+     * App version, handed off alongside {@link pendingScore} from the game-over
+     * flow. Submitted with the score; consumed once in start().
+     */
+    static pendingVersion: string = '';
 
     @property({ type: Node, tooltip: 'The Board sub-panel (the list; hidden during name entry).' })
     boardNode: Node | null = null;
@@ -67,9 +78,13 @@ export class LeaderboardPanel extends Component {
     start(): void {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         const pending = LeaderboardPanel.pendingScore;
+        const pendingRound = LeaderboardPanel.pendingRound;
+        const pendingVersion = LeaderboardPanel.pendingVersion;
         LeaderboardPanel.pendingScore = null; // consume once
+        LeaderboardPanel.pendingRound = 1;
+        LeaderboardPanel.pendingVersion = '';
         if (pending != null) {
-            this._runNameEntry(pending);
+            this._runNameEntry(pending, pendingRound, pendingVersion);
         } else {
             this._showBoard();
         }
@@ -80,7 +95,7 @@ export class LeaderboardPanel extends Component {
      * qualified (GameManager checked before loading this scene), so we go straight
      * to the selector. Falls back to just showing the board if NameEntry is unbound.
      */
-    private _runNameEntry(score: number): void {
+    private _runNameEntry(score: number, round: number, version: string): void {
         if (!ENABLED || !this.nameEntry) { this._showBoard(); return; }
         const svc = LeaderboardProvider.get();
         if (this._hasBoardChild) this.boardNode!.active = false; // board hidden during entry
@@ -91,7 +106,7 @@ export class LeaderboardPanel extends Component {
             void (async () => {
                 try {
                     await svc.init();
-                    await svc.submit({ name, score, createdAt: Date.now() });
+                    await svc.submit({ name, score, round, version, createdAt: Date.now() });
                 } catch (e) {
                     console.warn('[LeaderboardPanel] submit failed:', e); // show board anyway
                 }
@@ -136,6 +151,9 @@ export class LeaderboardPanel extends Component {
             this._setRowLabel(row, 'Rank', String(i + 1), tint);
             this._setRowLabel(row, 'Name', e.name, tint);
             this._setRowLabel(row, 'Score', String(e.score), tint);
+            // Round is shown if the prefab row has a "Round" Label (optional).
+            // Date and Version are stored (Firestore) but intentionally NOT shown in the UI.
+            this._setRowLabel(row, 'Round', String(e.round ?? 1), tint);
         }
     }
 

@@ -22,7 +22,7 @@ import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.53';
+export const VERSION     = '0.8.54';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 const DEBUG              = false;
@@ -1394,6 +1394,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             return;
         }
         LeaderboardPanel.pendingScore = score;
+        LeaderboardPanel.pendingRound = this.currentRound;
+        LeaderboardPanel.pendingVersion = VERSION;
         director.loadScene(RANKING_SCENE);
     }
 

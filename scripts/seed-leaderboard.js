@@ -1,31 +1,37 @@
 #!/usr/bin/env node
 'use strict';
 
-// Seed the Firestore leaderboard with default entries.
+// Seed the Firestore leaderboard (single-document model).
 //
-// Reads apiKey / projectId / collection straight from
+// The whole board lives in ONE doc (COLLECTION/DOCUMENT_ID) as an `entries` array.
+// This script overwrites that doc with default entries via the Firestore REST API.
+// Reads apiKey / projectId / collection / document id straight from
 // assets/scripts/config/LeaderboardConfig.ts so it never drifts out of sync.
-// Writes go through the Firestore REST :commit endpoint with a REQUEST_TIME
-// transform on `createdAt`, which is exactly what the security rules require
-// (createdAt == request.time). Each default uses a deterministic document id,
-// so a second run is rejected as an "update" (rules forbid it) instead of
-// silently creating duplicates.
 //
 // Usage:
 //   node scripts/seed-leaderboard.js          # seed defaults (refuses if board not empty)
-//   node scripts/seed-leaderboard.js --force   # seed even if entries already exist
-//   node scripts/seed-leaderboard.js --list     # just print the current top, write nothing
+//   node scripts/seed-leaderboard.js --force   # overwrite even if entries already exist
+//   node scripts/seed-leaderboard.js --list     # just print the current board, write nothing
 
 const fs    = require('fs');
 const path  = require('path');
 const https = require('https');
 
 // ---- Default entries to seed -------------------------------------------------
-// Name must match the rules' shape: exactly NAME_LEN uppercase letters ([A-Z]).
-// Scores: 100000 down to 10000, step 10000.
+// Name must match the leaderboard shape: exactly NAME_LEN uppercase letters ([A-Z]).
+// Scores: 100000 down to 10000, step 10000. Round: starts at 10, drops every 2 places
+// (10,10,9,9,8,8,7,7,6,6). Version: app version.
+const APP_VERSION = (() => {
+    try { return require(path.resolve(__dirname, '..', 'package.json')).version || '0.0.0'; }
+    catch { return '0.0.0'; }
+})();
+const SEED_BASE_MS = 1_700_000_000_000;
 const DEFAULT_ENTRIES = Array.from({ length: 10 }, (_, i) => ({
     name: 'FAN',
     score: 100000 - i * 10000,
+    round: 10 - Math.floor(i / 2),
+    version: APP_VERSION,
+    createdAt: SEED_BASE_MS + i * 86_400_000,
 }));
 
 // ---- Pull config from LeaderboardConfig.ts ----------------------------------
@@ -42,6 +48,7 @@ function readConfig() {
         apiKey:     pick(/apiKey:\s*'([^']+)'/, 'apiKey'),
         projectId:  pick(/projectId:\s*'([^']+)'/, 'projectId'),
         collection: pick(/COLLECTION\s*=\s*'([^']+)'/, 'COLLECTION'),
+        documentId: pick(/DOCUMENT_ID\s*=\s*'([^']+)'/, 'DOCUMENT_ID'),
     };
 }
 
@@ -71,38 +78,45 @@ function request(method, urlPath, bodyObj) {
     });
 }
 
-async function listTop(cfg, limit) {
-    const base = `projects/${cfg.projectId}/databases/(default)/documents`;
-    const query = {
-        structuredQuery: {
-            from: [{ collectionId: cfg.collection }],
-            orderBy: [{ field: { fieldPath: 'score' }, direction: 'DESCENDING' }],
-            limit,
-        },
-    };
-    const { status, json } = await request('POST', `/v1/${base}:runQuery?key=${cfg.apiKey}`, query);
-    if (status !== 200) throw new Error(`runQuery failed (HTTP ${status}): ${JSON.stringify(json)}`);
-    return (Array.isArray(json) ? json : [])
-        .filter(r => r.document)
-        .map(r => ({
-            name: r.document.fields.name?.stringValue ?? '???',
-            score: Number(r.document.fields.score?.integerValue ?? 0),
-        }));
+// ---- Firestore value (un)marshalling for our entry shape --------------------
+function toEntryValue(e) {
+    return { mapValue: { fields: {
+        name:      { stringValue: e.name },
+        score:     { integerValue: String(e.score) },
+        round:     { integerValue: String(e.round) },
+        version:   { stringValue: e.version },
+        createdAt: { integerValue: String(e.createdAt) },
+    } } };
 }
 
-async function seed(cfg, entries) {
-    const base = `projects/${cfg.projectId}/databases/(default)/documents`;
-    const writes = entries.map((e, i) => ({
-        update: {
-            name: `${base}/${cfg.collection}/default-${String(i + 1).padStart(2, '0')}`,
-            fields: { name: { stringValue: e.name }, score: { integerValue: String(e.score) } },
-        },
-        // REQUEST_TIME satisfies the rule `createdAt == request.time`.
-        updateTransforms: [{ fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME' }],
-    }));
-    const { status, json } = await request('POST', `/v1/${base}:commit?key=${cfg.apiKey}`, { writes });
-    if (status !== 200) throw new Error(`commit failed (HTTP ${status}): ${JSON.stringify(json)}`);
-    return json.writeResults?.length ?? 0;
+function fromEntryValue(v) {
+    const f = (v && v.mapValue && v.mapValue.fields) || {};
+    return {
+        name:    f.name?.stringValue ?? '???',
+        score:   Number(f.score?.integerValue ?? 0),
+        round:   Number(f.round?.integerValue ?? 1),
+        version: f.version?.stringValue ?? '',
+    };
+}
+
+function docPath(cfg) {
+    return `projects/${cfg.projectId}/databases/(default)/documents/${cfg.collection}/${cfg.documentId}`;
+}
+
+async function readBoard(cfg) {
+    const { status, json } = await request('GET', `/v1/${docPath(cfg)}?key=${cfg.apiKey}`);
+    if (status === 404) return [];               // doc doesn't exist yet
+    if (status !== 200) throw new Error(`read failed (HTTP ${status}): ${JSON.stringify(json)}`);
+    const values = json.fields?.entries?.arrayValue?.values ?? [];
+    return values.map(fromEntryValue).sort((a, b) => b.score - a.score);
+}
+
+async function writeBoard(cfg, entries) {
+    const body = { fields: { entries: { arrayValue: { values: entries.map(toEntryValue) } } } };
+    // PATCH without an updateMask replaces the whole document with these fields.
+    const { status, json } = await request('PATCH', `/v1/${docPath(cfg)}?key=${cfg.apiKey}`, body);
+    if (status !== 200) throw new Error(`write failed (HTTP ${status}): ${JSON.stringify(json)}`);
+    return json.fields?.entries?.arrayValue?.values?.length ?? 0;
 }
 
 (async function main() {
@@ -111,24 +125,22 @@ async function seed(cfg, entries) {
     const list  = args.includes('--list');
 
     const cfg = readConfig();
-    console.log(`Project: ${cfg.projectId}  Collection: ${cfg.collection}`);
+    console.log(`Project: ${cfg.projectId}  Doc: ${cfg.collection}/${cfg.documentId}`);
 
-    const current = await listTop(cfg, 10);
+    const current = await readBoard(cfg);
     console.log(`Current entries: ${current.length}`);
-    current.forEach((e, i) => console.log(`  ${String(i + 1).padStart(2)}. ${e.name}  ${e.score}`));
+    current.forEach((e, i) => console.log(`  ${String(i + 1).padStart(2)}. ${e.name}  ${e.score}  (round ${e.round}, v${e.version})`));
 
     if (list) return;
 
     if (current.length > 0 && !force) {
-        console.log('\nBoard is not empty — nothing written. Re-run with --force to seed anyway.');
+        console.log('\nBoard is not empty — nothing written. Re-run with --force to overwrite.');
         return;
     }
 
-    console.log(`\nSeeding ${DEFAULT_ENTRIES.length} default entries...`);
-    const n = await seed(cfg, DEFAULT_ENTRIES);
+    console.log(`\nWriting ${DEFAULT_ENTRIES.length} default entries to ${cfg.collection}/${cfg.documentId}...`);
+    const n = await writeBoard(cfg, DEFAULT_ENTRIES);
     console.log(`Wrote ${n} entries.`);
-    console.log('NOTE: rules forbid update/delete, so default-NN ids are write-once. ' +
-                'To re-seed, delete them in the Firebase console first.');
 })().catch(err => {
     console.error('seed-leaderboard failed:', err.message);
     process.exit(1);

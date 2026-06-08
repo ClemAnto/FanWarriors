@@ -250,6 +250,73 @@ Ogni scena termina con un `cc.SceneGlobals`. Può essere copiato identico tra sc
 
 ---
 
+## Prefab — formato file e workflow
+
+**Regola di design (sempre):** un componente reiterabile (righe di tabella/leaderboard, item di liste) = **un solo prefab istanziato N volte**, mai N nodi duplicati a mano nella scena. Così una modifica al layout/stile si fa una volta sola sul prefab e si propaga a tutte le istanze.
+
+### Asset prefab (`.prefab` + `.prefab.meta`) — formato VERIFICATO
+
+Un file `.prefab` è un array piatto JSON come le scene, ma la radice è `cc.Prefab` (non `cc.SceneAsset`). Riferimento nel progetto: `assets/prefabs/PsychoSparkle.prefab`.
+
+```jsonc
+[
+  { "__type__": "cc.Prefab", "_name": "X", "data": { "__id__": 1 },          // [0]
+    "optimizationPolicy": 0, "persistent": false },
+  { "__type__": "cc.Node", "_name": "X", "_parent": null,                     // [1] root
+    "_children": [...], "_components": [...],
+    "_prefab": { "__id__": <PrefabInfo della radice> }, "_id": "" },
+  // ...nodi figli: come i nodi di scena ma "_prefab": { "__id__": <PrefabInfo> } e "_id": ""
+  // ...componenti: come in scena ma "__prefab": { "__id__": <CompPrefabInfo> } e "_id": ""
+  { "__type__": "cc.CompPrefabInfo", "fileId": "<22-char>" },                 // uno per OGNI componente
+  { "__type__": "cc.PrefabInfo",                                             // uno per OGNI nodo
+    "root": { "__id__": 1 }, "asset": { "__id__": 0 },
+    "fileId": "<22-char>", "instance": null, "targetOverrides": null }
+]
+```
+
+Regole chiave dell'asset:
+- Ogni **nodo** ha un `cc.PrefabInfo` dedicato (`root`→radice, `asset`→`{__id__:0}`, `fileId` univoco nel prefab, `instance: null`); il nodo lo referenzia con `_prefab`.
+- Ogni **componente** ha un `cc.CompPrefabInfo` con `fileId` univoco; il componente lo referenzia con `__prefab`.
+- Tutti gli `_id` (nodi/componenti) sono `""`: l'identità nel prefab è il `fileId`.
+- Il `.meta` (`importer: "prefab"`) porta lo `uuid` dell'asset e `userData.syncNodeName`.
+
+### Istanza di un prefab DENTRO una scena — formato VERIFICATO (forma collassata)
+
+Un'istanza prefab in scena **non riserializza i figli**: il nodo-istanza è uno **stub** (solo `_parent` + `_prefab`); tutto il contenuto viene dal prefab. Le differenze per-istanza (nome, posizione, ecc.) sono `propertyOverrides`. Per riga servono questi oggetti consecutivi:
+
+```jsonc
+// 1) nodo stub
+{ "__type__": "cc.Node", "_objFlags": 0,
+  "_parent": { "__id__": <container> },
+  "_prefab": { "__id__": <PrefabInfo> }, "__editorExtras__": {} },
+// 2) PrefabInfo dell'istanza
+{ "__type__": "cc.PrefabInfo",
+  "root": { "__id__": <stub> },
+  "asset": { "__uuid__": "<uuid prefab>", "__expectedType__": "cc.Prefab" },
+  "fileId": "<fileId della RADICE nel prefab>",     // = root fileId del prefab
+  "instance": { "__id__": <PrefabInstance> },
+  "targetOverrides": null, "nestedPrefabInstanceRoots": null },
+// 3) PrefabInstance — fileId UNIVOCO per istanza
+{ "__type__": "cc.PrefabInstance", "fileId": "<22-char univoco>",
+  "prefabRootNode": null, "mountedChildren": [], "mountedComponents": [],
+  "propertyOverrides": [ {"__id__": ovrName}, {"__id__": ovrLpos}, {"__id__": ovrLrot}, {"__id__": ovrEuler} ],
+  "removedComponents": [] },
+// 4) un override + un TargetInfo per ogni proprietà (di norma _name, _lpos, _lrot, _euler)
+{ "__type__": "CCPropertyOverrideInfo", "targetInfo": { "__id__": <TargetInfo> },
+  "propertyPath": ["_name"], "value": "Row2" },
+{ "__type__": "cc.TargetInfo", "localID": ["<fileId della radice nel prefab>"] }
+```
+
+Note importanti:
+- `__type__` dell'override è **`CCPropertyOverrideInfo`** (senza `cc.`), il TargetInfo è `cc.TargetInfo`. `localID` = `[fileId radice]` (per override sulla radice dell'istanza).
+- Più override possono condividere lo **stesso** `cc.TargetInfo` (es. tutti puntano al fileId radice) oppure averne uno per ciascuno: entrambe valide.
+- Se il container ha un `cc.Layout`, gli `_lpos` sono **ricalcolati dal Layout** al load → i valori serializzati sono placeholder.
+- **Editing append-only sicuro**: aggiungere istanze a una scena esistente = appendere questi oggetti in coda all'array (preservando gli `__id__` esistenti), poi aggiungere i loro `__id__` a `container._children` e ai binding `@property` (es. `rowNodes`). Mai inserire/rimuovere a metà array senza rinumerare (vedi regola CRITICA sopra). Usare uno script che fa `JSON.parse`→modifica→`JSON.stringify` (la scena è JSON valido). `cc.SceneGlobals` resta referenziato per `__id__` anche se non è più l'ultimo elemento.
+
+Alternativa sempre valida: creare prefab e istanze **dall'editor** (trascina nodo in `assets/` per il prefab; trascina il prefab in scena per ogni istanza).
+
+---
+
 ## Checklist scrittura scena manuale
 
 1. Pianifica l'array e assegna ID sequenziali a tutti i nodi e componenti

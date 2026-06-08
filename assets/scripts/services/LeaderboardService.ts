@@ -16,6 +16,10 @@ export interface LeaderboardEntry {
     name: string;
     /** Score, an integer in [0, SCORE_CAP]. */
     score: number;
+    /** Highest round the player reached, an integer in [1, ROUND_CAP]. */
+    round: number;
+    /** App version that produced the entry (e.g. "0.8.54"), max VERSION_MAX_LEN chars. */
+    version: string;
     /** Epoch milliseconds when the entry was created (server time when available). */
     createdAt: number;
 }
