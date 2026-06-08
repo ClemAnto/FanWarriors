@@ -4,6 +4,32 @@
 
 ---
 
+## Pannelli fine partita + flusso end-game (2026-06-08, v0.8.56)
+
+**Decisione**: pause / game-over / victory sono **prefab modali editor-driven** (`assets/prefabs/`), non più UI disegnata da codice con `Graphics`. Comportamento in due classi: `PausePanel.ts` (Resume/Restart/Menu) ed `EndPanel.ts` (condiviso GameOver+Victory, **un solo Continue**). Generatore: `scripts/gen-ui-panels.js`.
+
+**Perché**: rispetta la regola "niente UI a runtime"; layout editabile; e il flusso lineare richiesto `MENU→GAME→WIN/LOSE→LEADERBOARD(se attiva)→MENU` con un'unica azione "avanti" evita scelte che possono rompere l'handoff leaderboard.
+
+**Come funziona**:
+- Root modale: Widget fullscreen + `UIOpacity` (default opacità **0**, così l'istanza resta attiva ma invisibile in editor) + `BlockInputEvents`. `onLoad` mette `active=false` → l'istanza va lasciata **ATTIVA** in scena (altrimenti `onLoad` non parte). Vedi COCOS.md.
+- `GameManager._wirePanels()` risolve i pannelli (via `@property` o per nome sotto UILayer) e setta gli hook. `Continue` → Ranking se `LEADERBOARD_ENABLED` altrimenti MainMenu.
+- **Anti-race**: a fine partita `state=GameOver` + `inputCtrl.blocked=true` (controlli inibiti). `_revealEndPanelWhenSettled(show, minDelay)` avvia `_prepareLeaderboard` (arma `LeaderboardPanel.pendingScore` **senza navigare**) e mostra il pannello solo quando: trascorso `minDelay` (`END_PANEL_DELAY=1s`; victory `max(1s, durata cascata)`) **+** nessun merge in volo **+** odometro punteggio fermo (`_scoreTween===null`). Implementato con `schedule`/`unschedule` (NON `scheduleOnce` ricorsivo → evita warning "selector already scheduled"). `Continue` attende `_lbReady` (cap 3s) prima di navigare, così il name-entry è sempre armato.
+- La comparsa del pannello **non dipende** dalla rete (la prep leaderboard gira in parallelo): in editor preview l'init Firebase può essere lento.
+
+**Gotcha**: il timer di lancio usa il nodo editor `Track > LaunchTimer`; il codice (`updateTimerLabel`) tocca **solo `string` e `color`**, mai posizione/scala.
+
+---
+
+## Componenti UI riutilizzabili — MaxSize / AspectRatioFit (2026-06-08, v0.8.56)
+
+**Decisione**: due componenti generici in `assets/scripts/ui/`. `MaxSize` (cap dimensione, semantica CSS `max-width`/`max-height`, `0`=illimitato). `AspectRatioFit` (mantiene un aspect W/H; `aspect=0` = auto da `Sprite.spriteFrame.originalSize`).
+
+**Perché**: Cocos 3.8 **non** ha vincoli di dimensione max né lock di aspect-ratio nativi (solo Widget per allineamento e Layout per i figli).
+
+**Come funziona / gotcha critico**: reagiscono a **`SIZE_CHANGED`**, NON a `update()`. Il Widget allinea su `Director.EVENT_AFTER_UPDATE` (dopo gli update dei componenti), quindi un clamp in `update()` verrebbe sovrascritto ogni frame; `SIZE_CHANGED` scatta sincrono quando il Widget imposta la dimensione → il vincolo si applica subito dopo, prima del render. C'è un `update()` **solo-editor** (`if (EDITOR)` da `cc/env`) per riflettere live le modifiche nell'Inspector. Richiedono Sprite `Size Mode = CUSTOM`. Compongono: Widget stretch (100%) → MaxSize cap → AspectRatioFit altezza da larghezza.
+
+---
+
 ## Settings — dialog opzioni centralizzato (MainMenu + Game) (2026-06-04, v0.8.22)
 
 **Decisione**: la logica del dialog opzioni (vibrazione / sfx / musica / fullscreen) vive in un'unica classe `Settings.ts` (`assets/scripts/managers/`), condivisa tra `MainMenu.scene` e `Game.scene`. Prima era duplicata dentro `GameManager` (`openMenu/closeMenu/toggle*`).
