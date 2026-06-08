@@ -9,7 +9,7 @@ const PANEL_SCALE = 1.5;  // visual scale applied to the whole panel node
 // ── Panel geometry (world space, canvas 720×1280 centred at origin) ──
 const CX         = 230;   // centre x — right side of track, portrait-visible (X:±360)
 const PANEL_TOP  =  68;   // below HUD NEXT preview (which sits at y≈90)
-const PANEL_BOT  = -386;
+const PANEL_BOT  = -416;
 const PANEL_W    =  230;
 const PANEL_HALF = PANEL_W / 2;
 
@@ -44,6 +44,12 @@ const GN_BTN_Y   = -356;
 const GN_BTN_W   =  160;
 const GN_BTN_H   =   26;
 const GN_CX      =  CX;        // 230
+
+// LOSE (instant game over) button — third row below GN
+const LOSE_BTN_Y = -388;
+const LOSE_BTN_W =  160;
+const LOSE_BTN_H =   26;
+const LOSE_CX    =  CX;        // 230
 
 // Round row
 const ROUND_LBL_Y  =   2;
@@ -92,6 +98,7 @@ export interface IGameManagerDebug {
     resetDebugState(): void;
     setLauncherBlocked(v: boolean): void;
     debugWin(): void;
+    debugLose(): void;
     toggleBloodhood(): void;
     isBloodhoodEnabled(): boolean;
     activatePsychoForce(): void;
@@ -121,6 +128,8 @@ export class DebugPanel extends Component {
     private auraLbl!: Label;
     private gnPressed   = false;
     private gnLbl!:   Label;
+    private losePressed = false;
+    private loseLbl!: Label;
     private pauseFlash = false;
     private ghost: Node | null = null;
     private dragType = -1;
@@ -202,6 +211,9 @@ export class DebugPanel extends Component {
 
         // GN button
         this.gnLbl = this.lbl('☠ GENOCIDE', GN_CX, GN_BTN_Y, 11, new Color(255, 60, 60, 255));
+
+        // LOSE button (instant game over)
+        this.loseLbl = this.lbl('💀 LOSE', LOSE_CX, LOSE_BTN_Y, 11, new Color(255, 120, 120, 255));
     }
 
     private drawPanel(): void {
@@ -333,6 +345,15 @@ export class DebugPanel extends Component {
         g.rect(GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H);
         g.fill();
         g.rect(GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H);
+        g.stroke();
+
+        // LOSE (instant game over) button — red flash on press
+        g.fillColor   = this.losePressed ? new Color(220, 30, 30, 255) : new Color(70, 8, 8, 230);
+        g.strokeColor = this.losePressed ? new Color(255, 140, 140, 255) : new Color(200, 60, 60, 180);
+        g.lineWidth   = this.losePressed ? 2.5 : 1.5;
+        g.rect(LOSE_CX - LOSE_BTN_W / 2, LOSE_BTN_Y - LOSE_BTN_H / 2, LOSE_BTN_W, LOSE_BTN_H);
+        g.fill();
+        g.rect(LOSE_CX - LOSE_BTN_W / 2, LOSE_BTN_Y - LOSE_BTN_H / 2, LOSE_BTN_W, LOSE_BTN_H);
         g.stroke();
 
         // Palette icons (7 types, level 1)
@@ -519,6 +540,15 @@ export class DebugPanel extends Component {
             this.drawPanel();
             this.scheduleOnce(() => { this.gnPressed = false; this.drawPanel(); }, 0.18);
             this.gm.activateGenocide();
+            return;
+        }
+
+        // LOSE — trigger game over immediately
+        if (this.inRect(p, LOSE_CX - LOSE_BTN_W / 2, LOSE_BTN_Y - LOSE_BTN_H / 2, LOSE_BTN_W, LOSE_BTN_H)) {
+            this.losePressed = true;
+            this.drawPanel();
+            this.scheduleOnce(() => { this.losePressed = false; this.drawPanel(); }, 0.18);
+            this.gm.debugLose();
             return;
         }
 

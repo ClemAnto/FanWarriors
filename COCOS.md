@@ -317,6 +317,21 @@ Alternativa sempre valida: creare prefab e istanze **dall'editor** (trascina nod
 
 ---
 
+## Modale prefab (best practice CC 3.8 — verificata su doc ufficiale)
+
+Pattern per pannelli modali (pausa, game over, win — vedi `PausePanel`/`EndPanel` + `scripts/gen-ui-panels.js`):
+
+- **Root**: `Widget` fullscreen (`alignFlags=45`) + `UIOpacity` (per il fade in/out) + **`cc.BlockInputEvents`** (intercetta tap/click nel suo bounding box → impedisce che passino agli elementi sotto; è IL componente per le modali, nessuna API) + il componente comportamentale.
+- **Dim backdrop**: `Sprite` bianco builtin (`20835ba4-6145-4fbc-a58a-051ce700aa3e@f9941`) tintato nero con alpha, `_type=0` (SIMPLE) + `Widget` fullscreen → niente `Graphics`.
+- **Card**: `Sprite` SLICED su `wood.png` con i testi/pulsanti come figli.
+- Pulsanti: `button.png` (SLICED) + `cc.Button` + Label figlia.
+
+**Gotcha `onLoad` (CRITICO):** il componente che fa `this.node.active = false` in `onLoad` per auto-nascondersi funziona **solo se l'istanza è ATTIVA in scena all'avvio** (onLoad scatta una sola volta, alla prima attivazione, prima del primo render → niente flash). Se l'istanza è lasciata **inattiva** nell'editor, `onLoad` non parte mai: al primo `show()` (`active=true`) onLoad scatta e la rinasconde subito → pannello invisibile. **Regola: lasciare le istanze modali ATTIVE nell'editor**, si auto-nascondono da sole (stesso pattern di `Settings`).
+
+**Invisibili nell'editor pur restando attive:** il root del prefab ha `UIOpacity._opacity = 0` di default (impostato da `gen-ui-panels.js`) → l'istanza attiva è trasparente nella Scene view ma `onLoad` parte regolarmente; `show()`/`open()` fanno il fade 0→255. Così non serve disattivarle né vederle in editor.
+
+---
+
 ## Checklist scrittura scena manuale
 
 1. Pianifica l'array e assegna ID sequenziali a tutti i nodi e componenti

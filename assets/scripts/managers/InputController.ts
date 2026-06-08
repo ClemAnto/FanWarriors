@@ -127,11 +127,23 @@ export class InputController extends Component {
         this._scale = this.initialScale;
         const parent = this.ropeParent ?? this.node.parent!;
 
-        const cbNode = parent.getChildByName('Crossbow')!;
+        const cbNode = parent.getChildByName('Crossbow');
+        if (!cbNode) { console.warn('[InputController] Crossbow node not found — input disabled'); return; }
         this.crossbowNode = cbNode;
 
         this.launcherNode = cbNode.getChildByName('CrossbowLauncher');
-        this.rope         = cbNode.getChildByName('Rope')!.getComponent(Graphics);
+
+        // Rope is a Graphics node the rope is drawn onto. Auto-create it if it's not in the scene,
+        // so the scene doesn't have to carry it (matching the original local scale of 1, 0.5, 1).
+        let ropeNode = cbNode.getChildByName('Rope');
+        if (!ropeNode) {
+            ropeNode = new Node('Rope');
+            ropeNode.layer = cbNode.layer;
+            ropeNode.setParent(cbNode);
+            ropeNode.setScale(1, 0.5, 1);
+            ropeNode.addComponent(Graphics);
+        }
+        this.rope = ropeNode.getComponent(Graphics);
 
         input.on(Input.EventType.TOUCH_START,  this.onTouchStart,  this);
         input.on(Input.EventType.TOUCH_MOVE,   this.onTouchMove,   this);

@@ -230,12 +230,12 @@
 - [ ] HUD definitivo:
   - [x] Punteggio con animazione **contachilometri** (tween su label) — `_scoreProxy`/`_scoreTween` in GameManager.ts (v0.7.2)
   - [ ] Round con animazione **scale-up + bounce** al cambio
-  - [ ] Timer con 4 stati visivi (quasi invisibile → pulse rosso) + ticchettio audio ultimi 5s
-  - [ ] Font HUD: **Press Start 2P** (assets/fonts/) — assegnare nell'editor alle Label
+  - [x] Timer con **2 stati**: normale (grigio) + danger (rosso ≤5s) + ticchettio audio ultimi 5s — già in `updateTimerLabel()`
+  - [ ] Font HUD: **MedievalSharp** (`assets/fonts/MedievalSharp-Regular.ttf`) — assegnare nell'editor alle Label (coerente col floating score)
 - [x] **Floating score tier system** — 4 tier implementati: grigio (≤500), bianco (501–1000), oro+shine (1001–2000), viola+pulse (>2000); font MedievalSharp; bubble pop-in; hold 1s
 - [x] **Balestra** al posto della fionda: nodo rotante (punta UP a 0°) + bowstring a V + traiettoria puntini stile Puzzle Bubble (max 1 rimbalzo, stop alla game over line) — artwork da integrare
-- [ ] Anteprima NEXT definitiva
-- [ ] Schermata game over, pausa, tutorial popup definitivi
+- [x] Anteprima NEXT definitiva — OK così
+- [x] Schermate game over / win / pausa **definitive come prefab modali** (`PausePanel`/`GameOverPanel`/`VictoryPanel` in `assets/prefabs/`, generati da `scripts/gen-ui-panels.js`); root con Widget fullscreen + UIOpacity + BlockInputEvents (best-practice CC 3.8); comportamento in `EndPanel.ts`/`PausePanel.ts`, wiring in `GameManager._wirePanels()`. Tutorial popup rimosso.
 - [x] Pulsanti settings — dialog opzioni centralizzato in `Settings.ts` (vibrazione/sfx/musica/fullscreen), condiviso MainMenu+Game (v0.8.22)
 - [x] ~~Tutorial popup iniziale~~ — **rimosso** in v0.8.22 (era in Fase 2)
 - [ ] **Milestone Fase 3** *(24 giu)*: il gioco assomiglia visivamente al prodotto finale
@@ -394,7 +394,7 @@
 7. ~~**Track Cleared! bonus**~~ ✅ fatto (v0.8.1) — 1000×round, una volta per round, banner gold animato con sottotitolo
 8. **UI Fase 3**: ~~menu principale~~ ✅, ~~settings dialog~~ ✅, ~~tutorial~~ (rimosso); restano HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa
 9. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
-10. **File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` — referenziati nel codice ma non ancora presenti
+10. ~~**File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3`~~ ✅ presenti
 11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
 12. **Condizione auto-attivazione AURA**: definire quando si attiva automaticamente (ora solo debug)
 13. **Leaderboard globale (Firebase)**: in pianificazione — vedi sezione dedicata. Decisioni: Firestore + rules-only + selettore arcade 3 lettere + flag `LEADERBOARD_ENABLED` con service astratto. Bloccato sul setup manuale del progetto Firebase + config.

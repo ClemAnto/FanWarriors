@@ -17,14 +17,20 @@ import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 import { Settings } from './Settings';
+import { EndPanel } from './EndPanel';
+import { PausePanel } from './PausePanel';
 import { LeaderboardPanel } from './LeaderboardPanel';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.55';
+export const VERSION     = '0.8.56';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
+/** Main menu scene — target of the Menu buttons on the pause/end panels. */
+const MAIN_MENU_SCENE    = 'MainMenu';
+/** Delay before the game-over / victory panel fades in, so the end moment (shake/cascade) plays first. */
+const END_PANEL_DELAY    = 1.0;
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const SHOW_ENDLINE_DEBUG = false;  // set true to draw the purple dashed game-over threshold line (debug)
@@ -118,6 +124,12 @@ function spawnMaxLevelForRound(round: number): number {
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManagerDebug {
     @property(Prefab) psychoSparklePrefab: Prefab | null = null;
+    @property({ type: PausePanel, tooltip: 'Pause modal (UILayer/Modals/PausePanel). Auto-resolved by name if unset.' })
+    pausePanel: PausePanel | null = null;
+    @property({ type: EndPanel, tooltip: 'Game-over modal (UILayer/Modals/GameOverPanel). Auto-resolved by name if unset.' })
+    gameOverPanel: EndPanel | null = null;
+    @property({ type: EndPanel, tooltip: 'Victory modal (UILayer/Modals/VictoryPanel). Auto-resolved by name if unset.' })
+    victoryPanel: EndPanel | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -139,6 +151,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private score = 0;
     private bestScore = 0;
     private _newBest = false;   // true when this game's score beat the previous stored best
+    private _lbReady: Promise<void> | null = null;  // leaderboard prep started at end-game, awaited by Continue
     private currentRound = 1;
     private totalMerges = 0;
     private mergesThisLaunch = 0;
@@ -215,8 +228,6 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _lastErrorText = '';
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
-    private _pauseOverlay: Node | null = null;
-    private _pauseLabelNode: Node | null = null;
     private _settings: Settings | null = null;
     private _endlineNode: Node | null = null;  // scene GameOverLine node (under TrackSprite)
     private get gameOverLineLocal(): number {
@@ -291,9 +302,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.track?.relayout();
             this.inputCtrl?.relayout(LAYOUT_SCALE);
             this.syncInputBounds();
-            if (this.timerSectionNode) {
-                this.timerSectionNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
-            }
+            // LaunchTimer position is editor-authoritative (Widget on the Track child) — no code reposition.
         });
     };
 
@@ -308,7 +317,6 @@ export class GameManager extends Component implements IGameManagerDebug {
     private nextLaunchWarrior: Warrior | null = null;
     private _activeLauncherWarrior: Warrior | null = null;
     private timerLabel: Label | null = null;
-    private timerSectionNode: Node | null = null;
     private _scoreProxy = { val: 0 };
     private _scoreTween: Tween<{ val: number }> | null = null;
 
@@ -397,6 +405,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
             this.initHud();
+            this._wirePanels();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
 
@@ -445,13 +454,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _autoPause(): void {
         if (this.state === GameState.GameOver || this.state === GameState.Paused || this.state === GameState.Idle) return;
         this._autoPaused = true;
-        this._togglePause(this._pauseLabelNode);
+        this._enterPause();
     }
 
     private _autoResume(): void {
         if (!this._autoPaused) return;
         this._autoPaused = false;
-        if (this.state === GameState.Paused) this._togglePause(this._pauseLabelNode);
+        if (this.state === GameState.Paused) this._resumeFromPause();
     }
 
     // ── IGameManagerDebug ──
@@ -590,6 +599,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     debugWin(): void { this.triggerVictory(); }
+
+    debugLose(): void { this.triggerGameOver(); }
 
     toggleBloodhood(): void {
         this.bloodhoodEnabled = !this.bloodhoodEnabled;
@@ -1361,10 +1372,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
         this._activeLauncherWarrior = null;
+        this.inputCtrl.blocked = true;  // inhibit all controls until the panel is shown
         // Schedule the screen FIRST: triggerGameOver runs inside update()'s try/catch, which
         // swallows exceptions. If a side-effect below threw before this line, the game would
         // freeze on state=GameOver with no screen ever shown (red warrior, no message).
-        this.scheduleOnce(() => this.showGameOverScreen(), 0);
+        // The panel appears only once pending merges and the score odometer have settled.
+        this._revealEndPanelWhenSettled(() => this.showGameOverScreen(), END_PANEL_DELAY);
         try {
             this.vfx.screenShake(12, 0.35);
             this.inputCtrl.clearWarrior();
@@ -1379,16 +1392,16 @@ export class GameManager extends Component implements IGameManagerDebug {
         } catch (e) {
             console.error('[GameManager] triggerGameOver side-effect failed (screen still shown):', e);
         }
-        void this._runLeaderboardFlow(this.score);
     }
 
     /**
-     * Online leaderboard at end of game. When the score qualifies for the top-N we
-     * hand it off to the Ranking scene (via LeaderboardPanel.pendingScore) which
-     * runs the name-entry → submit → board flow. Non-qualifying scores are a no-op,
-     * leaving the player on the game-over panel.
+     * Resolve the leaderboard qualification at end of game and, if the score makes the
+     * top-N, arm the name-entry handoff (LeaderboardPanel.pendingScore) — WITHOUT navigating.
+     * Done while the game settles, BEFORE the end panel becomes interactive, so the panel's
+     * Continue button can route to the Ranking scene with the name-entry already armed and
+     * never race the async network call. No-op when the leaderboard is off or on error.
      */
-    private async _runLeaderboardFlow(score: number): Promise<void> {
+    private async _prepareLeaderboard(score: number): Promise<void> {
         if (!LEADERBOARD_ENABLED) return;
         const svc = LeaderboardProvider.get();
         try {
@@ -1400,7 +1413,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         LeaderboardPanel.pendingScore = score;
         LeaderboardPanel.pendingRound = this.currentRound;
         LeaderboardPanel.pendingVersion = VERSION;
-        director.loadScene(RANKING_SCENE);
     }
 
     private triggerVictory(): void {
@@ -1410,6 +1422,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
         this.inputCtrl.clearWarrior();
+        this.inputCtrl.blocked = true;  // inhibit all controls until the panel is shown
         this.vfx.screenShake(18, 0.6);
         this._activeLauncherWarrior = null;
         this._newBest = this.bestScore > 0 && this.score > this.bestScore && this.score > NEW_BEST_MIN_SCORE;
@@ -1439,13 +1452,15 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.score += bonus;
         this.updateScoreLabel();
 
-        const delay = Math.max(1.0, toExplode.length * 0.08 + 0.6);
-        // Schedule the victory screen before the fragile audio/log calls so a thrown
-        // side-effect (swallowed by update()'s try/catch) can't freeze the game with no screen.
-        this.scheduleOnce(() => {
+        // The panel appears only once the cascade explosions, pending merges and the score
+        // odometer have all completed (at least END_PANEL_DELAY after the cascade timeline).
+        const cascadeEnd = toExplode.length * 0.08 + 0.6;
+        // Scheduled before the fragile audio/log calls so a thrown side-effect (swallowed by
+        // update()'s try/catch) can't freeze the game with no screen.
+        this._revealEndPanelWhenSettled(() => {
             AudioManager.instance.unduckMusic();
             this.showVictoryScreen();
-        }, delay);
+        }, Math.max(END_PANEL_DELAY, cascadeEnd));
         try {
             AudioManager.instance.duckMusicTo(0.15);
             AudioManager.instance.play(SFX.WIN);
@@ -1453,128 +1468,52 @@ export class GameManager extends Component implements IGameManagerDebug {
         } catch (e) {
             console.error('[GameManager] triggerVictory side-effect failed (screen still shown):', e);
         }
-        this._runLeaderboardFlow(this.score);
+    }
+
+    /**
+     * Reveal an end-of-game panel only once the game has fully settled: at least `minDelay`
+     * seconds elapsed (covers the shake / explosion-cascade timeline) AND no merge is in flight
+     * AND the score odometer tween has finished. A safety cap shows it regardless after 10s.
+     * Controls are already inhibited by the caller (state=GameOver + inputCtrl.blocked).
+     * Once settled, the leaderboard qualification is resolved (arming the name-entry handoff)
+     * BEFORE the panel is shown, so its Continue button never races the async network call.
+     */
+    private _revealEndPanelWhenSettled(show: () => void, minDelay: number): void {
+        // Start the leaderboard prep NOW, in parallel — it arms the name-entry handoff without
+        // navigating. The panel display must NOT depend on this network call (it can take seconds
+        // in the editor preview); only the Continue button awaits it (see _wirePanels).
+        this._lbReady = this._prepareLeaderboard(this.score);
+        const STEP = 0.1;
+        const SAFETY_CAP = 10.0;
+        let elapsed = 0;
+        // Schedule a single repeating selector (NOT re-scheduling itself each tick, which trips
+        // Cocos' "selector already scheduled" warning); unschedule it once settled.
+        const tick = (): void => {
+            elapsed += STEP;
+            const mergesInFlight = this.warriors.some(w => !!w.node?.isValid && w.merging);
+            const scoreSettling  = this._scoreTween !== null;
+            if ((elapsed >= minDelay && !mergesInFlight && !scoreSettling) || elapsed >= SAFETY_CAP) {
+                this.unschedule(tick);
+                show();
+            }
+        };
+        this.schedule(tick, STEP);
     }
 
     private showVictoryScreen(): void {
-        const panel = new Node('VictoryPanel');
-        panel.setParent(this.uiLayer);
-
-        const bg = panel.addComponent(Graphics);
-        bg.fillColor = new Color(10, 30, 10, 190);
-        const vs = view.getVisibleSize();
-        bg.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
-        bg.fill();
-
-        const titleNode = new Node('Title');
-        titleNode.setParent(panel);
-        titleNode.setPosition(0, 80);
-        const title = titleNode.addComponent(Label);
-        title.string = 'YOU WIN!';
-        title.fontSize = 72;
-        title.isBold = true;
-        title.color = new Color(255, 220, 50, 255);
-
-        const scoreNode = new Node('FinalScore');
-        scoreNode.setParent(panel);
-        scoreNode.setPosition(0, 10);
-        const scoreLbl = scoreNode.addComponent(Label);
-        scoreLbl.string = `Score: ${this.score}`;
-        scoreLbl.fontSize = 32;
-        scoreLbl.color = new Color(255, 220, 50, 255);
-
-        const bestNode = new Node('BestScore');
-        bestNode.setParent(panel);
-        bestNode.setPosition(0, -30);
-        const bestLbl = bestNode.addComponent(Label);
-        bestLbl.string = `Best: ${this.bestScore}`;
-        bestLbl.fontSize = 22;
-        bestLbl.color = new Color(160, 210, 255, 255);
-
-        const retryNode = new Node('NewGame');
-        retryNode.setParent(panel);
-        retryNode.setPosition(0, -90);
-        const retry = retryNode.addComponent(Label);
-        retry.string = 'New Game';
-        retry.fontSize = 36;
-        retry.color = new Color(255, 255, 255, 255);
-        retryNode.getComponent(UITransform)?.setContentSize(340, 60);
-        const doNew = () => director.loadScene(this.sceneName);
-        retryNode.on(Node.EventType.TOUCH_START, doNew, this);
-        retryNode.on(Node.EventType.MOUSE_DOWN,  doNew, this);
+        if (this.victoryPanel) {
+            this.victoryPanel.show(this.score, this.currentRound, this.bestScore, this._newBest);
+        } else {
+            console.warn('[GameManager] VictoryPanel not found — no end screen shown');
+        }
     }
 
     private showGameOverScreen(): void {
-        const panel = new Node('GameOverPanel');
-        panel.setParent(this.uiLayer);
-
-        const bg = panel.addComponent(Graphics);
-        bg.fillColor = new Color(0, 0, 0, 180);
-        const vs = view.getVisibleSize();
-        bg.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
-        bg.fill();
-
-        const titleNode = new Node('Title');
-        titleNode.setParent(panel);
-        titleNode.setPosition(0, 60);
-        const title = titleNode.addComponent(Label);
-        title.string = 'GAME OVER';
-        title.fontSize = 64;
-        title.isBold = true;
-        title.color = new Color(220, 40, 40, 255);
-
-        if (this._newBest) {
-            const bestMsgNode = new Node('NewBestMsg');
-            bestMsgNode.setParent(panel);
-            bestMsgNode.setPosition(0, 22);
-            const bestMsg = bestMsgNode.addComponent(Label);
-            bestMsg.string = 'NEW BEST SCORE!';
-            bestMsg.fontSize = 24;
-            bestMsg.isBold = true;
-            bestMsg.color = new Color(255, 215, 60, 255);
-            bestMsg.enableOutline = true;
-            bestMsg.outlineColor  = new Color(0, 0, 0, 200);
-            bestMsg.outlineWidth  = 2;
-            tween(bestMsgNode)
-                .repeatForever(
-                    tween<Node>()
-                        .to(0.45, { scale: new Vec3(1.12, 1.12, 1) }, { easing: 'sineOut' })
-                        .to(0.45, { scale: new Vec3(1.0, 1.0, 1) },   { easing: 'sineIn'  })
-                )
-                .start();
+        if (this.gameOverPanel) {
+            this.gameOverPanel.show(this.score, this.currentRound, this.bestScore, this._newBest);
+        } else {
+            console.warn('[GameManager] GameOverPanel not found — no end screen shown');
         }
-
-        const scoreNode = new Node('FinalScore');
-        scoreNode.setParent(panel);
-        scoreNode.setPosition(0, -10);
-        const scoreLbl = scoreNode.addComponent(Label);
-        scoreLbl.string = `Score: ${this.score}`;
-        scoreLbl.fontSize = 32;
-        scoreLbl.color = new Color(255, 220, 50, 255);
-
-        // Show the stored best ONLY when the player did NOT beat it; otherwise the
-        // animated "NEW BEST SCORE!" message above is the only best-related text.
-        if (!this._newBest) {
-            const bestNode = new Node('BestScore');
-            bestNode.setParent(panel);
-            bestNode.setPosition(0, -50);
-            const bestLbl = bestNode.addComponent(Label);
-            bestLbl.string = `Best Score: ${this.bestScore}`;
-            bestLbl.fontSize = 22;
-            bestLbl.color = new Color(160, 210, 255, 255);
-        }
-
-        const retryNode = new Node('Retry');
-        retryNode.setParent(panel);
-        retryNode.setPosition(0, -95);
-        const retry = retryNode.addComponent(Label);
-        retry.string = 'Retry';
-        retry.fontSize = 36;
-        retry.color = new Color(255, 255, 255, 255);
-        retryNode.getComponent(UITransform)?.setContentSize(300, 60);
-        const doRetry = () => director.loadScene(this.sceneName);
-        retryNode.on(Node.EventType.TOUCH_START, doRetry, this);
-        retryNode.on(Node.EventType.MOUSE_DOWN,  doRetry, this);
     }
 
     // --- merge ---
@@ -2463,17 +2402,18 @@ export class GameManager extends Component implements IGameManagerDebug {
     // --- HUD ---
 
     private initHud(): void {
+        // Launch timer: editor node Track > LaunchTimer (Label inside). Position/scale are
+        // editor-authoritative — code only updates the value and the colour (updateTimerLabel).
+        this.timerLabel = this.track?.node.getChildByName('LaunchTimer')?.getComponentInChildren(Label) ?? null;
+        if (this.timerLabel) this.timerLabel.string = String(LAUNCH_TIMER);
+
         const existingHud = this.uiLayer.getChildByName('HUD');
         if (existingHud) {
             this.scoreLabel      = existingHud.getChildByName('ScoreSec')  ?.getChildByName('ScoreValue')  ?.getComponent(Label) ?? null;
             this.roundLabel      = existingHud.getChildByName('RoundSec')  ?.getChildByName('RoundValue')  ?.getComponent(Label) ?? null;
-            this.timerLabel      = existingHud.getChildByName('TimerSec')  ?.getChildByName('TimerValue')  ?.getComponent(Label) ?? null;
-            this.timerSectionNode = existingHud.getChildByName('TimerSec') ?? null;
 
             const versionLabel = existingHud.getChildByName('VersionSec')?.getChildByName('VersionValue')?.getComponent(Label);
             if (versionLabel) versionLabel.string = `v${VERSION}`;
-            // Legacy pause-label lookup (harmless if the old "menu" node is absent).
-            this._pauseLabelNode = existingHud.getChildByName('menu')?.getChildByName('PauseBtn')?.getChildByName('Label') ?? null;
             this.updateNextPreview();
             // Create ring nodes programmatically on existing HUD
             const roundSec = existingHud.getChildByName('RoundSec');
@@ -2513,17 +2453,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.roundLabel.isBold = true;
 
         this.updateNextPreview();
-
-        // ── Timer — world position, centre of launch zone ─────────────────
-        const timerNode = new Node('TimerValue');
-        timerNode.setParent(hud);
-        timerNode.setPosition(0, TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) * 0.2);
-        this.timerLabel = timerNode.addComponent(Label);
-        this.timerLabel.fontSize = 44;
-        this.timerLabel.isBold = true;
-        this.timerLabel.string = String(LAUNCH_TIMER);
-        this.timerLabel.color = new Color(200, 200, 200, 200);
-        this.timerSectionNode = timerNode;
+        // Timer label comes from the editor node Track > LaunchTimer (resolved at the top of initHud).
 
         // ── Version (top-center) ─────────────────────────────────────────
         const verSec = new Node('VerSec');
@@ -2548,7 +2478,58 @@ export class GameManager extends Component implements IGameManagerDebug {
         return node;
     }
 
-    togglePause(): void { this._togglePause(this._pauseLabelNode); }
+    /** Public pause toggle (pause button / debug): show the PausePanel or resume. */
+    togglePause(): void {
+        if (this.state === GameState.GameOver) return;
+        if (this.state === GameState.Paused) this._resumeFromPause();
+        else this._enterPause();
+    }
+
+    /** Pause the game and fade the PausePanel in. Shared by the pause button and auto-pause. */
+    private _enterPause(): void {
+        if (this.state === GameState.Paused) return;
+        this._enterSettingsPause();              // state=Paused, physics off, audio muted, input blocked
+        if (this.pausePanel) this.pausePanel.open();
+        else console.warn('[GameManager] PausePanel not found — paused without UI');
+    }
+
+    /** Resume from pause: close the panel (its onResume restores the game) or restore directly. */
+    private _resumeFromPause(): void {
+        if (this.pausePanel?.isOpen) this.pausePanel.close();  // close() → onResume → _exitSettingsPause
+        else this._exitSettingsPause();
+    }
+
+    /** Resolve the modal panels (prefer the editor @property binding, else find by name under UILayer)
+     *  and wire their buttons to the game-navigation hooks. */
+    private _wirePanels(): void {
+        if (!this.pausePanel)   this.pausePanel   = this.uiLayer.getComponentInChildren(PausePanel);
+        if (!this.gameOverPanel || !this.victoryPanel) {
+            for (const ep of this.uiLayer.getComponentsInChildren(EndPanel)) {
+                if (/victor|win/i.test(ep.node.name)) { if (!this.victoryPanel)  this.victoryPanel  = ep; }
+                else                                   { if (!this.gameOverPanel) this.gameOverPanel = ep; }
+            }
+        }
+        const reload = (): void => { director.loadScene(this.sceneName); };
+        const menu   = (): void => { director.loadScene(MAIN_MENU_SCENE); };
+        if (this.pausePanel) {
+            this.pausePanel.onResume  = () => this._exitSettingsPause();
+            this.pausePanel.onRestart = reload;
+            this.pausePanel.onMenu    = menu;
+        }
+        // WIN / GAME OVER: single forward action. Sequence WIN/LOSE → LEADERBOARD (if on) → MENU.
+        // Wait for the leaderboard prep (started at end-game, usually already done) so the name-entry
+        // handoff is armed before navigating — capped at 3s so a slow/stuck network can't block it.
+        const advance = async (): Promise<void> => {
+            if (this._lbReady) {
+                await Promise.race([this._lbReady, new Promise<void>(res => this.scheduleOnce(res, 3.0))]);
+            }
+            director.loadScene(LEADERBOARD_ENABLED ? RANKING_SCENE : MAIN_MENU_SCENE);
+        };
+        for (const ep of [this.gameOverPanel, this.victoryPanel]) {
+            if (!ep) continue;
+            ep.onContinue = () => { void advance(); };
+        }
+    }
 
     /** Settings.onBeforeOpen hook — pause game, physics, audio and input while the dialog is up. */
     private _enterSettingsPause(): void {
@@ -2884,50 +2865,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!Settings.vibrationEnabled || !sys.isBrowser) return;
         (navigator as any).vibrate?.(ms);
     }
-
-    private _togglePause(labelNode: Node | null): void {
-        if (this.state === GameState.GameOver) return;
-        const isPaused = this.state === GameState.Paused;
-        if (isPaused) {
-            this.state = this._stateBeforePause ?? GameState.Aiming;
-            this._stateBeforePause = null;
-            PhysicsSystem2D.instance.enable = true;
-            if (labelNode) labelNode.getComponent(Label)!.string = '⏸️';
-            if (this._pauseOverlay?.isValid) this._pauseOverlay.destroy();
-            this._pauseOverlay = null;
-            if (this.inputCtrl) this.inputCtrl.blocked = false;
-            AudioManager.instance.unmuteForPause();
-        } else {
-            this._stateBeforePause = this.state;
-            this.state = GameState.Paused;
-            PhysicsSystem2D.instance.enable = false;
-            // Block input while paused so a resume-tap can't also start an aim/launch.
-            if (this.inputCtrl) this.inputCtrl.blocked = true;
-            if (labelNode) labelNode.getComponent(Label)!.string = '▶️';
-            const overlay = new Node('PauseOverlay');
-            overlay.layer = this.uiLayer.layer;
-            overlay.setParent(this.uiLayer);
-            overlay.setSiblingIndex(this.uiLayer.children.length - 1); // top → catches the tap
-            const vs = view.getVisibleSize();
-            overlay.addComponent(UITransform).setContentSize(vs.width, vs.height);
-            const g = overlay.addComponent(Graphics);
-            g.fillColor = new Color(0, 0, 0, 140);
-            g.rect(-vs.width / 2, -vs.height / 2, vs.width, vs.height);
-            g.fill();
-            this.makeLabel(overlay, 'PAUSE', 0, 60, 64, new Color(255, 255, 255, 230));
-            this.makeLabel(overlay, 'Tap to resume', 0, -10, 26, new Color(200, 200, 200, 220));
-            // Tap anywhere to resume — also recovers from a spurious blur-pause.
-            const onResumeTap = () => {
-                this._autoPaused = false;
-                if (this.state === GameState.Paused) this._togglePause(this._pauseLabelNode);
-            };
-            overlay.on(Node.EventType.TOUCH_END, onResumeTap, this);
-            overlay.on(Node.EventType.MOUSE_UP,  onResumeTap, this);
-            this._pauseOverlay = overlay;
-            AudioManager.instance.muteForPause();
-        }
-    }
-
 
     private tickTimer(dt: number): void {
         if (this.timerPaused) return;
