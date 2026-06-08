@@ -22,7 +22,7 @@ import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.54';
+export const VERSION     = '0.8.55';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 const DEBUG              = false;
