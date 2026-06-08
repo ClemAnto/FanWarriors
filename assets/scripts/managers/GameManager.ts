@@ -47,6 +47,7 @@ const BHS_PROX_INTERVAL      = 0.08; // seconds between BHS proximity spread che
 const AURA_REPEL_RANGE       = 160;  // design-px — max distance at which repelling force is applied
 const AURA_REPEL_FORCE       = 500;  // base force magnitude (design-px units, scaled by LAYOUT_SCALE)
 const AURA_ZAPP_HOLD         = 0.2;  // seconds a warrior must stay in range before being zapped
+const AURA_ZAP_MIN_TYPE      = 2;    // species below this index only repel — no zap/auto-merge
 const BHS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
 const BHS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before BHS spreads
 const PF_PROX_INTERVAL       = 0.08;
@@ -87,7 +88,7 @@ interface GameSnapshot {
     score: number;
     round: number;
     totalMerges: number;
-    cooldowns: { bh: number; pf: number; gn: number };
+    cooldowns: { bh: number; pf: number; gn: number; gnMerges: number };
     firstLaunchSpecies: number[];
     trackClearedBonusUsed: boolean;
     bestSingle: { score: number; desc: string };
@@ -185,6 +186,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     bloodhoodEnabled = false;
     private _bhCooldownLaunches = 0;
     private _gnCooldownLaunches = 0;
+    private _gnCooldownMerges = 0;
     private _nextPowerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null = null;
     private _nextPowerupPending = false;
     private _genocideCarrier:   Warrior | null = null;
@@ -561,6 +563,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this._expireGenocide();
         this._gnCooldownLaunches = 0;
+        this._gnCooldownMerges   = 0;
         this._bhCooldownLaunches = 0;
         this._pfCooldownLaunches = 0;
         this.currentRound     = 1;
@@ -996,9 +999,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._launcherBloodhoodEffect?.detach();
         this._launcherBloodhoodEffect = null;
 
-        // Genocide auto: ≥25 warrior sul track, cooldown 10 tiri
+        // Genocide auto: ≥25 warrior sul track, cooldown 10 tiri + 10 merge
         const onTrack = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length;
-        if (onTrack >= 25 && this._gnCooldownLaunches === 0 && !this._genocideCarrier && this._nextPowerup === null) {
+        if (onTrack >= 25 && this._gnCooldownLaunches === 0 && this._gnCooldownMerges === 0 && !this._genocideCarrier && this._nextPowerup === null) {
             this._expireGenocide();
             const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
             ge.onExpired = () => this._expireGenocide();
@@ -1066,7 +1069,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._bhCooldownLaunches--;
         }
         if (this._genocideCarrier === w) {
-            this._gnCooldownLaunches = 20;
+            this._gnCooldownLaunches = 10;
+            this._gnCooldownMerges   = 10;
         } else if (this._gnCooldownLaunches > 0) {
             this._gnCooldownLaunches--;
         }
@@ -1616,6 +1620,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             a.bloodhoodSparkle != null || b.bloodhoodSparkle != null;
         if (!isEffectMerge) {
             this.totalMerges++;
+            if (this._gnCooldownMerges > 0) this._gnCooldownMerges--;
             this.checkRoundAdvance();
         }
         this.mergesThisLaunch++;
@@ -2037,8 +2042,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     // --- aura powerup ---
 
     private _auraRangeForType(type: number): number {
-        // Eagle (type 4) = 160 px baseline; range scales linearly with species index
-        return AURA_REPEL_RANGE * (type + 1) / 5;
+        // Dragon (type 6, top of 7 species) = 160 px baseline; range scales quadratically
+        // so lower species are sharply weaker:
+        //   Frog≈2% Cat≈8% Chicken≈18% Wolf≈33% Eagle≈51% Lion≈73% Dragon=100%.
+        const k = (type + 1) / WARRIORS.length;
+        return AURA_REPEL_RANGE * k * k;
     }
 
     private _restoreAuraScales(): void {
@@ -2060,6 +2068,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const sy    = this.box2dLayer.scale.y;
         const range = this._auraRangeForType(src.type) * LAYOUT_SCALE;
         const baseF = AURA_REPEL_FORCE * LAYOUT_SCALE;
+        const canZap = src.type >= AURA_ZAP_MIN_TYPE;
         const toZap: Warrior[] = [];
 
         for (const w of this.warriors) {
@@ -2077,6 +2086,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const len = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
             w.applyForce(new Vec2(dxL / len * f, dyL / len * f));
 
+            if (!canZap) continue;
             const elapsed = (this._auraProxTimers.get(w) ?? 0) + dt;
             if (elapsed >= AURA_ZAPP_HOLD) {
                 toZap.push(w);
@@ -2595,7 +2605,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 score:       this.score,
                 round:       this.currentRound,
                 totalMerges: this.totalMerges,
-                cooldowns:   { bh: this._bhCooldownLaunches, pf: this._pfCooldownLaunches, gn: this._gnCooldownLaunches },
+                cooldowns:   { bh: this._bhCooldownLaunches, pf: this._pfCooldownLaunches, gn: this._gnCooldownLaunches, gnMerges: this._gnCooldownMerges },
                 firstLaunchSpecies:    [...this._firstLaunchSpecies],
                 trackClearedBonusUsed: this._trackClearedBonusUsed,
                 bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
@@ -2648,6 +2658,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._bhCooldownLaunches = snap.cooldowns?.bh ?? 0;
             this._pfCooldownLaunches = snap.cooldowns?.pf ?? 0;
             this._gnCooldownLaunches = snap.cooldowns?.gn ?? 0;
+            this._gnCooldownMerges   = snap.cooldowns?.gnMerges ?? 0;
             this._firstLaunchSpecies    = new Set(snap.firstLaunchSpecies ?? []);
             this._trackClearedBonusUsed = !!snap.trackClearedBonusUsed;
             this._bestSingleScore       = snap.bestSingle?.score ?? 0;
@@ -3175,7 +3186,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         let powerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null = this._nextPowerup;
         if (!powerup && this.bloodhoodEnabled) powerup = 'bloodhood';
-        if (!powerup && this._gnCooldownLaunches === 0 && !this._genocideCarrier) {
+        if (!powerup && this._gnCooldownLaunches === 0 && this._gnCooldownMerges === 0 && !this._genocideCarrier) {
             const onTrack = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
             if (onTrack >= 25) powerup = 'genocide';
         }
