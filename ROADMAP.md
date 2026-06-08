@@ -379,6 +379,8 @@
 
 > Aggiornato al 2026-06-07 — v0.8.23: fix bug 1 (anti-tunneling muri, `rb.bullet=true`) + bug 2 (game over/victory robusti: schermata schedulata prima dei side-effect in `try/catch`); messaggio "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (score > 10000); tasto "Ricomincia" nel dialog Settings (solo scena Game, via host hook `onRestart`). ⚠️ Bug 2 da riverificare: il rosso può venire anche da `setDangerTint` (vedi MEMO).
 >
+> Storico 2026-06-08 — v0.8.55: rebalance genocide (trigger ≥25 warrior + cooldown 10 tiri **e** 10 merge; nuovo `_gnCooldownMerges`) + depotenziamento aura per specie basse (range quadratico su 7 specie, zap disabilitato sotto `AURA_ZAP_MIN_TYPE=2`). Verificato che né genocide né aura possono creare merge sopra il max-level di specie.
+>
 > Storico 2026-06-04 — v0.8.22: MainMenu scene (PLAY/Best Score/versione) + dialog opzioni centralizzato in `Settings.ts` (condiviso con Game); loading screen con logo `title.png`; tutorial iniziale rimosso.
 >
 > Storico 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/BH); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).

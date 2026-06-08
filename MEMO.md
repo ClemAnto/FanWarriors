@@ -354,9 +354,10 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 | Costante | Valore | File |
 |----------|--------|------|
 | `AURA_DURATION` | **1.5s** | `AuraEffect.ts` |
-| `AURA_REPEL_RANGE` | 160 px (baseline Eagle type 4) | `GameManager.ts` — range effettivo per specie: `_auraRangeForType(type) = 160 × (type+1)/5` |
+| `AURA_REPEL_RANGE` | 160 px (baseline Dragon, top di 7 specie) | `GameManager.ts` — range **quadratico** per specie (v0.8.55): `_auraRangeForType(type) = 160 × k²`, `k = (type+1)/WARRIORS.length`. Frog≈2% Cat≈8% Chicken≈18% Wolf≈33% Eagle≈51% Lion≈73% Dragon=100% |
 | `AURA_REPEL_FORCE` | 500 px | `GameManager.ts` |
 | `AURA_ZAPP_HOLD` | 0.2s | `GameManager.ts` |
+| `AURA_ZAP_MIN_TYPE` | 2 (v0.8.55) | `GameManager.ts` — specie con `type < 2` (Frog, Cat) fanno **solo repulsione**, niente zap/auto-merge (`canZap = src.type >= AURA_ZAP_MIN_TYPE` in `_applyAuraRepel`) |
 | Stagger primo gap | 500ms → decrescente | `1.25×(1−0.6^i)` s |
 | Spark size | `120 × energy^0.35` px | `_zappWarrior` |
 | Trail dot size | 112px | `_flySparkToTarget` |
@@ -525,6 +526,29 @@ Usa `auraFrame` (stessa texture di LevelBoost), blend `SRC_ALPHA + ONE`.
 | Spread range | ±35% `TRACK_W` | In local-Y: `TRACK_W * 0.35 / box2dLayer.scale.y` |
 | Scatter initial delay | 0.04s | Primo contagiato |
 | Scatter interval | 0.12s | Tra contagiati successivi |
+
+---
+
+## Genocide Powerup
+
+### Concetto
+Powerup automatico: il launcher porta l'effetto Genocide; al primo contatto con un warrior in pista scatena una **cascata di implosioni** su tutti i warrior dello stesso tipo del bersaglio (`_triggerGenocideCascade`). Ogni implosione genera punti + un vortice attrattivo.
+
+### Condizioni di attivazione (v0.8.55)
+In `onWarriorLaunched`, attivato sul nuovo launcher se **tutte** vere:
+1. `onTrack >= 25` — almeno 25 warrior in pista (`crossedLine`)
+2. `_gnCooldownLaunches === 0` — **cooldown 10 tiri** dall'ultimo genocide
+3. `_gnCooldownMerges === 0` — **cooldown 10 merge** dall'ultimo genocide *(aggiunto v0.8.55)*
+4. `!_genocideCarrier` e `_nextPowerup === null`
+
+### Cooldown
+- Al trigger (`_genocideCarrier === w` in `onWarriorLaunched`): `_gnCooldownLaunches = 10` **e** `_gnCooldownMerges = 10` (prima era solo 20 tiri).
+- `_gnCooldownLaunches` decrementa di 1 ad ogni lancio non-genocide.
+- `_gnCooldownMerges` decrementa di 1 ad ogni **merge reale** (non-effect) in `mergeWarriors`.
+- Entrambi persistiti in snapshot (`cooldowns.gn` / `cooldowns.gnMerges`), azzerati in reset.
+
+### Cap livello (verificato)
+Il cascade **non crea merge**: implode (distrugge) i warrior target. I warrior con `onGenocideContact`/`genocideInfected` sono esclusi dal merge (`Warrior.ts`). Eventuali merge indotti dal vortice passano da `mergeWarriors`, cappato a `WARRIORS[type].maxLevel` (blackhole oltre il max). → genocide non può produrre warrior sopra il max-level di specie. Stesso vale per aura (`finalLevel > maxLevel` → blackhole in `_evolveWarrior`).
 
 ---
 

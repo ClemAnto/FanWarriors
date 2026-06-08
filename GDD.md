@@ -406,11 +406,14 @@ Powerup attivabile via debug (futuro: condizione automatica). Ha precedenza su B
 ### Forza repulsiva
 
 Il warrior con AURA respinge i warrior vicini con forza proporzionale alla vicinanza:
-- Range: `AURA_REPEL_RANGE = 160 px` (design space)
+- Range: `AURA_REPEL_RANGE = 160 px` (design space, baseline Dragon)
+- Range per specie **quadratico** (v0.8.55): `160 × k²` con `k = (type+1)/7` → depotenzia molto le specie basse (Frog≈2%, Dragon=100%)
 - Forza massima al centro: `AURA_REPEL_FORCE = 500 px` (scalata da `LAYOUT_SCALE`)
 - Formula: `f = baseF × (1 − dist/range)`, direzione radiale verso l'esterno
 
 ### Meccanica di zap (warrior in range)
+
+> **v0.8.55 — depotenziamento specie basse**: lo zap è disabilitato per `type < AURA_ZAP_MIN_TYPE` (=2, cioè Frog e Cat). Queste specie fanno **solo repulsione**, niente zap/auto-merge.
 
 I warrior che restano nel cerchio d'influenza per **≥ 0.2s** (`AURA_ZAPP_HOLD`) vengono "zappati":
 
@@ -459,9 +462,10 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 | Parametro | Valore | File |
 |-----------|--------|------|
 | `AURA_DURATION` | 5.0s | `AuraEffect.ts` |
-| `AURA_REPEL_RANGE` | 160 px (baseline Eagle) | `GameManager.ts` — range effettivo: `(type+1)/5 × 160` |
+| `AURA_REPEL_RANGE` | 160 px (baseline Dragon) | `GameManager.ts` — range quadratico (v0.8.55): `160 × ((type+1)/7)²` |
 | `AURA_REPEL_FORCE` | 500 px | `GameManager.ts` |
 | `AURA_ZAPP_HOLD` | 0.2s | `GameManager.ts` |
+| `AURA_ZAP_MIN_TYPE` | 2 (v0.8.55) | `GameManager.ts` — sotto questa specie solo repulsione, niente zap |
 | Settle delay prima dello spegnimento | 1.0s | `GameManager.ts` update loop |
 | Stagger primo gap | 500ms | formula `1.25×(1−0.6^i)` s |
 | Dimensione scintilla | `120 × energy^0.35` px | `GameManager.ts _zappWarrior` |
@@ -471,7 +475,7 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 
 - Aura outer: sprite `aura.png`, r×3.8, `Color(255,130,20)`, opacità 75
 - Aura inner: sprite `aura.png`, r×2.4, `Color(255,220,55)`, opacità 140, pulse ±20%
-- Range ring: r×2 wide, height=r (50% squish), `Color(255,200,60)`, opacità **12** (molto trasparente), pulse ±6%; ampiezza range dipende dalla specie: `_auraRangeForType(type) = 160 × (type+1)/5` px (Eagle type 4 = 160px baseline)
+- Range ring: r×2 wide, height=r (50% squish), `Color(255,200,60)`, opacità **12** (molto trasparente), pulse ±6%; ampiezza range dipende dalla specie: `_auraRangeForType(type) = 160 × ((type+1)/7)²` px (Dragon = 160px baseline, scaling quadratico v0.8.55)
 - Scintille: sprite `sparkle.png`, ogni 0.12s, palette arancio/oro
 - Scintilla zap: sprite `sparkle.png`, colore specie sorgente, additive blend; **twinkle**: pulse opacità 230↔135 ogni 0.22s (shimmer durante salita e volo)
 - Trail: dot `sparkle.png` 112px, stessa tinta scintilla, fade 0.22s
