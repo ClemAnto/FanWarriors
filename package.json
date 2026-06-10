@@ -1,6 +1,6 @@
 {
   "name": "FunWarriors",
-  "version": "0.8.59",
+  "version": "0.8.61",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
@@ -10,10 +10,13 @@
     "serve": "node scripts/serve-remote.js",
     "deploy": "node scripts/deploy.js",
     "gen:placeholders": "node scripts/gen-warrior-placeholders.js",
-    "seed:leaderboard": "node scripts/seed-leaderboard.js"
+    "seed:leaderboard": "node scripts/seed-leaderboard.js",
+    "optimize:images": "node scripts/optimize-images.js"
   },
   "devDependencies": {
+    "ffmpeg-static": "^5.3.0",
     "gh-pages": "^6.3.0",
-    "netlify-cli": "^26.0.1"
+    "netlify-cli": "^26.0.1",
+    "sharp": "^0.35.0"
   }
 }

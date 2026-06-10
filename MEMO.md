@@ -773,6 +773,15 @@ panel.init(this);
 ---
 
 
+## Budget dimensione build (requisito Poki < ~20 MB)
+
+Stato 2026-06-10: build **14,9 MB** (era 44,3). Come ci si resta:
+
+- **`npm run optimize:images`** (`scripts/optimize-images.js`, usa `sharp`): quantizza in PNG8 con dithering tutti i PNG **in-place** (stessi file/UUID → niente da toccare in scene/meta), particelle ridimensionate a max 512px (il codice le dimensiona sempre via `setContentSize`). Ri-eseguibile: i file già ottimizzati vengono saltati. **Lanciarlo dopo ogni import di asset nuovi.**
+- Musica `main.mp3` a **112 kbps senza cover art** (ffmpeg-static): 3,5 → 2,0 MB. Ricodificare così eventuali tracce nuove.
+- Niente asset inutilizzati dentro `assets/resources/` — viene bundlato TUTTO ciò che ci sta dentro (la traccia alternativa è in `unused_assets/` alla root, fuori dalla build).
+- I PNG quantizzati sono PNG8 palette: per editare un asset ripartire dal sorgente originale, non dal file quantizzato.
+
 ## Deploy su GitHub Pages
 
 Il deploy Netlify è sospeso (quota esaurita). Deploy attivo su **GitHub Pages**:
