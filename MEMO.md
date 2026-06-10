@@ -773,6 +773,23 @@ panel.init(this);
 ---
 
 
+## Juice Fase 4 — trail e slowmo punteggi (v0.8.59)
+
+**TrailEffect** (`entities/TrailEffect.ts`) — scia dietro il warrior in volo, agganciata in `onWarriorLaunched`:
+| Parametro | Valore | Note |
+|-----------|--------|------|
+| `EMIT_INTERVAL` | 0.035s | frequenza check emissione |
+| `MIN_MOVE_FACTOR` | 0.30 | emette solo se spostato ≥ raggio×0.30 dall'ultimo dot (niente dot in pausa/da fermo) |
+| `IDLE_TICKS_MAX` | 20 (~0.7s) | fermo per questo tempo → self-detach |
+| `DOT_LIFE` | 0.30s | fade+shrink del dot |
+| Dot | sparkle additive, bianco-caldo, size = raggio×0.7–1.2, opacità 150 | |
+
+Con `PhysicsSystem2D.enable=false` (pausa) il trail si congela senza contare ticks idle.
+
+**Slowmo punteggi** (`_maybeScoreSlowmo` in GameManager): ×0.8 per 0.9s da 10.000 pt, ×0.5 per 1.2s da 12.000 pt — solo merge e Track Cleared; guard su GameOver e roundUpPause; riusa `activateSlowmo` (vince la scala più lenta).
+
+---
+
 ## Budget dimensione build (requisito Poki < ~20 MB)
 
 Stato 2026-06-10: build **14,9 MB** (era 44,3). Come ci si resta:

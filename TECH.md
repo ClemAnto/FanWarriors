@@ -18,6 +18,16 @@
 
 ---
 
+## Effetti — base class interne, classi pubbliche dedicate (2026-06-10, v0.8.59)
+
+**Decisione**: la regola "una classe per effetto" resta (ogni VFX ha la sua classe pubblica con la sua API), ma l'implementazione condivisa vive in base class astratte: `GlowPulseEffect` (anelli additive + pulse + sparkle + fade-out → `BloodhoodEffect`/`GenocideEffect`) e `TintSparkleEffect` (tinta pulsante + hop sul mapper → `BloodhoodSparkleEffect`/`GenocideSparkleEffect`). Le sottoclassi contengono solo `static attach()` e i parametri di tuning (`protected readonly` ri-dichiarati).
+
+**Perché**: erano ~240 righe duplicate quasi identiche — un fix andava replicato a mano. Le API pubbliche (`attach`/`detach`/`onExpired`/`startTimer`) sono invariate: GameManager non è stato toccato. Le base sono decorate con `@ccclass` (registrazione corretta nel sistema componenti CC3) ma non vengono mai istanziate direttamente.
+
+**Gotcha cleanup** (vale per tutti gli effetti): i tween che targettano **component** (UIOpacity, Sprite, PerspectiveMapper) NON vengono fermati dall'engine alla destroy del nodo — ogni effetto ha un `onDestroy()` che li ferma. Nei sparkle l'`onDestroy` è guardato da `_detaching`: dopo un `detach()` normale i tween di restore devono sopravvivere alla destroy del nodo effetto.
+
+---
+
 ## Pannelli fine partita + flusso end-game (2026-06-08, v0.8.56)
 
 **Decisione**: pause / game-over / victory sono **prefab modali editor-driven** (`assets/prefabs/`), non più UI disegnata da codice con `Graphics`. Comportamento in due classi: `PausePanel.ts` (Resume/Restart/Menu) ed `EndPanel.ts` (condiviso GameOver+Victory, **un solo Continue**). Generatore: `scripts/gen-ui-panels.js`.

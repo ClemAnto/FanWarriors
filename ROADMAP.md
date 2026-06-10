@@ -29,6 +29,15 @@
 
 ## Log sessioni recenti
 
+### 2026-06-10 sera (v0.8.57 → v0.8.61) — Juice Fase 4 + perf + Poki adapter + size budget
+- ✨ **Juice**: `entities/TrailEffect.ts` (scia additiva dietro il warrior in volo, emissione basata sulla distanza, autogestita) + slowmo sui punteggi alti (`_maybeScoreSlowmo`: ×0.8 ≥10k, ×0.5 ≥12k, su merge e Track Cleared).
+- ⚡ **Perf**: VFXManager senza allocazioni per-frame (scratch `TMP_COLOR`/`TMP_ANCHOR` + costanti hoistate); Bloodhood/Genocide dedupli­cati in `GlowPulseEffect` e i due Sparkle in `TintSparkleEffect` (−430 righe, API pubbliche invariate); `console.log` di gameplay dietro `DEBUG`.
+- 🧩 **Poki portal adapter** (Fase 5 anticipata): `PortalSdk`/`NullPortal`/`PokiPortal`/`PortalProvider`, flag `PORTAL` default `'none'` — vedi TECH.md. Restano account Poki + test sandbox.
+- 📦 **Size budget**: build **44,3 → 14,9 MB** (requisito Poki <20MB ✓): `npm run optimize:images` (PNG8 in-place, particelle→512px), `main.mp3` 112kbps senza cover, musica alternativa fuori da `resources/`. Workflow in MEMO.
+- 🧹 **Housekeeping**: Netlify rimosso del tutto; tsconfig fix deprecazione TS6 (`moduleResolution: bundler`) + `lib ES2017` → `npx tsc --noEmit` a zero errori.
+- ✅ Rules Firestore v1 applicate e testate end-to-end; leaderboard COMPLETA.
+- 🚀 Deploy v0.8.61 su GitHub Pages; `main` pushato (4 commit).
+
 ### 2026-06-10 (v0.8.56 → v0.8.57) — Robustezza codice + riallineamento docs + chiusura Fase 3
 - 🛡️ **Pass di robustezza** (da code-review a 3 agenti): `RigidBody2D` cachato in `Warrior` (getter `velocity` era hot path con `getComponent` per chiamata); nuovo `utils/SafeStorage.ts` (localStorage try/catch — incognito safe) usato ovunque; guard doppio-submit in `NameEntry` (confirm disabilitato); cleanup tween/schedule su destroy in Warrior, tutti gli effetti (Aura/BH/BHS/PF/GN/GNS), PausePanel, EndPanel e tinte PF (`Tween.stopAllByTarget` — i tween su component NON si fermano da soli alla destroy del nodo).
 - 📐 **`LIVE_RESIZE` resta `true` anche in produzione** (decisione: costo trascurabile).
@@ -263,8 +272,8 @@
 
 ### Settimana 8: Audio e juice completo *(25 giu–1 lug)*
 
-- [ ] Procurare/comporre **1–2 loop musicali** (medievale-festivo)
-- [ ] Procurare/registrare **~17 SFX + 6 varianti merge**:
+- [x] Procurare/comporre **1–2 loop musicali** (medievale-festivo) — `audio/music/main.mp3` (112kbps; traccia alternativa in `unused_assets/`)
+- [x] Procurare/registrare **~17 SFX + 6 varianti merge** — tutti i file referenziati dall'enum SFX presenti in `assets/resources/audio` (manca solo il "click magnetismo", mai implementato):
 
   | SFX | Note |
   |-----|------|
@@ -282,11 +291,11 @@
   | Nuovo round | Fanfara breve |
   | Click UI | |
 
-- [ ] Implementare AudioManager con volume controls (musica separata da SFX)
-- [ ] Implementare sistema **6-tier floating score** v1 (testo + colori + FX per fascia)
-- [ ] Implementare slowmo: ×0.8 da 10k pt (tier 5), ×0.5 da 12k pt (tier 6)
-- [ ] Trail leggero dietro al warrior in volo
-- [ ] Squash & stretch sull'atterraggio
+- [x] Implementare AudioManager con volume controls (musica separata da SFX) — fatto da tempo (toggle in Settings)
+- [ ] Implementare sistema **6-tier floating score** v1 (testo + colori + FX per fascia) — oggi 4 tier attivi
+- [x] Implementare slowmo: ×0.8 da 10k pt (tier 5), ×0.5 da 12k pt (tier 6) — `_maybeScoreSlowmo` su merge e Track Cleared (v0.8.59)
+- [x] Trail leggero dietro al warrior in volo — `entities/TrailEffect.ts` (v0.8.59)
+- [x] Squash & stretch sull'atterraggio — già fatto in Fase 3 (squash via PerspectiveMapper)
 
 ### Settimana 9: Bilanciamento approfondito *(2–8 lug)*
 
