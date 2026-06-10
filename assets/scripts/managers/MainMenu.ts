@@ -2,6 +2,7 @@ import { _decorator, Component, Node, Label, Button, director, view, ResolutionP
 import { AudioManager } from './AudioManager';
 import { VERSION } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
+import { PortalProvider } from '../services/PortalProvider';
 
 const { ccclass, property } = _decorator;
 
@@ -33,6 +34,10 @@ export class MainMenu extends Component {
         AudioManager.instance.playMusic();
         AudioManager.instance.ensureMusic();
 
+        // Portal SDK (no-op on standalone builds): entry scene = game loaded.
+        const portal = PortalProvider.get();
+        void portal.init().then(() => portal.gameLoadingFinished());
+
         const best = parseInt(SafeStorage.get(LS_BEST_SCORE) ?? '0', 10) || 0;
         if (this.bestLabel)    this.bestLabel.string    = `Best Score\n${best}`;
         if (this.versionLabel) this.versionLabel.string = `v${VERSION}`;
@@ -47,7 +52,12 @@ export class MainMenu extends Component {
 
     /** Public so it can also be wired via the editor's clickEvents if preferred. */
     onPlay(): void {
-        director.loadScene(GAME_SCENE);
+        // Commercial break before entering the game (no-op on standalone builds)
+        AudioManager.instance.muteForPause();
+        void PortalProvider.get().commercialBreak().then(() => {
+            AudioManager.instance.unmuteForPause();
+            director.loadScene(GAME_SCENE);
+        });
     }
 
     /** Opens the dedicated Ranking scene (leaderboard always visible there). */

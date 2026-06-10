@@ -29,6 +29,13 @@
 
 ## Log sessioni recenti
 
+### 2026-06-10 (v0.8.56 → v0.8.57) — Robustezza codice + riallineamento docs + chiusura Fase 3
+- 🛡️ **Pass di robustezza** (da code-review a 3 agenti): `RigidBody2D` cachato in `Warrior` (getter `velocity` era hot path con `getComponent` per chiamata); nuovo `utils/SafeStorage.ts` (localStorage try/catch — incognito safe) usato ovunque; guard doppio-submit in `NameEntry` (confirm disabilitato); cleanup tween/schedule su destroy in Warrior, tutti gli effetti (Aura/BH/BHS/PF/GN/GNS), PausePanel, EndPanel e tinte PF (`Tween.stopAllByTarget` — i tween su component NON si fermano da soli alla destroy del nodo).
+- 📐 **`LIVE_RESIZE` resta `true` anche in produzione** (decisione: costo trascurabile).
+- 📚 **Riallineamento .md**: risolte contraddizioni doc↔codice (aura 1.5s, damping 16, friction 0.3, formula pista 6/10×1.2, endline editor-driven), fuse sezioni leaderboard doppie in TECH, GDD §17 (PsychoForce+Genocide), README services aggiornato al flusso Ranking.
+- ✅ **Fase 3 chiusa**: HUD completato (round animato, font MedievalSharp), posizione NextPreview sistemata, migrazione DebugPanel cassata. **Rules Firestore v1 applicate** in console. Follow-up chiusi (bug 2 non ripresentato, auto-attivazione AURA).
+- 🚀 Build + deploy v0.8.57 su GitHub Pages.
+
 ### 2026-06-08 (v0.8.55 → v0.8.56) — Pannelli modali (pause/gameover/win) + flusso fine partita + UI utils
 - 🪟 **Schermate fine partita ora prefab modali editor-driven** (`assets/prefabs/PausePanel|GameOverPanel|VictoryPanel.prefab`, generati da `scripts/gen-ui-panels.js`), al posto delle vecchie `Graphics` disegnate da codice. Root = Widget fullscreen + `UIOpacity` (opacità default **0** → invisibili in editor ma attive) + **`BlockInputEvents`** + Dim (sprite bianco builtin tintato) + Card wood. Comportamento: `PausePanel.ts` (Resume/Restart/Menu) ed `EndPanel.ts` condiviso GameOver+Victory con **un solo pulsante Continue**. Istanze in `UILayer/Modals`, **lasciate ATTIVE** (si auto-nascondono in `onLoad`).
 - 🔁 **Flusso `MENU→GAME→WIN/LOSE→LEADERBOARD(se attiva)→MENU`**: a fine partita controlli inibiti subito (`state=GameOver` + `inputCtrl.blocked`); `_revealEndPanelWhenSettled` mostra il pannello solo a gioco fermo (ritardo min `END_PANEL_DELAY=1s`; victory `max(1s, cascata)`; + nessun merge in corso + odometro fermo; safety-cap 10s, via `schedule`/`unschedule`, non `scheduleOnce` ricorsivo). `_prepareLeaderboard` arma `pendingScore` **senza navigare** prima che il pannello sia interattivo (no race). `Continue` → Ranking se `LEADERBOARD_ENABLED` (name-entry→board→Menu) altrimenti Menu; attende `_lbReady` (cap 3s). Fade-in pannello 2s. Pannelli mostrano `Score N` / `ROUND N` / `Best N` (niente `:`) + pulse NEW BEST.
@@ -209,7 +216,7 @@
 
 ---
 
-## FASE 3 — Asset definitivi e UI *(4–24 giu 2026)* ← **sei qui**
+## FASE 3 — Asset definitivi e UI *(4–24 giu 2026)* ✅ chiusa 2026-06-10
 
 **Obiettivo**: il gioco assomiglia al prodotto finale.
 
@@ -235,22 +242,22 @@
 ### Settimana 7: UI completa *(18–24 giu)*
 
 - [x] Schermata splash + menu principale — `MainMenu.scene` + `MainMenu.ts` (PLAY → Game, Best Score, versione); loading screen con logo `title.png` (v0.8.22)
-- [ ] HUD definitivo:
+- [x] HUD definitivo *(completato 2026-06-10)*:
   - [x] Punteggio con animazione **contachilometri** (tween su label) — `_scoreProxy`/`_scoreTween` in GameManager.ts (v0.7.2)
-  - [ ] Round con animazione **scale-up + bounce** al cambio
-  - [x] Timer con **2 stati**: normale (grigio) + danger (rosso ≤5s) + ticchettio audio ultimi 5s — già in `updateTimerLabel()`
-  - [ ] Font HUD: **MedievalSharp** (`assets/fonts/MedievalSharp-Regular.ttf`) — assegnare nell'editor alle Label (coerente col floating score)
+  - [x] Round con animazione al cambio
+  - [x] Timer: normale (grigio) + danger (rosso ≤5s) + ticchettio audio ultimi 5s — `updateTimerLabel()`
+  - [x] Font HUD: **MedievalSharp** assegnato alle Label nell'editor (coerente col floating score)
 - [x] **Floating score tier system** — 4 tier implementati: grigio (≤500), bianco (501–1000), oro+shine (1001–2000), viola+pulse (>2000); font MedievalSharp; bubble pop-in; hold 1s
 - [x] **Balestra** al posto della fionda: nodo rotante (punta UP a 0°) + bowstring a V + traiettoria puntini stile Puzzle Bubble (max 1 rimbalzo, stop alla game over line) — artwork da integrare
-- [x] Anteprima NEXT definitiva — OK così
+- [x] Anteprima NEXT definitiva — posizione sistemata nell'editor (2026-06-10)
 - [x] Schermate game over / win / pausa **definitive come prefab modali** (`PausePanel`/`GameOverPanel`/`VictoryPanel` in `assets/prefabs/`, generati da `scripts/gen-ui-panels.js`); root con Widget fullscreen + UIOpacity + BlockInputEvents (best-practice CC 3.8); comportamento in `EndPanel.ts`/`PausePanel.ts`, wiring in `GameManager._wirePanels()`. Tutorial popup rimosso.
 - [x] Pulsanti settings — dialog opzioni centralizzato in `Settings.ts` (vibrazione/sfx/musica/fullscreen), condiviso MainMenu+Game (v0.8.22)
 - [x] ~~Tutorial popup iniziale~~ — **rimosso** in v0.8.22 (era in Fase 2)
-- [ ] **Milestone Fase 3** *(24 giu)*: il gioco assomiglia visivamente al prodotto finale
+- [x] **Milestone Fase 3** *(chiusa 2026-06-10, in anticipo sul 24 giu)*: il gioco assomiglia visivamente al prodotto finale
 
 ---
 
-## FASE 4 — Polish, audio, bilanciamento *(25 giu–8 lug 2026)*
+## FASE 4 — Polish, audio, bilanciamento *(25 giu–8 lug 2026)* ← **sei qui**
 
 **Obiettivo**: il gioco si sente "premium".
 
@@ -299,17 +306,14 @@
 
 **Obiettivo**: gioco pubblicato sui portali.
 
-### Integrazione Poki SDK *(9–11 lug)*
+### Integrazione Poki SDK *(anticipata — codice fatto 2026-06-10)*
 
-- [ ] Registrare account sviluppatore Poki (o CrazyGames)
-- [ ] Leggere documentazione SDK
-- [ ] Implementare:
-  - `PokiSDK.init()` all'avvio
-  - `PokiSDK.gameplayStart()` quando inizia partita
-  - `PokiSDK.gameplayStop()` a game over
-  - `PokiSDK.commercialBreak()` tra partite (mai durante gameplay)
-- [ ] Implementare loading screen secondo specifiche Poki
-- [ ] Test in Poki sandbox
+- [ ] [manuale] Registrare account sviluppatore Poki (o CrazyGames)
+- [x] Implementato **adapter portale** (`PortalSdk` + `NullPortal`/`PokiPortal` + `PortalProvider`, flag `PORTAL` in `config/PortalConfig.ts` — default `'none'`, build GitHub Pages invariata; vedi TECH.md):
+  - [x] `init()` all'avvio (MainMenu + Game, idempotente; SDK caricato a runtime dal CDN Poki) + `gameLoadingFinished()`
+  - [x] `gameplayStart()`/`gameplayStop()` — inizio partita, pause (settings/panel/auto-pausa), game over/victory; dedup interno
+  - [x] `commercialBreak()` tra le partite (PLAY, Continue, Restart, Menu) con audio mutato e timeout di sicurezza 35s — mai durante il gameplay
+- [ ] Test in Poki sandbox con `PORTAL='poki'` (loading screen: `gameLoadingFinished` già wired; verificare specifiche Poki sul nostro splash HTML)
 
 ### Asset di marketing *(12–13 lug)*
 
@@ -329,7 +333,7 @@
 
 ---
 
-## Feature — Leaderboard globale (Firebase) *(✅ implementata — v0.8.53, scena Ranking)*
+## Feature — Leaderboard globale (Firebase) *(✅ COMPLETA — v0.8.53 scena Ranking; rules v1 attive e testate 2026-06-10)*
 
 **Obiettivo**: classifica online con i **primi 10 punteggi**; l'utente inserisce **3 lettere** come nome. Pensata per la build standalone (GitHub Pages); sui portali si usa il leaderboard nativo, quindi è **disattivabile**.
 
@@ -342,7 +346,7 @@
 
 **Checklist:**
 - [x] [manuale] Progetto Firebase + Firestore (production) + Web App + config — config fornita (progetto `fanwarriors-2026`), in `LeaderboardConfig.ts`
-- [ ] [manuale] Applicare security rules v1 — file pronto in `firestore.rules` (da incollare in console Firebase)
+- [x] [manuale] Applicare security rules v1 — applicate in console Firebase (2026-06-10; file in `firestore.rules`)
 - [x] `config/LeaderboardConfig.ts` — flag (`ENABLED`/`BACKEND`), config Firebase, costanti (TOP_N=10, NAME_LEN=3, SCORE_CAP=1e6, REQUEST_TIMEOUT_MS)
 - [x] `services/LeaderboardService.ts` — interfaccia (`init`/`getTop`/`qualifies`/`submit`) + tipi `LeaderboardEntry`/`SubmitResult`
 - [x] `services/NullLeaderboard.ts` (no-op) + `services/MockLeaderboard.ts` (localStorage, seeded)
@@ -356,7 +360,7 @@
 - [x] Tasto LEADERBOARD nel MainMenu (`MainMenu.onLeaderboard` + `leaderboardButton`/`leaderboardPanel`)
 - [x] Robustezza rete (timeout per richiesta, no-throw end-to-end, stato "Caricamento…", guard doppio-confirm)
 - [x] ~~Piazzare le istanze prefab in scena~~ — superato dal pivot: la leaderboard vive nella scena `Ranking` (v0.8.53)
-- [ ] Test end-to-end con rules v1 applicate (Firestore è ancora in **test-mode**)
+- [x] Test end-to-end con le rules v1 attive (2026-06-10)
 - [x] Deploy su GitHub Pages verificato dal vivo (v0.8.50+)
 
 > **BACKEND attuale: `firestore`** (config reale). Per sviluppo offline mettere `BACKEND='mock'` in `LeaderboardConfig.ts`.
@@ -385,7 +389,9 @@
 
 ## Prossime azioni concrete
 
-> Aggiornato al 2026-06-07 — v0.8.23: fix bug 1 (anti-tunneling muri, `rb.bullet=true`) + bug 2 (game over/victory robusti: schermata schedulata prima dei side-effect in `try/catch`); messaggio "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (score > 10000); tasto "Ricomincia" nel dialog Settings (solo scena Game, via host hook `onRestart`). ⚠️ Bug 2 da riverificare: il rosso può venire anche da `setDangerTint` (vedi MEMO).
+> Aggiornato al 2026-06-10 — v0.8.57: **Fase 3 chiusa** (HUD completato, posizione NextPreview sistemata, migrazione DebugPanel cassata). Rules Firestore v1 applicate. Follow-up chiusi (bug 2 non ripresentato, auto-attivazione AURA risolta). Pass di robustezza codice (rb cache, SafeStorage, cleanup tween su destroy, guard doppio-submit) + riallineamento completo dei .md.
+>
+> Storico 2026-06-07 — v0.8.23: fix bug 1 (anti-tunneling muri, `rb.bullet=true`) + bug 2 (game over/victory robusti: schermata schedulata prima dei side-effect in `try/catch`); messaggio "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (score > 10000); tasto "Ricomincia" nel dialog Settings (solo scena Game, via host hook `onRestart`).
 >
 > Storico 2026-06-08 — v0.8.55: rebalance genocide (trigger ≥25 warrior + cooldown 10 tiri **e** 10 merge; nuovo `_gnCooldownMerges`) + depotenziamento aura per specie basse (range quadratico su 7 specie, zap disabilitato sotto `AURA_ZAP_MIN_TYPE=2`). Verificato che né genocide né aura possono creare merge sopra il max-level di specie.
 >
@@ -400,9 +406,10 @@
 5. ~~**LevelBoost powerup**~~ ✅ riscritto come **AURA powerup** (v0.8.19) — forza repulsiva, warrior zappati diventano scintille colorate con volo cadenzato, evoluzione energetica sul target, round illimitati
 6. ~~**Smart bag spawn**~~ ✅ fatto (v0.7.1) — SpawnManager con bag Tetris-style + bias contestuale verso specie stranded + bias livello
 7. ~~**Track Cleared! bonus**~~ ✅ fatto (v0.8.1) — 1000×round, una volta per round, banner gold animato con sottotitolo
-8. **UI Fase 3**: ~~menu principale~~ ✅, ~~settings dialog~~ ✅, ~~tutorial~~ (rimosso), ~~schermate game over/win/pausa~~ ✅ (prefab modali v0.8.56); restano HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font **MedievalSharp** sulle Label HUD)
-9. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
+8. ~~**UI Fase 3**~~ ✅ completata (2026-06-10): menu principale, settings dialog, schermate modali, HUD definitivo (contachilometri, round animato, timer, font MedievalSharp)
+9. ~~**Posizione NextPreview**~~ ✅ sistemata nell'editor (2026-06-10)
 10. ~~**File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3`~~ ✅ presenti
-11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
-12. **Condizione auto-attivazione AURA**: definire quando si attiva automaticamente (ora solo debug)
-13. **Leaderboard globale (Firebase)**: ✅ implementata e deployata (scena Ranking, v0.8.53) — restano le rules v1 da applicare in console (Firestore è in test-mode) e un giro di test end-to-end. Vedi sezione dedicata.
+11. ~~**DebugPanel migrazione scena**~~ — cassata: non necessaria (2026-06-10)
+12. ~~**Condizione auto-attivazione AURA**~~ ✅ chiusa (2026-06-10)
+13. ~~**Leaderboard globale (Firebase)**~~ ✅ COMPLETA (2026-06-10): implementata, deployata, rules v1 applicate e testate end-to-end. Vedi sezione dedicata.
+14. **Fase 4**: audio completo (loop musicali + SFX mancanti), slowmo tier alti, trail/squash, poi playtest esterni e bilanciamento

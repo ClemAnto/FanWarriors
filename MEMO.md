@@ -581,12 +581,11 @@ Quando un warrior con powerup (aura/PsychoForce/bloodhood) viene swappato nel ne
 
 ---
 
-## Cosa NON è ancora implementato (aggiornato 2026-06-10)
+## Cosa NON è ancora implementato (aggiornato 2026-06-10, sera)
 
-- **Timer: 4 stati visivi** — attualmente solo 2 (grigio normale + rosso ≤5s); mancano "quasi invisibile" e "arancione pulse" (GDD §9)
-- **Debug panel** — parzialmente migrato in scena (WinButton + FrogIcon draggable); la palette completa è ancora nel `DebugPanel.ts` programmatico
-- **Font HUD** — nessun font custom ancora assegnato alle Label HUD; il font del progetto è **MedievalSharp** (`assets/fonts/MedievalSharp-Regular.ttf`, già usato dai floating score) — assegnare nell'editor
-- **Animazione round nel HUD** — scale-up + bounce al cambio round (GDD §11)
+Fase 3 chiusa: HUD completato (font MedievalSharp, animazione round, timer), posizione NextPreview sistemata. La migrazione completa del DebugPanel in scena è stata **cassata** (non necessaria — resta il `DebugPanel.ts` programmatico).
+
+Restano per la Fase 4: audio completo (loop musicali + SFX mancanti), slowmo tier alti, trail in volo, squash on landing, playtest e bilanciamento (vedi ROADMAP).
 
 ## Audio (v0.6.x)
 
@@ -678,7 +677,7 @@ Mappatura colore in `Warrior.setDangerTint`: `gb = Math.max(0, Math.round(255 - 
 
 **CRITICO — game over robusto (v0.8.23)**: `triggerGameOver()`/`triggerVictory()` schedulano la schermata **prima** di eseguire i side-effect (audio/log/score), che sono ora in `try/catch`. Motivo: queste funzioni girano dentro il `try/catch` di `update()` che **inghiotte le eccezioni**; se un side-effect lanciava dopo aver impostato `state = GameOver` ma prima di schedulare `showGameOverScreen`, il gioco restava congelato con warrior rosso e nessuna schermata. (Era il sospetto per il **bug 2**.)
 
-**⚠️ FOLLOW-UP bug 2 (da verificare nella prossima sessione)**: esiste `Warrior.setDangerTint` (vedi sopra, riga ~628) che tinge il warrior di rosso in base alla **prossimità del bordo inferiore** alla linea, mentre il game-over richiede il **centro** sotto la linea per 3 frame. Quindi un warrior può apparire **completamente rosso (danger tint)** senza che scatti il game over — possibile spiegazione alternativa del "warrior rosso ma niente game over". Il fix v0.8.23 copre solo il caso freeze-da-eccezione; **verificare se il bug 2 si ripresenta** e in tal caso indagare il danger tint / lo stato bloccato in `Settling`.
+**Follow-up bug 2 — CHIUSO (2026-06-10)**: non si è più ripresentato dopo il fix v0.8.23. Nota rimasta valida come spiegazione del comportamento: `Warrior.setDangerTint` tinge di rosso in base alla prossimità del **bordo inferiore** alla linea, mentre il game-over richiede il **centro** sotto la linea per 3 frame — un warrior completamente rosso senza game over è quindi normale, non un bug.
 
 **Anti-tunneling muri (v0.8.23)**: i warrior hanno `rb.bullet = true` (continuous collision detection) in `Warrior.buildPhysics()`. Senza, un lancio veloce poteva attraversare le pareti sottili del funnel in un singolo step fisico e scivolare fuori dalla pista (**bug 1**). Se il bug 1 si ripresenta nonostante `bullet`, sospetto di riserva: corruzione del broadphase Box2D quando `PhysicsSystem2D.enable` viene spento nei path di pausa/auto-pausa mentre un callback di merge/spawn crea/distrugge body (i path di pausa non hanno il defer che ha il round-up — vedi sezione round-up).
 

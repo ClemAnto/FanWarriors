@@ -40,4 +40,4 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 3 — Asset definitivi e UI (v0.8.5x). Core gameplay completo e stabile; sprite reali, pannelli modali end-game (pause/gameover/win), leaderboard Firebase (scena Ranking), powerup Aura/BloodHood/PsychoForce/Genocide. GUI HUD con Widget responsive (UILayer/HUD fullscreen + figli con offset dagli angoli).
+Fase 4 — Polish, audio, bilanciamento (v0.8.57+). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD definitivo (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1 attive), powerup Aura/BloodHood/PsychoForce/Genocide. Restano: audio completo, slowmo/trail/squash, playtest e bilanciamento.

@@ -1,5 +1,23 @@
 import { Node, Graphics, Color, Label, UIOpacity, Vec2, Vec3, tween, Tween, UITransform, SpriteFrame, Sprite, resources, Texture2D, Rect, gfx, Font, assetManager } from 'cc';
 
+// Scratch objects riusati negli onUpdate dei tween (per-frame) — i setter CC3
+// (Label.color, Sprite.color, Graphics.fillColor, UITransform.anchorPoint) copiano
+// il valore, quindi condividere l'istanza è sicuro. Mai trattenerli oltre la chiamata.
+const TMP_COLOR  = new Color();
+const TMP_ANCHOR = new Vec2();
+
+// Costanti immutabili condivise (i setter copiano; i tween non mutano i props)
+const GOLD          = new Color(255, 210, 50, 255);
+const PURPLE        = new Color(200, 60, 255, 255);
+const WHITE         = new Color(255, 255, 255, 255);
+const SCORE_NEG     = new Color(255, 80, 80, 255);
+const SCORE_LOW     = new Color(210, 210, 210, 255);
+const SHADOW_BLACK  = new Color(0, 0, 0, 180);
+const SHADOW_OFFSET = new Vec2(2, -2);
+const SCALE_ONE     = new Vec3(1, 1, 1);
+const SCALE_PULSE   = new Vec3(1.07, 1.07, 1);
+const FLOAT_RISE    = new Vec3(0, 220, 0);
+
 export class VFXManager {
     private readonly vfxLayer:      Node;
     private readonly uiLayer:       Node;
@@ -66,48 +84,40 @@ export class VFXManager {
     }
 
     private _applyGoldenShine(lbl: Label): void {
-        const gold = new Color(255, 210, 50, 255);
-        lbl.color = gold;
+        lbl.color = GOLD;
         lbl.enableOutline = true;
         lbl.outlineColor  = new Color(120, 55, 0, 220);
         lbl.outlineWidth  = 3;
         // Sweep: gold → bright-gold → gold, triggered when bubble peaks (~0.25s)
+        const sweep = (o?: { t: number }) => {
+            if (!o || !lbl.isValid) return;
+            lbl.color = TMP_COLOR.set(255, Math.round(210 + 45 * o.t), Math.round(50 + 170 * o.t), 255);
+        };
         const proxy = { t: 0 };
         tween(proxy)
             .delay(0.25)
-            .to(0.18, { t: 1 }, { onUpdate: (o) => {
-                const t = o!.t;
-                lbl.color = new Color(255, Math.round(210 + 45 * t), Math.round(50 + 170 * t), 255);
-            }})
-            .to(0.22, { t: 0 }, { onUpdate: (o) => {
-                const t = o!.t;
-                lbl.color = new Color(255, Math.round(210 + 45 * t), Math.round(50 + 170 * t), 255);
-            }})
-            .call(() => { if (lbl.isValid) lbl.color = gold; })
+            .to(0.18, { t: 1 }, { onUpdate: sweep })
+            .to(0.22, { t: 0 }, { onUpdate: sweep })
+            .call(() => { if (lbl.isValid) lbl.color = GOLD; })
             .start();
     }
 
     private _applyPurpleShine(lbl: Label): void {
-        const purple = new Color(200, 60, 255, 255);
-        lbl.color = purple;
+        lbl.color = PURPLE;
         lbl.enableOutline = true;
         lbl.outlineColor  = new Color(60, 0, 110, 220);
         lbl.outlineWidth  = 3;
         // Color pulse: purple ↔ bright pink-white, repeating
+        const pulse = (o?: { t: number }) => {
+            if (!o || !lbl.isValid) return;
+            lbl.color = TMP_COLOR.set(Math.round(200 + 55 * o.t), Math.round(60 + 160 * o.t), 255, 255);
+        };
         const cp = { t: 0 };
         const colorPulse = () => {
             if (!lbl.isValid) return;
             tween(cp)
-                .to(0.38, { t: 1 }, { onUpdate: (o) => {
-                    if (!lbl.isValid) return;
-                    const t = o!.t;
-                    lbl.color = new Color(Math.round(200 + 55 * t), Math.round(60 + 160 * t), 255, 255);
-                }})
-                .to(0.38, { t: 0 }, { onUpdate: (o) => {
-                    if (!lbl.isValid) return;
-                    const t = o!.t;
-                    lbl.color = new Color(Math.round(200 + 55 * t), Math.round(60 + 160 * t), 255, 255);
-                }})
+                .to(0.38, { t: 1 }, { onUpdate: pulse })
+                .to(0.38, { t: 0 }, { onUpdate: pulse })
                 .call(colorPulse)
                 .start();
         };
@@ -115,8 +125,8 @@ export class VFXManager {
         const scalePulse = () => {
             if (!lbl.isValid) return;
             tween(lbl.node)
-                .to(0.45, { scale: new Vec3(1.07, 1.07, 1) }, { easing: 'sineInOut' })
-                .to(0.45, { scale: new Vec3(1.0,  1.0,  1) }, { easing: 'sineInOut' })
+                .to(0.45, { scale: SCALE_PULSE }, { easing: 'sineInOut' })
+                .to(0.45, { scale: SCALE_ONE   }, { easing: 'sineInOut' })
                 .call(scalePulse)
                 .start();
         };
@@ -142,7 +152,7 @@ export class VFXManager {
         if (this._shakeTimer <= 0) {
             this._shakeTimer = 0;
             this._shakeAmp   = 0;
-            uit.anchorPoint = new Vec2(0.5, 0.5);
+            uit.anchorPoint = TMP_ANCHOR.set(0.5, 0.5);
             return;
         }
         const amp = this._shakeAmp * (this._shakeTimer / this._shakeDur);
@@ -150,7 +160,7 @@ export class VFXManager {
         const dy  = (Math.random() * 2 - 1) * amp;
         const w   = uit.contentSize.width  || 720;
         const h   = uit.contentSize.height || 1280;
-        uit.anchorPoint = new Vec2(0.5 + dx / w, 0.5 + dy / h);
+        uit.anchorPoint = TMP_ANCHOR.set(0.5 + dx / w, 0.5 + dy / h);
     }
 
     // ── merge VFX ─────────────────────────────────────────────────────────
@@ -184,7 +194,7 @@ export class VFXManager {
             const sp = node.addComponent(Sprite);
             sp.sizeMode    = Sprite.SizeMode.CUSTOM;
             sp.spriteFrame = this._sparkleFrame;
-            sp.color       = new Color(255, 255, 255, 255);
+            sp.color       = WHITE;
             sp.getMaterialInstance(0)?.overridePipelineStates({
                 blendState: { targets: [{ blend: true, blendSrc: gfx.BlendFactor.SRC_ALPHA, blendDst: gfx.BlendFactor.ONE }] }
             });
@@ -286,12 +296,12 @@ export class VFXManager {
         lbl.fontSize = isPurple ? (large ? 64 : 52) : isGolden ? (large ? 58 : 46) : (large ? 44 : 34);
         lbl.isBold   = true;
         lbl.overflow      = Label.Overflow.NONE;
-        lbl.color         = points < 0 ? new Color(255, 80, 80, 255) : points <= 500 ? new Color(210, 210, 210, 255) : new Color(255, 255, 255, 255);
+        lbl.color         = points < 0 ? SCORE_NEG : points <= 500 ? SCORE_LOW : WHITE;
         if (isPurple)      this._applyPurpleShine(lbl);
         else if (isGolden) this._applyGoldenShine(lbl);
         lbl.enableShadow  = true;
-        lbl.shadowColor   = new Color(0, 0, 0, 180);
-        lbl.shadowOffset  = new Vec2(2, -2);
+        lbl.shadowColor   = SHADOW_BLACK;
+        lbl.shadowOffset  = SHADOW_OFFSET;
         lbl.shadowBlur    = 3;
         this._applyFont(lbl);
 
@@ -300,13 +310,13 @@ export class VFXManager {
 
         // Bubble pop-in: scale 0 → 1 with backOut (automatic overshoot ~1.3 → settle 1.0)
         tween(inner)
-            .to(0.38, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+            .to(0.38, { scale: SCALE_ONE }, { easing: 'backOut' })
             .start();
 
         // Float up — small delay so the pop-in is visible before it starts moving
         tween(node)
             .delay(0.18)
-            .by(1.10, { position: new Vec3(0, 220, 0) }, { easing: 'quadOut' })
+            .by(1.10, { position: FLOAT_RISE }, { easing: 'quadOut' })
             .start();
 
         // Fade in fast, hold, then fade out
@@ -345,7 +355,7 @@ export class VFXManager {
         const ovG = ovNode.addComponent(Graphics);
         const drawOv = (a: number) => {
             ovG.clear();
-            ovG.fillColor = new Color(0, 0, 0, Math.round(a));
+            ovG.fillColor = TMP_COLOR.set(0, 0, 0, Math.round(a));
             ovG.rect(-2000, -3000, 4000, 6000);
             ovG.fill();
         };
@@ -489,7 +499,7 @@ export class VFXManager {
                 const sp = child.addComponent(Sprite);
                 sp.sizeMode    = Sprite.SizeMode.CUSTOM;
                 sp.spriteFrame = this._stardustFrame!;
-                sp.color       = new Color(255, 255, 255, 255);
+                sp.color       = WHITE;
                 sp.getMaterialInstance(0)?.overridePipelineStates({
                     blendState: { targets: [{ blend: true, blendSrc: gfx.BlendFactor.SRC_ALPHA, blendDst: gfx.BlendFactor.ONE }] }
                 });
@@ -549,7 +559,7 @@ export class VFXManager {
             const sp = node.addComponent(Sprite);
             sp.sizeMode    = Sprite.SizeMode.CUSTOM;
             sp.spriteFrame = this._sparkleFrame;
-            sp.color       = new Color(255, 255, 255, 255);
+            sp.color       = WHITE;
             sp.getMaterialInstance(0)?.overridePipelineStates({
                 blendState: { targets: [{ blend: true, blendSrc: gfx.BlendFactor.SRC_ALPHA, blendDst: gfx.BlendFactor.ONE }] }
             });

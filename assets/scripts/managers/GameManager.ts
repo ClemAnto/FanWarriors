@@ -17,15 +17,17 @@ import { BloodhoodEffect } from '../entities/BloodhoodEffect';
 import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
+import { TrailEffect } from '../entities/TrailEffect';
 import { Settings } from './Settings';
 import { EndPanel } from './EndPanel';
 import { PausePanel } from './PausePanel';
 import { LeaderboardPanel } from './LeaderboardPanel';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
+import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.57';
+export const VERSION     = '0.8.59';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -172,6 +174,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _dangerCooldown = 0;
     private _slowmoTimer    = 0;
     private _slowmoScale    = 1.0;
+    private _trailEffect: TrailEffect | null = null;
     private _proximityTimers = new Map<string, number>();
     private _auraWarrior:    Warrior | null = null;
     private _auraEffect:     AuraEffect | null = null;
@@ -437,6 +440,11 @@ export class GameManager extends Component implements IGameManagerDebug {
                 window.addEventListener('error', this._onGlobalError);
                 window.addEventListener('unhandledrejection', this._onUnhandledRejection);
             }
+
+            // Portal SDK: active play starts here (init is idempotent — covers the
+            // dev-preview case where the Game scene loads without passing by MainMenu)
+            const portal = PortalProvider.get();
+            void portal.init().then(() => { portal.gameLoadingFinished(); portal.gameplayStart(); });
         });
     }
 
@@ -665,7 +673,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._genocideTriggered = false;
         this._genocideProxTimer = 0;
         this._gnTimerStarted    = false;
-        console.log('[Genocide] effect activated on launcher');
+        if (DEBUG) console.log('[Genocide] effect activated on launcher');
     }
 
     private _applyPendingPowerup(w: Warrior, powerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide'): void {
@@ -742,7 +750,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _triggerGenocideCascade(targetType: number): void {
         if (this._genocideTriggered) return;
         this._genocideTriggered = true;
-        console.log(`[Genocide] cascade on type=${targetType}`);
+        if (DEBUG) console.log(`[Genocide] cascade on type=${targetType}`);
 
         this._genocideEffect?.detach();
         this._genocideEffect = null;
@@ -836,11 +844,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private _logOnTrack(event: string): void {
+        if (!DEBUG) return;
         const n = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
         console.log(`[track] ${event} → ${n} warrior${n !== 1 ? 's' : ''} on track`);
     }
 
     private _logSpeciesCounts(): void {
+        if (!DEBUG) return;
         const typeCounts = new Map<number, number>();
         for (const w of this.warriors) typeCounts.set(w.type, (typeCounts.get(w.type) ?? 0) + 1);
         const log = [...typeCounts.entries()]
@@ -1066,6 +1076,9 @@ export class GameManager extends Component implements IGameManagerDebug {
             console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
             return;
         }
+        // Flight trail — self-detaches when the warrior stops, merges or dies
+        this._trailEffect?.detach();
+        this._trailEffect = TrailEffect.attach(w, this.vfxLayer, this.vfx.sparkleFrame, y => this.coords.physToVisual(y));
         this._launcherBloodhoodEffect?.detach();
         this._launcherBloodhoodEffect = null;
         if (this.bloodhoodEnabled) {
@@ -1379,6 +1392,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // freeze on state=GameOver with no screen ever shown (red warrior, no message).
         // The panel appears only once pending merges and the score odometer have settled.
         this._revealEndPanelWhenSettled(() => this.showGameOverScreen(), END_PANEL_DELAY);
+        PortalProvider.get().gameplayStop();
         try {
             this.vfx.screenShake(12, 0.35);
             this.inputCtrl.clearWarrior();
@@ -1422,6 +1436,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._slowmoTimer = 0;
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
+        PortalProvider.get().gameplayStop();
         this.inputCtrl.clearWarrior();
         this.inputCtrl.blocked = true;  // inhibit all controls until the panel is shown
         this.vfx.screenShake(18, 0.6);
@@ -1570,6 +1585,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? `×${this.mergesThisLaunch} combo`
             : `${WARRIORS[a.type]?.name ?? '?'} lv.${newLevel}`);
         this.vfx.spawnFloatingScore(midX, midYC, points, this.mergesThisLaunch > 1);
+        this._maybeScoreSlowmo(points);
         this.updateScoreLabel();
         this.updateRoundProgress();
 
@@ -1700,7 +1716,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._pfImploding) return;
         if (target === this._pfLaunchWarrior) return;
         if (!target.node?.isValid || !target.crossedLine) return;
-        console.log(`[PF] infect type=${target.type} lv=${target.level}`);
+        if (DEBUG) console.log(`[PF] infect type=${target.type} lv=${target.level}`);
 
         // Tinta ciano direttamente sullo sprite del warrior (no overlay)
         const sp = target.viewNode?.getComponent(Sprite) ?? null;
@@ -1881,7 +1897,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._bhsImploding) return;
         if (target.isBHLauncher) return;
         if (!target.node?.isValid) return;
-        console.log(`[BHS] contagio: src type=${source?.type ?? 'BH'} lv=${source?.level ?? '-'} → tgt type=${target.type} lv=${target.level}`);
+        if (DEBUG) console.log(`[BHS] contagio: src type=${source?.type ?? 'BH'} lv=${source?.level ?? '-'} → tgt type=${target.type} lv=${target.level}`);
         const spreadFn = (s: Warrior, t: Warrior) => this._onBHSSpread(s, t);
         target.onBloodhoodContact = spreadFn;
         const bhs = BloodhoodSparkleEffect.attach(target);
@@ -2381,7 +2397,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!AuraEffect.isEligible(w.type)) return false;
         if (this._firstLaunchSpecies.has(w.type)) return false;
         this._firstLaunchSpecies.add(w.type);
-        console.log(`[AuraEffect] first appearance: type=${w.type}`);
+        if (DEBUG) console.log(`[AuraEffect] first appearance: type=${w.type}`);
         return true;
     }
 
@@ -2395,6 +2411,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._trackBestSingle(bonus, `Track Cleared! ×${this.currentRound}`);
         this.updateScoreLabel();
         this.vfx.spawnTrackClearedBanner(x, yC, bonus);
+        this._maybeScoreSlowmo(bonus);
     }
 
     private activateAfterInflightMerge(): void {
@@ -2436,7 +2453,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._settings.canOpen      = () => this.state !== GameState.GameOver && this.state !== GameState.Paused;
                 this._settings.onBeforeOpen = () => this._enterSettingsPause();
                 this._settings.onAfterClose = () => this._exitSettingsPause();
-                this._settings.onRestart    = () => director.loadScene(this.sceneName);
+                this._settings.onRestart    = () => { void this._withCommercialBreak(() => director.loadScene(this.sceneName)); };
             }
             return;
         }
@@ -2516,8 +2533,10 @@ export class GameManager extends Component implements IGameManagerDebug {
                 else                                   { if (!this.gameOverPanel) this.gameOverPanel = ep; }
             }
         }
-        const reload = (): void => { director.loadScene(this.sceneName); };
-        const menu   = (): void => { director.loadScene(MAIN_MENU_SCENE); };
+        // Every between-sessions navigation passes through a commercial break (no-op
+        // on standalone builds). Never called during gameplay — Poki requirement.
+        const reload = (): void => { void this._withCommercialBreak(() => director.loadScene(this.sceneName)); };
+        const menu   = (): void => { void this._withCommercialBreak(() => director.loadScene(MAIN_MENU_SCENE)); };
         if (this.pausePanel) {
             this.pausePanel.onResume  = () => this._exitSettingsPause();
             this.pausePanel.onRestart = reload;
@@ -2530,11 +2549,21 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (this._lbReady) {
                 await Promise.race([this._lbReady, new Promise<void>(res => this.scheduleOnce(res, 3.0))]);
             }
-            director.loadScene(LEADERBOARD_ENABLED ? RANKING_SCENE : MAIN_MENU_SCENE);
+            await this._withCommercialBreak(() => director.loadScene(LEADERBOARD_ENABLED ? RANKING_SCENE : MAIN_MENU_SCENE));
         };
         for (const ep of [this.gameOverPanel, this.victoryPanel]) {
             if (!ep) continue;
             ep.onContinue = () => { void advance(); };
+        }
+    }
+
+    /** Run a commercial break (no-op on standalone builds) with audio muted, then continue. */
+    private async _withCommercialBreak(next: () => void): Promise<void> {
+        AudioManager.instance.muteForPause();
+        try { await PortalProvider.get().commercialBreak(); }
+        finally {
+            AudioManager.instance.unmuteForPause();
+            next();
         }
     }
 
@@ -2545,6 +2574,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         PhysicsSystem2D.instance.enable = false;
         AudioManager.instance.muteForPause();
         this.inputCtrl.blocked = true;
+        PortalProvider.get().gameplayStop();
     }
 
     /** Settings.onAfterClose hook — resume everything paused by _enterSettingsPause. */
@@ -2554,6 +2584,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         PhysicsSystem2D.instance.enable = true;
         AudioManager.instance.unmuteForPause();
         this.inputCtrl.blocked = false;
+        if (this.state !== GameState.GameOver) PortalProvider.get().gameplayStart();
     }
 
     // ── Resumable state: save / restore / reset ──────────────────────────────
@@ -2911,6 +2942,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private _logSpawnReport(): void {
+        if (!DEBUG) return;
         const rounds = [...this._spawnLog.keys()].sort((a, b) => a - b);
         const totals = new Map<number, number>();
         const lines: string[] = ['[SpawnLog] ── Spawn report ──'];
@@ -2949,6 +2981,13 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._scoreTween = null;
             })
             .start();
+    }
+
+    /** GDD score tiers 5/6: a single huge score event slows time briefly. */
+    private _maybeScoreSlowmo(points: number): void {
+        if (this.state === GameState.GameOver || this.roundUpPause) return;
+        if (points >= 12000)      this.activateSlowmo(0.5, 1.2);
+        else if (points >= 10000) this.activateSlowmo(0.8, 0.9);
     }
 
     private activateSlowmo(scale: number, duration: number): void {
