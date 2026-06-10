@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Toggle, Button, UIOpacity, tween, sys, instantiate, Label, UITransform } from 'cc';
 import { AudioManager } from './AudioManager';
+import { SafeStorage } from '../utils/SafeStorage';
 
 const { ccclass, property } = _decorator;
 
@@ -53,7 +54,7 @@ export class Settings extends Component {
 
     /** Shared source of truth for the vibration preference. */
     static get vibrationEnabled(): boolean {
-        return sys.localStorage.getItem(LS_VIBRATION) !== '0';
+        return SafeStorage.get(LS_VIBRATION) !== '0';
     }
 
     /** The dialog panel — explicit dialogNode, or this component's own node as fallback. */
@@ -166,7 +167,7 @@ export class Settings extends Component {
 
     private _toggleVibration(): void {
         const enabled = !Settings.vibrationEnabled;
-        sys.localStorage.setItem(LS_VIBRATION, enabled ? '1' : '0');
+        SafeStorage.set(LS_VIBRATION, enabled ? '1' : '0');
     }
 
     private _toggleFullscreen(): void {

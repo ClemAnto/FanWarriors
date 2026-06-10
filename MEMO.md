@@ -17,7 +17,7 @@ Tutti i valori sono stati tuned in sessione di gioco reale — non modificare se
 | `angularDamping` (in volo) | 1.5 | Rotazione smorzata ma non bloccata |
 | `angularDamping` (fermo) | 5 | Impostato da `settle()` — aumentato da 4 (2026-05-11) |
 | `density` | 8.0 | Alta densità = resistenza agli urti |
-| `friction` | 0.05 | Superficie scivolosa (ghiaccio) |
+| `friction` (collider warrior) | 0.3 | `Warrior.contactFriction` — la scivolata è data dal damping, non dalla friction |
 | `restitution` | 0.04 | Impatti molto smorzanti, quasi anelastici |
 | `MERGE_DELAY` | 0.3s | Tempo contatto prima del merge |
 
@@ -67,12 +67,12 @@ I muri sono costruiti da `buildWalls()` sui bounds reali di **TrackSprite** (UIT
 | Parametro | Valore | Note |
 |-----------|--------|------|
 | `SETTLE_VELOCITY` | 0.4 | Soglia "fermo" — alzata per damping basso |
-| `MAGNET_GAP` | 30px | Gap superficie-superficie (non centro-centro) |
-| `MAGNET_FORCE` | 20 | Forza base; scala quadratica + massa |
+| `MAGNET_GAP_BASE` | 30px | Gap superficie-superficie (non centro-centro) — scalato da `LAYOUT_SCALE` |
+| `MAGNET_FORCE_BASE` | 40 | Forza base — scalata da `LAYOUT_SCALE`; quadratica + massa |
 | `LAUNCH_CHECK_DELAY` | 0.8s | Attesa prima di valutare se il lancio ha fallito |
 | `waitForSettling` | `false` | `false` = nuovo warrior appena il lanciato supera la linea |
 | `SPAWN_X` | 0 | Centro orizzontale |
-| `SPAWN_Y` | −220 | Sotto la game over line |
+| spawn Y | live | `SpawnManager.spawnY` è un getter che legge `GAME_OVER_LINE_Y`/`WALL_RB.y` ad ogni spawn (non più costante) |
 
 
 ---
@@ -87,11 +87,13 @@ const gap = Math.max(0, dist - a.radius - b.radius);  // gap superfici
 if (gap < MAGNET_GAP) { ... }
 ```
 
-La forza scala anche con la massa (∝ r²) per dare accelerazione uguale a tutti i livelli:
+La forza è **quadratica con la prossimità** e scala anche con la massa (∝ r²) per dare accelerazione uguale a tutti i livelli:
 ```typescript
+const t = 1 - (nearestDist / MAGNET_RADIUS);     // 0=lontano, 1=vicino
 const massScale = (a.radius * a.radius) / r1sq;  // r1sq = raggio lv1 al quadrato
-force = MAGNET_FORCE * (1 + t*t*8) * massScale;
+force = MAGNET_FORCE * (1 + t*t*8) * massScale;  // ≈8 lontano, ≈72 a contatto
 ```
+Questo garantisce attrazione impercettibile a distanza ma forte snap al contatto.
 
 ---
 
@@ -227,12 +229,7 @@ Il problema: dopo un lancio, bisogna aspettare che tutti i warrior si fermino pr
 
 **Race condition risolta:** `pendingWarrior` viene creato quando il warrior attraversa la linea (`checkLineLogic`), NON al momento del lancio. Se creato al lancio, un merge veloce completava il settling prima dei 0.3s di delay del spawn → il warrior non veniva mai attivato.
 
-**Magnetismo quadratico:**
-```typescript
-const t = 1 - (nearestDist / MAGNET_RADIUS);  // 0=lontano, 1=vicino
-force = MAGNET_FORCE * (1 + t * t * 8);        // ≈8 lontano, ≈72 a contatto
-```
-Questo garantisce attrazione impercettibile a distanza ma forte snap al contatto.
+(Formula del magnetismo quadratico → sezione "Magnetismo" sopra.)
 
 ---
 
@@ -255,9 +252,11 @@ All'avvio la pista viene prefillata con 3 warrior (design decision, Fase 1):
 - Tipo 1 a (0, 250)
 - Tipo 2 a (90, 220)
 
-Posizioni aggiornate in Fase 2 per la pista a funnel (TRACK_W=576): a y=220 la semi-larghezza interna è ~216px, quindi x=±90 lascia ampio margine dalla parete.
+Posizioni aggiornate in Fase 2 per la pista a funnel: x=±90 lascia ampio margine dalle pareti a y=220.
 
 I warrior prefill hanno `crossedLine = true` e `fired = true` impostati manualmente — non passano per il sistema di lancio ma sono soggetti al check di game-over.
+
+> Nota: la larghezza pista non è una costante fissa — `TRACK_W` è calcolato da `initLayout()` (`TRACK_H × 6/10 × 1.2`, ≈691 a design 720×1280). Vedi COCOS.md per le coordinate di design.
 
 ---
 
@@ -306,7 +305,7 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 **Trigger (riepilogo)**: solo perdita di focus/visibilità — NESSUNA pausa per inattività/timeout. Pausa su: cambio scheda, finestra minimizzata, altra app/finestra (blur), schermo bloccato (mobile). Ripresa su visible/focus.
 
-**Tap-to-resume + blocco input (v0.8.x)**: in `_togglePause` la pausa imposta `inputCtrl.blocked = true` e l'overlay "PAUSE" è tappabile (TOUCH_END/MOUSE_UP → resume). Il blocco evita che il tap di ripresa avvii una mira/lancio; recupera anche da pause spurie da `blur` (mobile). Testo "PAUSE" (UI in inglese).
+**Tap-to-resume + blocco input (v0.8.x)**: vedi TECH.md → "Pausa — tap-to-resume + blocco input".
 
 **AudioManager**: `muteForPause()` azzera il volume music senza modificare le preferenze utente; `unmuteForPause()` lo ripristina. SFX bloccati tramite flag `_pauseMuted` controllato in `play()`.
 
@@ -464,7 +463,7 @@ Formato log:
 
 ```typescript
 const sameTypeOnTrack = warriors.filter(w => w.crossedLine && w.node?.isValid && w.type === launcher.type).length;
-if (sameTypeOnTrack >= 8 && _bhCooldownLaunches === 0 && !launcher.levelBoost) {
+if (sameTypeOnTrack >= 8 && _bhCooldownLaunches === 0 && launcherSenzaAltriPowerup) {
     bloodhoodEnabled = true;
 }
 ```
@@ -473,7 +472,7 @@ if (sameTypeOnTrack >= 8 && _bhCooldownLaunches === 0 && !launcher.levelBoost) {
 |--------|--------|
 | Stessa specie in pista | ≥ 8 |
 | Cooldown tra BH | 10 lanci (`_bhCooldownLaunches`, resettato al trigger) |
-| Blocker | `launcher.levelBoost != null` |
+| Blocker | launcher con aura *(ex levelBoost)* attiva |
 
 - `_bhCooldownLaunches` viene impostato a 10 in `onWarriorLaunched` quando BH è attivo, decrementato di 1 ad ogni lancio non-BH.
 - BH e PsychoForce sono **mutualmente esclusivi**: PF si valuta solo se `!bloodhoodEnabled`.
@@ -582,14 +581,12 @@ Quando un warrior con powerup (aura/PsychoForce/bloodhood) viene swappato nel ne
 
 ---
 
-## Cosa NON è ancora implementato (stato v0.7.2)
+## Cosa NON è ancora implementato (aggiornato 2026-06-10)
 
-- **Livelli massimi per specie** — nel codice tutti i tipi vanno fino a lv7, ma il GDD prevede cap diversi per specie (lv5/6/7 solo per alcune). Da implementare in Fase 3 quando arrivano gli asset definitivi.
-- **Timer: 4 stati visivi** — attualmente solo rosso sotto 5s; mancano gli stati "quasi invisibile" e "arancione pulse"
-- **Floating score tier system** — ✅ implementato (4 tier: grigio/bianco/oro/viola con effetti animati)
+- **Timer: 4 stati visivi** — attualmente solo 2 (grigio normale + rosso ≤5s); mancano "quasi invisibile" e "arancione pulse" (GDD §9)
 - **Debug panel** — parzialmente migrato in scena (WinButton + FrogIcon draggable); la palette completa è ancora nel `DebugPanel.ts` programmatico
-- **Audio mancanti** — `audio/sfx/draw.mp3` e `audio/sfx/win.mp3` referenziati ma file non presenti
-- **Font HUD** — nessun font custom ancora assegnato; raccomandato Press Start 2P (TTF in assets/fonts/, assegnare nell'editor alle Label)
+- **Font HUD** — nessun font custom ancora assegnato alle Label HUD; il font del progetto è **MedievalSharp** (`assets/fonts/MedievalSharp-Regular.ttf`, già usato dai floating score) — assegnare nell'editor
+- **Animazione round nel HUD** — scale-up + bounce al cambio round (GDD §11)
 
 ## Audio (v0.6.x)
 
@@ -707,15 +704,15 @@ Il flag `Warrior.hitOtherWarrior` viene settato in `onBeginContact` quando `this
 
 ---
 
-## Merge cap a lv7
+## Merge cap — maxLevel per specie
 
-Se due warrior lv7 si fondono (`newLevel > 7`), entrambi vengono distrutti e nessun nuovo warrior viene spawnato. È il comportamento corretto — livello 7 è il massimo.
+Ogni specie ha il proprio `maxLevel` (`WARRIORS[type].maxLevel`). Se un merge supera il cap della specie, la creatura **esplode con blackhole VFX** e bonus punti (vedi GDD §6); il Drago oltre il suo max scatena `triggerVictory()`. Vale anche per i merge indotti da aura/genocide (verificato v0.8.55).
 
 ---
 
 ## Responsive layout — LIVE_RESIZE
 
-Flag `LIVE_RESIZE` in `GameManager.ts` (riga 13): `true` in sviluppo, `false` in produzione.
+Flag `LIVE_RESIZE` in `GameManager.ts`: **`true` anche in produzione** (decisione 2026-06-10 — costo trascurabile, scatta solo al resize del browser).
 
 - `true` → ascolta `window.resize`; ad ogni resize chiama `track.relayout()` che ricalcola `initLayout()`, ridisegna la pista e ricostruisce i muri fisici; debounce via `requestAnimationFrame` (max 1 relayout/frame)
 - `false` → layout calcolato una sola volta in `start()`

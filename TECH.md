@@ -325,17 +325,6 @@ this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLaunch
 
 ---
 
-## Leaderboard globale (Firebase) — pianificato (v0.8.23)
-
-Architettura decisa (non ancora implementata — dettagli e checklist in `ROADMAP.md`):
-- **`LeaderboardService`** astratto (`getTop10`/`qualifies`/`submit`) con impl **Firestore / Null / Mock**, selezionata da una factory in base al flag **`LEADERBOARD_ENABLED`** → backend intercambiabile e leaderboard interno **spegnibile** (per i portali che hanno il loro).
-- Firestore, rules-only (v1), selettore arcade a 3 lettere.
-- SDK Firebase **compat via CDN** iniettato in `index.html` (step `patch-html.js`) per evitare il bundling npm in Cocos.
-
-**Bug aperto (v0.8.6)**: dopo questa modifica il MenuButton ha smesso di aprire il menu. Causa sospettata ma non confermata: possibile interferenza del `TOUCH_END` registrato su `nextPreviewNode` (nodo World) con il `Button.EventType.CLICK` del MenuButton (nodo UILayer) via il sistema di dispatching CC3. Da investigare nella prossima sessione.
-
----
-
 ## InputController — drag limitato alla pista (v0.8.6)
 
 **Decisione**: il drag della traiettoria inizia solo se il tocco cade dentro la pista (orizzontalmente tra le pareti, a qualunque altezza), non più ovunque con `touch.y < 0`.
@@ -361,7 +350,7 @@ Fallback `touch.y < 0` se i bounds non sono ancora settati. Le coordinate sono i
 - I metodi del service **non lanciano mai**: errori di rete/SDK si risolvono in vuoto/false/`{ok:false}`. Così la UI non ha try/catch e un backend morto degrada senza freeze.
 - I componenti UI portano **solo comportamento** e si legano a un **prefab** via `@property` (niente UI costruita da codice — preferenza esplicita). Layout editabile nell'editor; testi in inglese.
 
-**UN solo prefab contenitore:** `LeaderboardPanel.prefab` contiene due sotto-pannelli figli — `Board` (lista) e `NameEntry` (selettore, con il suo componente `NameEntry.ts` annidato). Il root resta **sempre attivo** come gate modale (BlockInputEvents fullscreen): `LeaderboardPanel` accende/spegne `this.node` e fa sfumare `boardNode`; `NameEntry` sfuma il proprio nodo. Serve perché in CC3 un nodo che parte inattivo non riceve `onLoad` (binding non registrati); l'attivazione CC3 è **sincrona**, quindi riattivare il root esegue `NameEntry.onLoad` prima di chiamarlo. Non esiste più un `NameEntry.prefab` standalone.
+**UI nella scena Ranking** *(stato v0.8.53 — il vecchio overlay prefab modale è superato, vedi Pivot sotto)*: `Board` (lista) e `NameEntry` (selettore) sono nodi della scena `Ranking.scene`. Il root resta **sempre attivo** come gate (BlockInputEvents fullscreen); i sotto-pannelli sfumano via `UIOpacity`. Regola CC3 da ricordare: un nodo che parte inattivo non riceve `onLoad` (binding non registrati) — l'attivazione è sincrona, quindi riattivare il root esegue `NameEntry.onLoad` prima di chiamarlo.
 
 **Firebase compat via CDN (non npm):** i due `<script>` in `build-templates/web-mobile/index.html` espongono `window.firebase`; il bundle dell'engine resta Firebase-free. `patch-html.js` non riscrive gli URL assoluti (sono già version-pinned). `FirestoreLeaderboard` tocca solo `window.firebase`.
 
@@ -369,15 +358,12 @@ Fallback `touch.y < 0` se i bounds non sono ancora settati. Le coordinate sono i
 
 **Prefab generato a tavolino:** `scripts/gen-leaderboard-prefabs.js` emette `LeaderboardPanel.prefab` (layout + wiring `@property` già fatto) calcolando la forma compressa dell'UUID script (algoritmo Cocos: 5 hex literali + base64 a gruppi di 3 hex). Gli sprite frame usati sono `hud/wood.png` (pannelli) e `hud/button.png` (bottoni); font MedievalSharp; le frecce ▲/▼ usano il **system font** (MedievalSharp non ha i glifi triangolo). Rigenerabile con `node scripts/gen-leaderboard-prefabs.js`. ⚠️ Rigenerare cambia i `fileId`: le `PrefabInstance` già piazzate in scena vanno ri-trascinate (override orfani).
 
-**Flusso game over** (`GameManager._runLeaderboardFlow`, chiamato da `triggerGameOver`/`triggerVictory`): `_bringToFront()` (riparenta l'overlay sotto `uiLayer` come ultimo sibling, sopra al GameOverPanel runtime) + `leaderboardPanel.runEndGame(score)`. Tutta la logica `qualifies → NameEntry → submit → board` vive in `LeaderboardPanel.runEndGame` (async, no-throw). Flag off o `leaderboardPanel` non bindato = comportamento invariato.
+**MainMenu:** pulsante LEADERBOARD → `MainMenu.onLeaderboard()` → `director.loadScene('Ranking')`. Per il flusso game-over vedi il Pivot sotto e la sezione "Pannelli fine partita" in cima al file (`_prepareLeaderboard` arma `pendingScore` senza navigare; `Continue` naviga).
 
-**MainMenu:** pulsante LEADERBOARD → `MainMenu.onLeaderboard()` → `director.loadScene('Ranking')`.
-
-### Pivot 2026-06-08 — Ranking è una SCENA dedicata (non più modale dal menu)
-L'approccio modale dal menu (`resources.load` + `getComponent`/duck-typing per istanziare l'overlay) si è rivelato inaffidabile sul deploy (bug irrisolto: il componente risolto era del nodo "Rank" senza `open`). **Soluzione**: una scena `Ranking.scene` con dentro una **PrefabInstance** di `LeaderboardPanel` — al load la istanzia il motore (path standard, affidabile).
-- `LeaderboardPanel` rileva `director.getScene()?.name === 'Ranking'` (costante `STANDALONE_SCENE`) → modalità **standalone**: `onLoad` NON nasconde; `start()` imposta `view.setDesignResolutionSize(720,1280,FIXED_HEIGHT)` e chiama `_showBoard()`; il tasto Close fa `director.loadScene('MainMenu')`.
-- Negli altri contesti (Game scene) il pannello resta **modale**: `onLoad` nasconde, `open()`/`runEndGame()` mostrano. Stessa classe, due comportamenti.
-- `md5Cache=true` aggiunto a `scripts/build.js` per evitare bundle (incl. `resources`) serviti da cache stale.
-- Prefab spostato in **`assets/resources/`** (loadabile via `resources.load('LeaderboardPanel')` per il path modale del game over).
+### Pivot 2026-06-08 — Ranking è una SCENA dedicata (stato finale v0.8.53)
+L'approccio modale dal menu (`resources.load` + `getComponent`/duck-typing) si è rivelato inaffidabile sul deploy. **Soluzione finale**: la leaderboard vive interamente nella scena `Ranking.scene` (LeaderboardPanel + NameEntry come nodi normali, istanziati dal motore al load — path standard, affidabile).
+- **Niente detection del nome scena**: `director.getScene().name` è `""` in `onLoad` nei build (gotcha in MEMO.md) — la detection `=== 'Ranking'` del primo pivot è stata rimossa in v0.8.53.
+- **Handoff dal game-over**: `GameManager._runLeaderboardFlow` fa `qualifies(score)` → se top-10 imposta lo **statico** `LeaderboardPanel.pendingScore` e fa `loadScene('Ranking')` (name-entry → submit → board). `LeaderboardPanel.start()` mostra name-entry se c'è uno score pendente, altrimenti la board; Close → `loadScene('MainMenu')`.
+- `md5Cache=true` in `scripts/build.js` per evitare bundle serviti da cache stale.
 
 **Stato/deploy**: deploy manuale su gh-pages (`npm run build` + `npm run deploy`). NIENTE build/deploy automatici (vedi memoria workflow). Firestore in test-mode.

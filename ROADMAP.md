@@ -1,6 +1,6 @@
 # Roadmap Tecnica — FunWarriors
 
-> Roadmap di sviluppo in Cocos Creator (TypeScript). Stima realistica part-time. Versione 0.5 — aggiornata 2026-05-09.
+> Roadmap di sviluppo in Cocos Creator (TypeScript). Stima realistica part-time. Aggiornata 2026-06-10 (v0.8.56).
 
 ## Stack tecnologico
 
@@ -187,8 +187,8 @@
 
 **Decisioni di design prese in Fase 2:**
 - Pista a **funnel** (imbuto): pareti inclinate, più strette in cima, con PolygonCollider2D
-- Layout pista **responsivo**: aspect ratio **500:700**, altezza = `min(75% vs.height, vs.width)` — replica `height: min(75%, 100vw); aspect-ratio: 500/700` del CSS; agganciata in basso, centrata; tutte le costanti derivano da `initLayout()` (Track.ts)
-- Flag **`LIVE_RESIZE`** (GameManager.ts): `true` in sviluppo — ricalcola layout e ricostruisce pista/muri in tempo reale al resize del browser
+- Layout pista **responsivo**: agganciata in basso, centrata; tutte le costanti derivano da `initLayout()` (Track.ts). *(Formula attuale: `TRACK_H = min(75% vs.height, 10/6 × 95% vs.width)`, `TRACK_W = TRACK_H × 6/10 × 1.2` — l'aspect 500:700 iniziale è stato superato; vedi COCOS.md)*
+- Flag **`LIVE_RESIZE`** (GameManager.ts): `true` anche in produzione (decisione 2026-06-10) — ricalcola layout e ricostruisce pista/muri in tempo reale al resize del browser
 - Lancio immediato (`waitForSettling = false`): il warrior successivo si attiva appena quello lanciato supera la linea
 - Rimbalzo oltre la linea → **game over** (non più malus a punteggio)
 - Momentum conservation al merge: 75% velocità media dei due warrior
@@ -196,7 +196,7 @@
 - Debug panel con PAUSE/RESUME, round ±, merge ±, SAVE/LOAD/RESET, palette drag-and-drop
 - **Tutti i posizionamenti relativi** alle costanti di Track — nessun valore hardcoded
 - Gerarchia scene: **GameLayer** (warriors, VFX, rope) + **UILayer** (HUD, overlay)
-- Warrior fermi: `settle()` imposta `linearDamping=12` — si muovono ma non schizzano
+- Warrior fermi: `settle()` imposta `linearDamping=16` (era 12, alzato 2026-05-11) — si muovono ma non schizzano
 - Preview NEXT: **bottom-left**, ancorata a `view.getVisibleSize()`
 - Loading screen HTML/CSS in `build-templates/web-mobile/index.html`, scompare al primo frame CC
 
@@ -329,7 +329,7 @@
 
 ---
 
-## Feature — Leaderboard globale (Firebase) *(in pianificazione, 2026-06-07)*
+## Feature — Leaderboard globale (Firebase) *(✅ implementata — v0.8.53, scena Ranking)*
 
 **Obiettivo**: classifica online con i **primi 10 punteggi**; l'utente inserisce **3 lettere** come nome. Pensata per la build standalone (GitHub Pages); sui portali si usa il leaderboard nativo, quindi è **disattivabile**.
 
@@ -355,9 +355,9 @@
 - [x] Integrazione flusso game over in `GameManager._runLeaderboardFlow` (qualifies → NameEntry → submit → classifica; flag off/unbound = invariato)
 - [x] Tasto LEADERBOARD nel MainMenu (`MainMenu.onLeaderboard` + `leaderboardButton`/`leaderboardPanel`)
 - [x] Robustezza rete (timeout per richiesta, no-throw end-to-end, stato "Caricamento…", guard doppio-confirm)
-- [ ] [manuale editor] Piazzare le istanze prefab in scena (Game: sotto UILayer → bind GameManager; MainMenu: + pulsante LEADERBOARD → bind)
-- [ ] Test end-to-end (Mock poi Firestore reale + rules)
-- [ ] Versioning (bump al prossimo serve) + deploy
+- [x] ~~Piazzare le istanze prefab in scena~~ — superato dal pivot: la leaderboard vive nella scena `Ranking` (v0.8.53)
+- [ ] Test end-to-end con rules v1 applicate (Firestore è ancora in **test-mode**)
+- [x] Deploy su GitHub Pages verificato dal vivo (v0.8.50+)
 
 > **BACKEND attuale: `firestore`** (config reale). Per sviluppo offline mettere `BACKEND='mock'` in `LeaderboardConfig.ts`.
 
@@ -400,9 +400,9 @@
 5. ~~**LevelBoost powerup**~~ ✅ riscritto come **AURA powerup** (v0.8.19) — forza repulsiva, warrior zappati diventano scintille colorate con volo cadenzato, evoluzione energetica sul target, round illimitati
 6. ~~**Smart bag spawn**~~ ✅ fatto (v0.7.1) — SpawnManager con bag Tetris-style + bias contestuale verso specie stranded + bias livello
 7. ~~**Track Cleared! bonus**~~ ✅ fatto (v0.8.1) — 1000×round, una volta per round, banner gold animato con sottotitolo
-8. **UI Fase 3**: ~~menu principale~~ ✅, ~~settings dialog~~ ✅, ~~tutorial~~ (rimosso); restano HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font Press Start 2P), schermata game over, pausa
+8. **UI Fase 3**: ~~menu principale~~ ✅, ~~settings dialog~~ ✅, ~~tutorial~~ (rimosso), ~~schermate game over/win/pausa~~ ✅ (prefab modali v0.8.56); restano HUD definitivo (~~contachilometri punteggio~~ ✅, round animato, timer 4 stati, font **MedievalSharp** sulle Label HUD)
 9. **Posizione NextPreview**: verificare e aggiustare nell'editor Cocos la posizione del nodo
 10. ~~**File audio mancanti**: `audio/sfx/draw.mp3` e `audio/sfx/win.mp3`~~ ✅ presenti
 11. **DebugPanel migrazione scena**: completare la palette di warrior drag-and-drop (ora solo rana lv1)
 12. **Condizione auto-attivazione AURA**: definire quando si attiva automaticamente (ora solo debug)
-13. **Leaderboard globale (Firebase)**: in pianificazione — vedi sezione dedicata. Decisioni: Firestore + rules-only + selettore arcade 3 lettere + flag `LEADERBOARD_ENABLED` con service astratto. Bloccato sul setup manuale del progetto Firebase + config.
+13. **Leaderboard globale (Firebase)**: ✅ implementata e deployata (scena Ranking, v0.8.53) — restano le rules v1 da applicare in console (Firestore è in test-mode) e un giro di test end-to-end. Vedi sezione dedicata.

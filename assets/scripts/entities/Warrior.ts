@@ -47,10 +47,12 @@ export class Warrior extends Component {
     onPsychoContact: ((source: Warrior, target: Warrior) => void) | null = null;
     onGenocideContact: ((source: Warrior, target: Warrior) => void) | null = null;
     genocideInfected: boolean = false;
+    // Cached in buildPhysics() — velocity is read dozens of times per frame in GameManager hot paths
+    private _rb: RigidBody2D | null = null;
 
     get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE; }
-    get velocity(): Vec2 { return this.getComponent(RigidBody2D)?.linearVelocity ?? new Vec2(0, 0); }
-    set velocity(v: Vec2) { const rb = this.getComponent(RigidBody2D); if (rb) rb.linearVelocity = v; }
+    get velocity(): Vec2 { return this._rb?.linearVelocity ?? new Vec2(0, 0); }
+    set velocity(v: Vec2) { if (this._rb) this._rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
     onBloodhoodContact: ((source: Warrior, target: Warrior) => void) | null = null;
@@ -74,7 +76,7 @@ export class Warrior extends Component {
     }
 
     playMergeOutEffect(targetX: number, targetY: number, duration: number): void {
-        const rb = this.getComponent(RigidBody2D);
+        const rb = this._rb;
         if (rb) { rb.type = ERigidBody2DType.Static; rb.linearVelocity = new Vec2(0, 0); }
         tween(this.node).to(duration, { position: new Vec3(targetX, targetY, 0) }).start();
         if (this.mapper) {
@@ -146,7 +148,17 @@ export class Warrior extends Component {
     }
 
     onDestroy(): void {
-        if (this.viewNode?.isValid) this.viewNode.destroy();
+        // Stop tweens targeting this warrior's node/mapper/sprite/opacity — component
+        // targets are not auto-stopped by the engine and would keep running after destroy.
+        Tween.stopAllByTarget(this.node);
+        if (this.mapper) Tween.stopAllByTarget(this.mapper);
+        if (this.viewNode?.isValid) {
+            const sp = this.viewNode.getComponent(Sprite);
+            if (sp) Tween.stopAllByTarget(sp);
+            const op = this.viewNode.getComponent(UIOpacity);
+            if (op) Tween.stopAllByTarget(op);
+            this.viewNode.destroy();
+        }
     }
 
     start() {
@@ -159,15 +171,15 @@ export class Warrior extends Component {
         this.launched = true;
         this.fired = true;
         this.hitOtherWarrior = false;
-        this.getComponent(RigidBody2D)?.applyLinearImpulseToCenter(impulse, true);
+        this._rb?.applyLinearImpulseToCenter(impulse, true);
     }
 
     applyForce(force: Vec2): void {
-        this.getComponent(RigidBody2D)?.applyForceToCenter(force, true);
+        this._rb?.applyForceToCenter(force, true);
     }
 
     settle(): void {
-        const rb = this.getComponent(RigidBody2D);
+        const rb = this._rb;
         if (!rb) return;
         rb.linearDamping  = Warrior.settledDamping;
         rb.angularDamping = 5;
@@ -175,7 +187,7 @@ export class Warrior extends Component {
     }
 
     resetPhysics(): void {
-        const rb = this.getComponent(RigidBody2D);
+        const rb = this._rb;
         if (rb) {
             rb.linearDamping  = Warrior.linearDamping;
             rb.angularDamping = 1.5;
@@ -189,7 +201,7 @@ export class Warrior extends Component {
     }
 
     forceStop(): void {
-        const rb = this.getComponent(RigidBody2D);
+        const rb = this._rb;
         if (!rb) return;
         rb.linearVelocity  = new Vec2(0, 0);
         rb.angularVelocity = 0;
@@ -197,7 +209,7 @@ export class Warrior extends Component {
     }
 
     setDragMode(on: boolean): void {
-        const rb = this.getComponent(RigidBody2D);
+        const rb = this._rb;
         if (!rb) return;
         rb.type            = on ? ERigidBody2DType.Static : ERigidBody2DType.Dynamic;
         rb.linearVelocity  = new Vec2(0, 0);
@@ -206,13 +218,13 @@ export class Warrior extends Component {
 
     private onBeginContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
-        const speed  = this.getComponent(RigidBody2D)!.linearVelocity.length();
+        const speed  = this._rb!.linearVelocity.length();
 
         if (!otherW) {
             if (this.launched || this.crossedLine) {
                 AudioManager.instance.play(SFX.BOUNCE, bounceVol(speed));
                 if (this.mapper && this.launched) {
-                    const vel = this.getComponent(RigidBody2D)!.linearVelocity;
+                    const vel = this._rb!.linearVelocity;
                     if (Math.abs(vel.x) > speed * 0.25) {
                         Tween.stopAllByTarget(this.mapper);
                         tween(this.mapper)
@@ -273,8 +285,8 @@ export class Warrior extends Component {
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
 
         // Snap: equalize velocities so they don't bounce apart
-        const rbA = this.getComponent(RigidBody2D)!;
-        const rbB = otherW.getComponent(RigidBody2D)!;
+        const rbA = this._rb!;
+        const rbB = otherW._rb!;
         const avgX = (rbA.linearVelocity.x + rbB.linearVelocity.x) / 2;
         const avgY = (rbA.linearVelocity.y + rbB.linearVelocity.y) / 2;
         rbA.linearVelocity = new Vec2(avgX, avgY);
@@ -406,6 +418,7 @@ export class Warrior extends Component {
 
     private buildPhysics(): void {
         const rb = this.node.addComponent(RigidBody2D);
+        this._rb = rb;
         rb.type = ERigidBody2DType.Dynamic;
         rb.linearDamping  = Warrior.linearDamping;
         rb.angularDamping = 1.5;

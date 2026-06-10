@@ -1,6 +1,7 @@
-import { _decorator, Component, Node, Label, Button, director, sys, view, ResolutionPolicy } from 'cc';
+import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy } from 'cc';
 import { AudioManager } from './AudioManager';
 import { VERSION } from './GameManager';
+import { SafeStorage } from '../utils/SafeStorage';
 
 const { ccclass, property } = _decorator;
 
@@ -32,7 +33,7 @@ export class MainMenu extends Component {
         AudioManager.instance.playMusic();
         AudioManager.instance.ensureMusic();
 
-        const best = parseInt(sys.localStorage.getItem(LS_BEST_SCORE) ?? '0', 10) || 0;
+        const best = parseInt(SafeStorage.get(LS_BEST_SCORE) ?? '0', 10) || 0;
         if (this.bestLabel)    this.bestLabel.string    = `Best Score\n${best}`;
         if (this.versionLabel) this.versionLabel.string = `v${VERSION}`;
 

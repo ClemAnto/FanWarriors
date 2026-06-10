@@ -51,6 +51,18 @@ export class GenocideSparkleEffect extends Component {
         if (this.node?.isValid) this.node.destroy();
     }
 
+    // Destroyed WITHOUT detach (warrior died): kill the repeatForever tweens on the
+    // warrior's sprite/mapper — they target components, so the engine won't stop them.
+    // After a normal detach() the restore tweens must keep running, hence the guard.
+    onDestroy(): void {
+        if (this._detaching) return;
+        this._vibTween?.stop();
+        this._vibTween = null;
+        const mapper = this._warrior?.mapper;
+        if (mapper) Tween.stopAllByTarget(mapper);
+        if (this._sprite) Tween.stopAllByTarget(this._sprite);
+    }
+
     private _startVFX(): void {
         const sp = this._warrior.viewNode?.getComponent(Sprite);
         if (sp) {

@@ -1,4 +1,5 @@
 import { _decorator, Component, AudioSource, AudioClip, resources, director, Node, sys } from 'cc';
+import { SafeStorage } from '../utils/SafeStorage';
 const { ccclass } = _decorator;
 
 /**
@@ -66,8 +67,8 @@ export class AudioManager extends Component {
         this._sfxSource    = this.node.addComponent(AudioSource);
         this._musicSource  = this.node.addComponent(AudioSource);
         this._musicSource.loop = true;
-        this.sfxMuted   = sys.localStorage.getItem(LS_SFX_MUTED)   === '1';
-        this.musicMuted = sys.localStorage.getItem(LS_MUSIC_MUTED)  === '1';
+        this.sfxMuted   = SafeStorage.get(LS_SFX_MUTED)   === '1';
+        this.musicMuted = SafeStorage.get(LS_MUSIC_MUTED) === '1';
         this._preloadAll();
     }
 
@@ -127,13 +128,13 @@ export class AudioManager extends Component {
 
     toggleSfx(): boolean {
         this.sfxMuted = !this.sfxMuted;
-        sys.localStorage.setItem(LS_SFX_MUTED, this.sfxMuted ? '1' : '0');
+        SafeStorage.set(LS_SFX_MUTED, this.sfxMuted ? '1' : '0');
         return this.sfxMuted;
     }
 
     toggleMusic(): boolean {
         this.musicMuted = !this.musicMuted;
-        sys.localStorage.setItem(LS_MUSIC_MUTED, this.musicMuted ? '1' : '0');
+        SafeStorage.set(LS_MUSIC_MUTED, this.musicMuted ? '1' : '0');
         this._musicSource.volume = this.musicMuted ? 0 : this.musicVolume;
         return this.musicMuted;
     }

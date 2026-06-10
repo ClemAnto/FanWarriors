@@ -193,7 +193,7 @@ Canvas
 | `TRACK_H` | 960 | `min(75% altezza, (10/6) × 95% larghezza)` |
 | `TRACK_BOTTOM_Y` | -640 | `-height / 2` |
 | `TRACK_TOP_Y` | 320 | `TRACK_BOTTOM_Y + TRACK_H` |
-| `GAME_OVER_LINE_Y` | -160 | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` |
+| `GAME_OVER_LINE_Y` | -160 | `(TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2` — solo fallback: la soglia reale di game-over deriva dal nodo editor `GameOverLine` (vedi TECH.md v0.8.41) |
 | `FUNNEL_OFFSET` | 72 | `TRACK_W × funnelPct / 200` (a 25%) |
 | Timer Y | -544 | `TRACK_BOTTOM_Y + (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) × 0.2` |
 

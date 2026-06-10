@@ -24,7 +24,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 - Età: **8-14 anni** (sweet spot Poki), gender-neutral
 - Dispositivi: desktop + mobile + tablet
 - Orientamento: **portrait primario** (720×1280), landscape come adattamento
-- Layout pista: aspect ratio **500:700**, altezza = min(75% altezza schermo, 100% larghezza schermo), agganciata in basso al centro — si adatta a qualsiasi viewport senza bande nere
+- Layout pista: altezza = `min(75% altezza schermo, 10/6 × 95% larghezza)`, larghezza = `altezza × 6/10 × 1.2` (≈691px a design 720×1280 — vedi `initLayout()` in Track.ts e COCOS.md), agganciata in basso al centro — si adatta a qualsiasi viewport senza bande nere
 - Sessioni attese: **2-20 minuti** per partita, "una partita ancora" effect
 
 ## 5. Loop di gioco
@@ -33,7 +33,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 2. Il giocatore vede un personaggio in attesa di lancio (bottom center) e l'anteprima del prossimo (NEXT)
 3. Mira con drag (angolo + forza visualizzati come freccia)
 4. Rilascia → il personaggio scivola sulla pista
-5. La pista è in **leggera salita verso il fondo (alto)**: l'attrito + gravità rallentano e fermano il personaggio in alto
+5. La pista è in **leggera salita verso il fondo (alto)** (finzione visiva): il damping rallenta e ferma il personaggio in alto — nessuna gravità fisica (vedi §9)
 6. Personaggi dello stesso tipo+livello che si trovano vicini si **attraggono magneticamente** (raggio corto)
 7. Dopo qualche centinaio di millisecondi di contatto, **due personaggi uguali si fondono** al centro nella loro evoluzione successiva
 8. Il giocatore continua a lanciare, accumulando punti per ogni merge
@@ -250,7 +250,7 @@ Il timer è **poco visibile quando il tempo è abbondante** e si accende progres
 ### Magnetismo
 - Attivo **esclusivamente** tra personaggi che possono fondersi: **stessa specie E stesso livello evolutivo**
 - Nessuna attrazione tra specie diverse o livelli diversi, anche se visivamente vicini
-- Raggio: ~75px (fisso, non scala con la dimensione del warrior)
+- Raggio: gap **superficie-superficie** di ~30px (scalato col layout) — non centro-centro, così funziona a qualsiasi livello/dimensione (dettagli in MEMO.md)
 - Forza: **quadratica con la prossimità** — quasi impercettibile a distanza, molto più forte a contatto ravvicinato; evita il "teletrasporto" mantenendo l'effetto di aggancio
 - Soglia di merge: dopo **~300ms di contatto continuo**, fusione
 - Nuovo personaggio appare al **centro geometrico** dei due fondenti, con piccola animazione di scale-up + flash
@@ -266,7 +266,7 @@ La linea di game over è visualizzata come **nastro rosso** orizzontale a metà 
 
 ### Rimbalzo oltre la linea
 
-Se un personaggio già in gioco, a seguito di rimbalzi, **riattraversa completamente la linea dall'alto verso il basso** (il bordo superiore del cerchio scende sotto `GAME_OVER_LINE_Y`):
+Se un personaggio già in gioco, a seguito di rimbalzi, **riattraversa la linea dall'alto verso il basso** (il **centro** del cerchio resta sotto la linea per 3 frame consecutivi — filtro anti-jitter, vedi TECH.md):
 - Causa **game over immediato** (stessa conseguenza del mancato attraversamento dal basso)
 - **Feedback visivo**: flash rosso semitrasparente (~0.3s) prima della schermata di game over
 
@@ -278,11 +278,11 @@ Se un personaggio già in gioco, a seguito di rimbalzi, **riattraversa completam
 ## 11. UI / HUD
 
 ### In partita
-- **Top-left**: punteggio corrente + MERGES
-- **Top-right**: round + pulsante fullscreen
-- **Bottom-center**: personaggio in attesa di lancio + freccia di mira + timer
-- **Bottom-left**: anteprima NEXT (prossimo personaggio)
-- **Mid-pista**: nastro rosso (linea game over, `GAME_OVER_LINE_Y = −80`)
+- **Top-left**: punteggio corrente
+- **Top-right**: round (con ring di progresso merge)
+- **Bottom-center**: personaggio in attesa di lancio (balestra) + traiettoria + timer
+- **NEXT**: anteprima prossimo personaggio, nodo `NextPreview` figlio di Track (tap = swap col launcher)
+- **Mid-pista**: nastro rosso (linea game over) — quota definita dal nodo editor `GameOverLine`, non da una costante (vedi TECH.md)
 
 ### Animazione del round
 Quando il round avanza, il numero del round nel HUD fa un breve effetto per segnalare il cambio: scale-up → bounce → ritorno a dimensione normale, con un flash leggero sul testo. Dura ~0.5s.
@@ -294,10 +294,10 @@ Ad ogni merge il punteggio nel HUD non salta al valore finale, ma **si increment
 - Durante lo scroll il testo del punteggio può avere un leggero glow o pulse per attirare l'attenzione
 
 ### Schermate
-- **Splash/menu**: titolo, "Gioca", "Come si gioca", "Crediti"
-- **Game over**: punteggio, miglior punteggio, round raggiunto, "Riprova", "Menu"
-- **Tutorial**: 3-4 popup contestuali alla prima partita (mira, lancio, merge, game over)
-- **Pause**: settings + riprendi + esci
+- **Splash/menu** (`MainMenu.scene`): titolo, PLAY, LEADERBOARD, Best Score, versione
+- **Game over / Victory** (prefab modali, `EndPanel`): Score, Round, Best (o NEW BEST), **un solo pulsante Continue** → leaderboard (se attiva) → menu
+- **Pause** (prefab modale, `PausePanel`): Resume, Restart, Menu
+- ~~Tutorial popup~~ — rimosso in v0.8.22
 
 ## 12. Audio
 
@@ -400,8 +400,8 @@ Powerup attivabile via debug (futuro: condizione automatica). Ha precedenza su B
 - Si attiva sul warrior in rampa tramite pulsante AURA nel debug panel
 - VFX: anello esterno arancione (r×3.8), anello interno giallo pulsante (r×2.4), cerchio d'influenza schiacciato 50% verticalmente (prospettiva)
 - Scintille dorate emesse ogni 0.12s attorno al warrior
-- Al lancio parte il timer di 5 secondi (`AURA_DURATION`)
-- L'aura svanisce immediatamente quando il warrior **si ferma** (`settled = true`); il sistema rimane attivo ancora **1 secondo** per consentire alle ultime scintille di partire, poi si spegne
+- Al lancio parte il timer di **1.5 secondi** (`AURA_DURATION`), allo scadere l'aura si stacca (fade-out)
+- L'aura **non** si spegne quando il warrior si ferma (`settled`) — il timer è l'unica scadenza (fix 2026-05-26, vedi MEMO); gli effetti zap già in propagazione continuano fino al completamento
 
 ### Forza repulsiva
 
@@ -461,12 +461,11 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 
 | Parametro | Valore | File |
 |-----------|--------|------|
-| `AURA_DURATION` | 5.0s | `AuraEffect.ts` |
+| `AURA_DURATION` | 1.5s | `AuraEffect.ts` |
 | `AURA_REPEL_RANGE` | 160 px (baseline Dragon) | `GameManager.ts` — range quadratico (v0.8.55): `160 × ((type+1)/7)²` |
 | `AURA_REPEL_FORCE` | 500 px | `GameManager.ts` |
 | `AURA_ZAPP_HOLD` | 0.2s | `GameManager.ts` |
 | `AURA_ZAP_MIN_TYPE` | 2 (v0.8.55) | `GameManager.ts` — sotto questa specie solo repulsione, niente zap |
-| Settle delay prima dello spegnimento | 1.0s | `GameManager.ts` update loop |
 | Stagger primo gap | 500ms | formula `1.25×(1−0.6^i)` s |
 | Dimensione scintilla | `120 × energy^0.35` px | `GameManager.ts _zappWarrior` |
 | Trail dot size | 112px | `GameManager.ts _flySparkToTarget` |
@@ -477,7 +476,7 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 - Aura inner: sprite `aura.png`, r×2.4, `Color(255,220,55)`, opacità 140, pulse ±20%
 - Range ring: r×2 wide, height=r (50% squish), `Color(255,200,60)`, opacità **12** (molto trasparente), pulse ±6%; ampiezza range dipende dalla specie: `_auraRangeForType(type) = 160 × ((type+1)/7)²` px (Dragon = 160px baseline, scaling quadratico v0.8.55)
 - Scintille: sprite `sparkle.png`, ogni 0.12s, palette arancio/oro
-- Scintilla zap: sprite `sparkle.png`, colore specie sorgente, additive blend; **twinkle**: pulse opacità 230↔135 ogni 0.22s (shimmer durante salita e volo)
+- Scintilla zap: sprite `sparkle.png`, colore specie sorgente, additive blend; **twinkle**: pulse opacità 230↔135, 0.11s per step (ciclo 0.22s — shimmer durante salita e volo)
 - Trail: dot `sparkle.png` 112px, stessa tinta scintilla, fade 0.22s
 
 ---
@@ -492,7 +491,7 @@ Il BH si attiva sul warrior in rampa **solo se tutte e tre le condizioni sono so
 
 1. **≥ 8 warrior della stessa specie del launcher** sono già in pista (`crossedLine = true`)
 2. **Cooldown 10 tiri** — devono essere passati almeno 10 lanci dall'ultimo BH
-3. **Nessun altro powerup sul launcher** — il launcher non deve avere un `levelBoost` attivo
+3. **Nessun altro powerup sul launcher** — il launcher non deve avere un'aura *(ex levelBoost)* attiva
 
 ### Flusso BHS
 
@@ -516,12 +515,26 @@ Il BH si attiva sul warrior in rampa **solo se tutte e tre le condizioni sono so
 
 ---
 
+## 17. PsychoForce e Genocide Powerup
+
+> Specifiche operative complete in MEMO.md (sezioni "PsychoForce Powerup" e "Genocide Powerup"). Qui solo il design.
+
+### PsychoForce (v0.8.9)
+
+Powerup "jolly": crea spazio prima della endline permettendo **merge cross-species** per 5 secondi. Il launcher con PF, al contatto con un warrior in pista, contagia a cascata i warrior in una fascia orizzontale (±35% `TRACK_W` attorno alla Y di contatto). I warrior infetti (tinta ciano) possono fondersi con specie diverse di pari livello; il tipo risultante è quello del warrior **non** portatore. L'infezione scade dopo 5s (`EXPIRE_SECS`). BH e PF sono mutuamente esclusivi.
+
+### Genocide (v0.8.55)
+
+Powerup automatico anti-affollamento: con **≥ 25 warrior in pista** (e doppio cooldown: 10 lanci **e** 10 merge dall'ultimo trigger) il launcher porta l'effetto Genocide; al primo contatto scatena una **cascata di implosioni** su tutti i warrior dello stesso tipo del bersaglio, ognuna con punti + vortice attrattivo. Non crea merge sopra il maxLevel di specie.
+
+---
+
 ## 18. Out of scope per la v1
 
 Per mantenere lo scope realistico, **NON** includiamo nella v1:
 - Multiplayer
 - Skin/cosmetics
-- Achievements/leaderboard cloud
+- ~~Achievements/leaderboard cloud~~ → la **leaderboard Firebase è stata implementata** (top-10, scena Ranking, spegnibile via `LEADERBOARD_ENABLED` per i portali); restano fuori gli achievements
 - Eventi stagionali
 - Pubblicità rewarded (solo banner/interstitial Poki SDK base)
 - Personalizzazione personaggi

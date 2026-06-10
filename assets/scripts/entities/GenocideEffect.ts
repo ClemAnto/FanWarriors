@@ -50,6 +50,22 @@ export class GenocideEffect extends Component {
         this._fadeOut();
     }
 
+    // Tweens targeting UIOpacity/child nodes are NOT auto-stopped by the engine when
+    // this node dies with its warrior (destroy without detach) — stop them here.
+    onDestroy(): void {
+        this._fadeInTweenOuter?.stop();
+        this._fadeInTweenInner?.stop();
+        this._pulseTween?.stop();
+        this._fadeInTweenOuter = null;
+        this._fadeInTweenInner = null;
+        this._pulseTween = null;
+        for (const op of [this._outerOp, this._innerOp]) {
+            if (!op) continue;
+            Tween.stopAllByTarget(op);
+            if (op.node) Tween.stopAllByTarget(op.node);
+        }
+    }
+
     private _startVFX(glowFrame: SpriteFrame | null): void {
         const r = this._radius;
 

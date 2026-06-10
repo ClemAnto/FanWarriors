@@ -61,6 +61,7 @@ export class NameEntry extends Component {
     open(score: number, onConfirm: (name: string) => void): void {
         this._onConfirm = onConfirm;
         this._idx = new Array(NAME_LEN).fill(0);
+        if (this.confirmButton) this.confirmButton.interactable = true;
         if (this.scoreLabel) this.scoreLabel.string = String(score);
         this._refresh();
         const dlg = this._dialog;
@@ -91,10 +92,12 @@ export class NameEntry extends Component {
     }
 
     private _confirm(): void {
+        if (!this._onConfirm) return; // already confirmed (double-click during close fade)
+        if (this.confirmButton) this.confirmButton.interactable = false;
         const name = Array.from({ length: NAME_LEN }, (_, i) => NAME_ALPHABET[this._idx[i] ?? 0]).join('');
         const cb = this._onConfirm;
         this._onConfirm = null; // guard against double-fire
         this.close();
-        cb?.(name);
+        cb(name);
     }
 }

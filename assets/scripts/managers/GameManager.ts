@@ -2,6 +2,7 @@ import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
+import { SafeStorage } from '../utils/SafeStorage';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
@@ -24,7 +25,7 @@ import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.56';
+export const VERSION     = '0.8.57';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -34,7 +35,7 @@ const END_PANEL_DELAY    = 1.0;
 const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const SHOW_ENDLINE_DEBUG = false;  // set true to draw the purple dashed game-over threshold line (debug)
-const LIVE_RESIZE        = true;   // set false in production — enables real-time relayout on browser resize
+const LIVE_RESIZE        = true;   // real-time relayout on browser resize — kept on in production too (negligible cost, fires only on resize)
 const TEST_FIRST_LAUNCH_GAMEOVER = false; // TEST: first launch forces game-over @15k to exercise the leaderboard flow
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
 const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
@@ -407,7 +408,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.initHud();
             this._wirePanels();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
-            this.bestScore = parseInt(sys.localStorage.getItem('fw_best_score') ?? '0', 10) || 0;
+            this.bestScore = parseInt(SafeStorage.get('fw_best_score') ?? '0', 10) || 0;
 
             const restoring = GameManager._pendingRestore;
             GameManager._pendingRestore = false;
@@ -535,11 +536,11 @@ export class GameManager extends Component implements IGameManagerDebug {
             round: this.currentRound,
             totalMerges: this.totalMerges,
         };
-        sys.localStorage.setItem('fw_debug_state', JSON.stringify(state));
+        SafeStorage.set('fw_debug_state', JSON.stringify(state));
     }
 
     loadDebugState(): void {
-        const raw = sys.localStorage.getItem('fw_debug_state');
+        const raw = SafeStorage.get('fw_debug_state');
         if (!raw) { console.warn('[GameManager] debug: no saved state'); return; }
         const state = JSON.parse(raw) as { warriors: { type: number; level: number; x: number; y: number }[]; round: number; totalMerges: number };
 
@@ -1386,7 +1387,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._newBest = this.bestScore > 0 && this.score > this.bestScore && this.score > NEW_BEST_MIN_SCORE;
             if (this.score > this.bestScore) {
                 this.bestScore = this.score;
-                sys.localStorage.setItem('fw_best_score', String(this.bestScore));
+                SafeStorage.set('fw_best_score', String(this.bestScore));
             }
             this._logSpawnReport();
         } catch (e) {
@@ -1428,7 +1429,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._newBest = this.bestScore > 0 && this.score > this.bestScore && this.score > NEW_BEST_MIN_SCORE;
         if (this.score > this.bestScore) {
             this.bestScore = this.score;
-            sys.localStorage.setItem('fw_best_score', String(this.bestScore));
+            SafeStorage.set('fw_best_score', String(this.bestScore));
         }
 
         // Cascade-explode all warriors in play, scoring 50×level each
@@ -1677,7 +1678,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._pfActive.has(w)) {
             const sp = this._pfActive.get(w) ?? null;
             this._pfActive.delete(w);
-            if (sp?.node?.isValid) tween(sp).to(0.25, { color: new Color(255, 255, 255, 255) }).start();
+            if (sp?.node?.isValid) {
+                Tween.stopAllByTarget(sp);
+                tween(sp).to(0.25, { color: new Color(255, 255, 255, 255) }).start();
+            }
         } else {
             w.psychoForce?.detach(); // launcher: rimuove PsychoForceEffect
         }
@@ -1700,7 +1704,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Tinta ciano direttamente sullo sprite del warrior (no overlay)
         const sp = target.viewNode?.getComponent(Sprite) ?? null;
-        if (sp) tween(sp).to(0.25, { color: new Color(0, 200, 255, 255) }).start();
+        if (sp) {
+            Tween.stopAllByTarget(sp);
+            tween(sp).to(0.25, { color: new Color(0, 200, 255, 255) }).start();
+        }
 
         // psychoForce stub: serve per abilitare merge cross-specie e per il check cleanup
         target.psychoForce = { detach: () => {}, resetTimer: () => {} };
@@ -2625,7 +2632,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     /** Rebuild the board from the saved snapshot. Returns false (→ fresh game) if none/invalid. */
     private _restoreSnapshot(): boolean {
-        const raw = sys.localStorage.getItem(STATE_KEY);
+        const raw = SafeStorage.get(STATE_KEY);
         if (!raw) return false;
         let snap: GameSnapshot;
         try { snap = JSON.parse(raw) as GameSnapshot; } catch { return false; }

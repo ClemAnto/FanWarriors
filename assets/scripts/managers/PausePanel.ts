@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Button, UIOpacity, tween } from 'cc';
+import { _decorator, Component, Node, Button, UIOpacity, tween, Tween } from 'cc';
 
 const { ccclass, property } = _decorator;
 
@@ -27,6 +27,7 @@ export class PausePanel extends Component {
     onMenu:    (() => void) | null = null;
 
     private _op: UIOpacity | null = null;
+    private _closing = false;
 
     get isOpen(): boolean { return this.node.active; }
 
@@ -41,9 +42,11 @@ export class PausePanel extends Component {
 
     /** Show the panel (fade in). Game pausing is handled by the caller before this. */
     open(): void {
-        if (this.node.active) return;
+        if (this.node.active && !this._closing) return;
+        this._closing = false;
         this.node.active = true;
         if (this._op) {
+            Tween.stopAllByTarget(this._op);
             this._op.opacity = 0;
             tween(this._op).to(0.2, { opacity: 255 }).start();
         }
@@ -51,9 +54,15 @@ export class PausePanel extends Component {
 
     /** Hide the panel (fade out), then fire onResume. */
     close(): void {
-        if (!this.node.active) return;
-        const done = (): void => { this.node.active = false; this.onResume?.(); };
+        if (!this.node.active || this._closing) return;
+        const done = (): void => { this._closing = false; this.node.active = false; this.onResume?.(); };
         if (!this._op) { done(); return; }
+        this._closing = true;
+        Tween.stopAllByTarget(this._op);
         tween(this._op).to(0.2, { opacity: 0 }).call(done).start();
+    }
+
+    onDestroy(): void {
+        if (this._op) Tween.stopAllByTarget(this._op);
     }
 }

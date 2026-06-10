@@ -40,4 +40,4 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 2 — Core gameplay completo, layout responsivo stabile. GUI HUD posizionata con Widget responsive (UILayer/HUD fullscreen + figli con offset dagli angoli).
+Fase 3 — Asset definitivi e UI (v0.8.5x). Core gameplay completo e stabile; sprite reali, pannelli modali end-game (pause/gameover/win), leaderboard Firebase (scena Ranking), powerup Aura/BloodHood/PsychoForce/Genocide. GUI HUD con Widget responsive (UILayer/HUD fullscreen + figli con offset dagli angoli).

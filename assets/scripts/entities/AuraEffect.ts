@@ -50,6 +50,18 @@ export class AuraEffect extends Component {
         this._fadeOut();
     }
 
+    // Tweens targeting UIOpacity/child nodes are NOT auto-stopped by the engine when
+    // this node dies with its warrior (destroy without detach) — stop them here.
+    onDestroy(): void {
+        this._pulseTween?.stop();
+        this._pulseTween = null;
+        for (const op of [this._outerOp, this._innerOp, this._rangeOp]) {
+            if (!op) continue;
+            Tween.stopAllByTarget(op);
+            if (op.node) Tween.stopAllByTarget(op.node);
+        }
+    }
+
     private _build(radius: number, auraFrame: SpriteFrame | null, repelRange = 0): void {
         const makeRing = (name: string, size: number, color: Color, targetOp: number, fadeTime: number) => {
             const n = new Node(name);

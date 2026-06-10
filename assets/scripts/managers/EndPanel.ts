@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Button, UIOpacity, tween, Vec3 } from 'cc';
+import { _decorator, Component, Node, Label, Button, UIOpacity, tween, Tween, Vec3 } from 'cc';
 
 const { ccclass, property } = _decorator;
 
@@ -55,9 +55,15 @@ export class EndPanel extends Component {
             if (newBest) this._pulse(this.newBestNode);
         }
         if (this._op) {
+            Tween.stopAllByTarget(this._op);
             this._op.opacity = 0;
             tween(this._op).to(2.0, { opacity: 255 }).start();
         }
+    }
+
+    onDestroy(): void {
+        if (this._op) Tween.stopAllByTarget(this._op);
+        if (this.newBestNode) Tween.stopAllByTarget(this.newBestNode);
     }
 
     private _pulse(n: Node): void {
