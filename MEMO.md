@@ -784,7 +784,7 @@ Stato 2026-06-10: build **14,9 MB** (era 44,3). Come ci si resta:
 
 ## Deploy su GitHub Pages
 
-Il deploy Netlify è sospeso (quota esaurita). Deploy attivo su **GitHub Pages**:
+Deploy attivo su **GitHub Pages** (Netlify rimosso del tutto il 2026-06-10 — file, config e CLI):
 
 ```powershell
 npm run deploy   # scripts/deploy.js — inietta versione + pusha su branch gh-pages

@@ -174,6 +174,6 @@ export class FirestoreLeaderboard implements LeaderboardService {
                 version: String(d?.version ?? ''),
                 createdAt: Number(d?.createdAt ?? 0),
             }))
-            .sort((a, b) => b.score - a.score || a.createdAt - b.createdAt);
+            .sort((a: LeaderboardEntry, b: LeaderboardEntry) => b.score - a.score || a.createdAt - b.createdAt);
     }
 }

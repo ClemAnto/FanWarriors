@@ -22,6 +22,4 @@ logs/
 
 # Node (se userai npm tools)
 node_modules/
-# Local Netlify folder
-.netlify
 source
