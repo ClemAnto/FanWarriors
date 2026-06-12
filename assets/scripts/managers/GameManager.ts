@@ -28,7 +28,7 @@ import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConf
 import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.64';
+export const VERSION     = '0.8.65';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
