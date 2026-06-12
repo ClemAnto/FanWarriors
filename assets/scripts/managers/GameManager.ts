@@ -28,7 +28,7 @@ import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConf
 import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.9.0';
+export const VERSION     = '0.9.1';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -3080,7 +3080,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.timerLabel.color = secs <= 5
             ? new Color(255, 80, 80, 255)
             : new Color(200, 200, 200, 200);
-        if (secs <= 5 && secs > 0 && secs !== this._lastTickSec) {
+        // With short round timers (≤5s total) a 5s threshold would tick for the whole
+        // turn — restrict the tick to the final 2 seconds in that case.
+        const tickFrom = launchTimerForRound(this.currentRound) <= 5 ? 2 : 5;
+        if (secs <= tickFrom && secs > 0 && secs !== this._lastTickSec) {
             this._lastTickSec = secs;
             AudioManager.instance.play(SFX.TIMER_TICK);
         }

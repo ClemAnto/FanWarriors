@@ -1,7 +1,11 @@
 import { _decorator, Component, Node, Button, Label, UIOpacity, tween } from 'cc';
 import { NAME_ALPHABET, NAME_LEN } from '../config/LeaderboardConfig';
+import { SafeStorage } from '../utils/SafeStorage';
 
 const { ccclass, property } = _decorator;
+
+/** Last confirmed initials — preloaded as the default on the next entry. */
+const LAST_NAME_KEY = 'fw_lb_last_name';
 
 /**
  * Arcade-style name entry: NAME_LEN slots, each an A–Z letter cycled with an
@@ -60,7 +64,7 @@ export class NameEntry extends Component {
      */
     open(score: number, onConfirm: (name: string) => void): void {
         this._onConfirm = onConfirm;
-        this._idx = new Array(NAME_LEN).fill(0);
+        this._idx = this._loadLastName() ?? new Array(NAME_LEN).fill(0);
         if (this.confirmButton) this.confirmButton.interactable = true;
         if (this.scoreLabel) this.scoreLabel.string = String(score);
         this._refresh();
@@ -95,9 +99,18 @@ export class NameEntry extends Component {
         if (!this._onConfirm) return; // already confirmed (double-click during close fade)
         if (this.confirmButton) this.confirmButton.interactable = false;
         const name = Array.from({ length: NAME_LEN }, (_, i) => NAME_ALPHABET[this._idx[i] ?? 0]).join('');
+        SafeStorage.set(LAST_NAME_KEY, name);
         const cb = this._onConfirm;
         this._onConfirm = null; // guard against double-fire
         this.close();
         cb(name);
+    }
+
+    /** Slot indices for the last confirmed initials, or null if absent/invalid. */
+    private _loadLastName(): number[] | null {
+        const saved = SafeStorage.get(LAST_NAME_KEY);
+        if (!saved || saved.length !== NAME_LEN) return null;
+        const idx = [...saved].map(ch => NAME_ALPHABET.indexOf(ch));
+        return idx.every(i => i >= 0) ? idx : null;
     }
 }
