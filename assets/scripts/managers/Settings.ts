@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Toggle, Button, UIOpacity, tween, sys, instantiate, Label, UITransform } from 'cc';
+import { _decorator, Component, Node, Toggle, Button, UIOpacity, tween, sys, instantiate, Label, UITransform, Widget } from 'cc';
 import { AudioManager } from './AudioManager';
 import { SafeStorage } from '../utils/SafeStorage';
 
@@ -30,8 +30,8 @@ export class Settings extends Component {
     menuButton: Node | null = null;
     @property({ type: Node, tooltip: 'Button that closes this dialog.' })
     closeButton: Node | null = null;
-    @property({ type: Node, tooltip: 'Optional pre-made "Restart" button. If unset, one is cloned from closeButton when onRestart is provided (Game scene only).' })
-    restartButton: Node | null = null;
+    @property({ type: Node, tooltip: 'Optional pre-made "Quit" button. If unset, one is cloned from closeButton when onQuit is provided (Game scene only).' })
+    quitButton: Node | null = null;
     @property({ type: Toggle, tooltip: 'Vibration on/off.' })
     vibrToggle: Toggle | null = null;
     @property({ type: Toggle, tooltip: 'SFX on/off.' })
@@ -45,12 +45,13 @@ export class Settings extends Component {
     canOpen:      (() => boolean) | null = null;
     onBeforeOpen: (() => void)    | null = null;
     onAfterClose: (() => void)    | null = null;
-    /** Restart the current game. Set by GameManager (Game scene only); null in MainMenu → no button. */
-    onRestart:    (() => void)    | null = null;
+    /** Quit the current game and return to the menu. Set by GameManager (Game scene only); null in MainMenu → no button. */
+    onQuit:       (() => void)    | null = null;
 
     private _op: UIOpacity | null = null;
     private _syncing = false;
-    private _restartBtn: Node | null = null;
+    private _quitBtn: Node | null = null;
+    private _quitArmed = false;
 
     /** Shared source of truth for the vibration preference. */
     static get vibrationEnabled(): boolean {
@@ -77,9 +78,9 @@ export class Settings extends Component {
             this.closeButton.getComponent(Button) ?? this.closeButton.addComponent(Button);
             this.closeButton.on(Button.EventType.CLICK, this.close, this);
         }
-        if (this.restartButton) {
-            this.restartButton.getComponent(Button) ?? this.restartButton.addComponent(Button);
-            this.restartButton.on(Button.EventType.CLICK, this._doRestart, this);
+        if (this.quitButton) {
+            this.quitButton.getComponent(Button) ?? this.quitButton.addComponent(Button);
+            this.quitButton.on(Button.EventType.CLICK, this._doQuit, this);
         }
 
         this.vibrToggle?.node.on('toggle',  () => { if (!this._syncing) this._toggleVibration(); }, this);
@@ -99,9 +100,10 @@ export class Settings extends Component {
         if (this.canOpen && !this.canOpen()) return;
         this.onBeforeOpen?.();
         dlg.active = true;
-        this._ensureRestartButton();
-        const restartNode = this.restartButton ?? this._restartBtn;
-        if (restartNode) restartNode.active = !!this.onRestart;
+        this._ensureQuitButton();
+        this._disarmQuit();
+        const quitNode = this.quitButton ?? this._quitBtn;
+        if (quitNode) quitNode.active = !!this.onQuit;
         this._syncToggles();
         if (this._op) {
             this._op.opacity = 0;
@@ -126,34 +128,59 @@ export class Settings extends Component {
             .start();
     }
 
-    private _doRestart(): void {
-        if (!this.onRestart) return;
-        const restart = this.onRestart;
+    /** Two-step confirm: first click arms the button ("Sure?"), second click quits to the menu. */
+    private _doQuit(): void {
+        if (!this.onQuit) return;
+        if (!this._quitArmed) {
+            this._quitArmed = true;
+            const lbl = (this.quitButton ?? this._quitBtn)?.getComponentInChildren(Label);
+            if (lbl) lbl.string = 'Sure?';
+            return;
+        }
+        const quit = this.onQuit;
         this.close();
-        restart();
+        quit();
+    }
+
+    /** Reset the quit confirmation state and restore the button label. */
+    private _disarmQuit(): void {
+        if (!this._quitArmed) return;
+        this._quitArmed = false;
+        const lbl = (this.quitButton ?? this._quitBtn)?.getComponentInChildren(Label);
+        if (lbl) lbl.string = 'Quit';
     }
 
     /**
-     * Build a "Ricomincia" button by cloning closeButton the first time the dialog opens with
-     * an onRestart hook set (Game scene only). No-op if a dedicated restartButton was assigned
-     * in the editor, or if there's no closeButton to clone, or in MainMenu (onRestart null).
+     * Build a "Quit" button by cloning closeButton the first time the dialog opens with
+     * an onQuit hook set (Game scene only). No-op if a dedicated quitButton was assigned
+     * in the editor, or if there's no closeButton to clone, or in MainMenu (onQuit null).
      */
-    private _ensureRestartButton(): void {
-        if (this._restartBtn || this.restartButton || !this.onRestart || !this.closeButton) return;
+    private _ensureQuitButton(): void {
+        if (this._quitBtn || this.quitButton || !this.onQuit || !this.closeButton) return;
         const cb    = this.closeButton;
         const clone = instantiate(cb);
-        clone.name  = 'RestartButton';
+        clone.name  = 'QuitButton';
         clone.setParent(cb.parent);
-        // Sit just above the close button (clone shares its parent space, scale and styling).
-        const uit = cb.getComponent(UITransform);
-        const dy  = (uit ? uit.contentSize.height : 40) * cb.scale.y * 1.4;
-        const p   = cb.position;
-        clone.setPosition(p.x, p.y + dy, p.z);
+        // The source button's Widget (alignMode ALWAYS, pinned to the panel bottom) would snap
+        // the clone back on top of the original. destroy() alone is deferred to end-of-frame,
+        // so the Widget would still align once AFTER our setPosition — disable it right away.
+        const w = clone.getComponent(Widget);
+        if (w) { w.enabled = false; w.destroy(); }
+        // Side by side: the close button sits left of center (editor Widget), the clone mirrors
+        // it on the right. If close is centered (no room beside it), stack the clone above instead.
+        const p = cb.position;
+        if (Math.abs(p.x) > 1) {
+            clone.setPosition(-p.x, p.y, p.z);
+        } else {
+            const uit = cb.getComponent(UITransform);
+            const dy  = (uit ? uit.contentSize.height : 40) * cb.scale.y * 1.4;
+            clone.setPosition(p.x, p.y + dy, p.z);
+        }
         const lbl = clone.getComponentInChildren(Label);
-        if (lbl) { lbl.string = 'Restart'; lbl.overflow = Label.Overflow.SHRINK; }
+        if (lbl) { lbl.string = 'Quit'; lbl.overflow = Label.Overflow.SHRINK; }
         clone.getComponent(Button) ?? clone.addComponent(Button);
-        clone.on(Button.EventType.CLICK, this._doRestart, this);
-        this._restartBtn = clone;
+        clone.on(Button.EventType.CLICK, this._doQuit, this);
+        this._quitBtn = clone;
     }
 
     private _syncToggles(): void {

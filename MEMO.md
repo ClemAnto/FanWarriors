@@ -203,6 +203,9 @@ Con Widget ALWAYS e allineamento TOP, il motore calcola la posizione del centro 
 `y_center = parent.height/2 - widget_top - nodeHeight * anchorY`
 Se il nodo figlio ha una UITransform height sproporzionata (es. 680 invece di 80), il centro scende di `(680-80)*0.5 = 300px` rispetto al previsto. Controllare sempre la `_contentSize` del nodo ancorabile.
 
+### `instantiate(node)` clona anche il Widget — e `destroy()` è differito
+Clonando un bottone che ha un Widget con `alignMode: ALWAYS`, il clone eredita il Widget e viene risnappato **ogni frame** sulla posizione dell'originale (sovrapposizione perfetta: si vede solo il clone, che è sibling successivo). Non basta `clone.getComponent(Widget)?.destroy()`: la distruzione dei componenti è **differita a fine frame**, quindi il Widget fa in tempo a un ultimo allineamento DOPO il `setPosition`. Serve disabilitarlo subito: `w.enabled = false; w.destroy();` (caso reale: bottone Quit clonato dal Close nel dialog Settings, 2026-06-12).
+
 ### `scheduleOnce` / `unschedule` — reference alla callback
 `this.unschedule(cb)` richiede la stessa **reference** alla funzione passata a `scheduleOnce`. Per questo il merge usa `mergeCallbacks: Map<Warrior, () => void>` — la callback viene salvata per poterla annullare in `onEndContact`.
 
@@ -214,6 +217,12 @@ Tentativo (abbandonato) di far cambiare comportamento a `LeaderboardPanel` via `
 
 ### `.node.off(...)` su componente già distrutto in `onDestroy` → crash
 `if (this._comp) this._comp.node.off(...)` NON basta: un componente CCObject distrutto resta **truthy** ma `.node` è `null` → `null.off(...)` ("Cannot read properties of null (reading 'off')"). Emerge nel teardown scena (es. game-over → `loadScene('Ranking')`). Guardare `isValid`: `const n = this._comp?.node; if (n?.isValid) n.off(...)`. Vedi `Track.onDestroy`.
+
+### Nodi-layer creati a runtime NON hanno `UITransform` → `getComponent(UITransform)?.convert…` salta in silenzio
+`VFXLayer` non esiste in nessuna scena: GameManager lo crea a runtime come `new Node()` puro. Un `getComponent(UITransform)?.convertToNodeSpaceAR(...)` su quel nodo restituisce `undefined` e il codice a valle non viene eseguito **senza alcun errore** (bug del burst della sagoma "che non si vede", 2026-06-12). Fix: `getComponent(UITransform) ?? addComponent(UITransform)` — con size 0 e anchor centrato la conversione è una pura trasformata inversa.
+
+### Asset copiati a mano in `resources/` — meta minimale e l'editor completa
+Per portare `atom.png` dalla libreria internal di Cocos: copiare il PNG in `assets/resources/particles/` + scrivere un meta minimale (`importer: image`, `imported: false`, uuid nuovo, `userData.type: sprite-frame`) → l'editor al refresh completa l'import con i subMeta `texture`/`spriteFrame`. Il loader runtime ha comunque il doppio path `…/spriteFrame` → fallback `Texture2D`.
 
 ---
 
@@ -311,34 +320,41 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 ---
 
-## Blackhole VFX (v0.6.14)
+## Blackhole VFX (v0.6.14, ridisegnato "tornado" 2026-06-12)
 
 `VFXManager.spawnBlackhole()` — particelle a spirale + stardust + ghost creatura.
+Calibrato a iterazioni con l'utente il 2026-06-12 — prima di ritoccare i parametri sotto, rileggere la dinamica.
 
-**Particelle spirale** (count/size/raggio scalano con `level`):
-- Count: `8 + level * 5`
-- Size: `(66 + rnd * 200) * (0.6 + level * 0.15)`
-- Spawn radius: `(80 + level * 20) + radius * 0.70`
-- Perspective: Y × 0.5 (allineato a `box2dLayer.scaleY`)
-- Scale: `sin(t * π)` — cresce e si riduce; niente alpha tween
-- NO alpha manipulation — solo scale
+**Particelle spirale — dinamica tornado** (texture unica `particles/atom.png`, glow dot arancio caldo copiato dalla libreria internal di Cocos: le tinte si moltiplicano e virano verso il caldo):
+- Count: `level * 12 - 16` (lv3=20, lv7=68); size `(14–54 | tonde 26–60) * (0.6 + level * 0.15)`
+- Durata scalata col livello: `durScale = 0.5 + level * 0.07` (lv3≈0.71, lv7≈0.99) applicato a finestra di nascita e viaggi — effetto più corto per i livelli bassi; sotto lv5 i viaggi sono però ×1.25 (particelle più LENTE sulla spirale piccola)
+- Giri: lv5+ `2–3.5`, sotto `1.2–2.0` (vortice gentile per i livelli bassi)
+- Centro spirale: `vortexY = yCanvas + 30` (SOLO spirale; i dischi stardust restano a `yCanvas`)
+- Spawn ring: `((30 + level*27) + radius*0.70) * 2/3` (scaling ripido: stretto ai livelli bassi, largo agli alti), raggio `× (0.85 + rnd*1.9)` — MAI vicino al centro (le nascite centrali sembravano particelle ferme)
+- Quota: `lift = 10–30px + rnd * 160 * lvScale`, scende a 0 con `(1 - t)` — risucchio inward + downward (colonna del tornado); il punto di assorbimento finale è a `vortexY - 30 * t` (30px sotto il centro spirale)
+- Nascite accelerate: `delay = (i/n)^0.35 * 0.6` — una alla volta all'inizio, raffica alla fine
+- Viaggi indipendenti `0.25–0.95s` (NO convergenza sincronizzata — deve essere un flusso continuo, l'utente ha esplicitamente cassato il collasso corale)
+- Raggio/angolo: componente lineare (35%/25%) + componente `pow` (`decayExp 1.4–2.8`, `angleExp 1.8–2.6`) — moto attivo dal primo frame, tuffo e giri concentrati nel finale
+- Streak legato alla velocità reale: `stretch = min(3.2, 1 + distPerFrame * 0.22)`, orientato col moto — framerate-dependent (a 30fps streak più lunghi). SOLO `level >= 5` (Champion+): sui vortici piccoli dei livelli bassi le streak fanno brutto effetto (cassate dall'utente) — lì tutte le particelle sono tonde
+- Bobble scala per particella: amp 0.18–0.38, 2–4 cicli, fase random; envelope `sin(tπ)`; flicker opacity PROVATO E CASSATO (non si vedeva)
+- Tinte: 40% bianco / 35% colore livello / 25% lerp al 50% (param `color` di spawnBlackhole)
 
 **Stardust** (due dischi sfasati):
-- Parent `StardustDisc`: `scaleY = 0.5`, flicker opacity, si restringe verso il centro
+- Parent `StardustDisc`: `scaleY = 0.5`, flicker opacity (picco 170), si restringe verso il centro; baseSize `400 + tier*100`
 - Child `Stardust`: `scale(1,1,1)`, rotazione continua `by(dur, {angle: ±540°})`
-- Entrambi con anchor al centro; solo il padre ha `scaleY` schiacciato
 - Due istanze: delay 0.2s e 0.4s, rotazioni opposte, secondo più piccolo (×0.8)
 
-**Merge ghost** (solo su blackhole merge):
-- Copia `spriteFrame` della creatura A; nodo in `warriorsLayer`
-- Tinta nera `(0,0,0,255)`, shrink da 100% → 5% in 2s con `quadIn` + fade opacity
-- `node.layer = warriorsLayer.layer` — CRITICO per il rendering
-- Posizione: media delle `worldPosition` dei due viewNode
+**Merge ghost — implosione "gomma"** (solo su blackhole merge):
+- Copia `spriteFrame` della creatura A; nodo in `warriorsLayer`; `node.layer = warriorsLayer.layer` — CRITICO
+- 4 fasi (~1.1s ≈ ⅔ del vortice): stira verticale `(0.70,1.55)` 0.35s → squash orizzontale `(1.65,0.60)` 0.35s → respiro `(0.85,1.25)` 0.20s → snap a zero 0.20s `quartIn`. NON ruota (cassato)
+- Fade altalenante `205 ± 50` (3 cicli) + shimmer colore nero ↔ viola scuro `GHOST_VIOLET (70,10,110)` (2.2 cicli, fasi indipendenti)
+- Allo snap: burst radiale color SPECIE (`WARRIORS[type].color` lerp 40% verso bianco — i colori scuri spariscono nel blend additivo), 16 scintille 26–54px, raggio 70–160px, via `_spawnScoreBurst` generalizzato
 
 **Implosione fisica**:
 - Forza `sin(π * elapsed / duration)` (bell-curve) verso il centro del merge
 - `impForce = (200 + tier * 60) * LAYOUT_SCALE`, durata 1.5–2.5s per tier
-- Fallback proximity merge: `_checkProximityMerge(dt)` ogni frame — due soglie: (1) < 85% radii → merge immediato; (2) < 105% radii per ≥ 2s → merge forzato. Richiede `launched=true` (non `crossedLine`). Timer in `_proximityTimers: Map<string, number>` (chiave `uuidA|uuidB`).
+- Fallback proximity merge: `_checkProximityMerge(dt)` ogni frame — due soglie: (1) < 85% radii → merge immediato; (2) < 105% radii per ≥ 2s → merge forzato. Predicato di eleggibilità: `launched || crossedLine` (fix 2026-06-12 — il solo `launched` escludeva i warriors nati da merge/evolve/powerup, che hanno `crossedLine`/`fired` ma mai `launched`: restavano "vicini ma senza merge" quando i collider non si toccavano fisicamente; il warrior in attesa sul launcher resta escluso). Timer in `_proximityTimers: Map<string, number>` (chiave `uuidA|uuidB`).
+- **Gotcha — vicinanza visiva ≠ contatto fisico**: il collider del warrior ha diametro `2r` ma lo sprite è largo `4r` (`setContentSize(r*4, r*4)`). Due warriors che a schermo sembrano quasi sovrapposti possono essere fisicamente staccati → nessun `BEGIN_CONTACT` Box2D, merge solo via fallback di prossimità.
 
 ---
 
@@ -612,6 +628,8 @@ Quando un merge crea un drago oltre il suo `maxLevel` (tipo `dragon` al livello 
 Il tween su `Sprite.color` produce il flash bianco senza overlay Graphics separato.
 
 ## DebugPanel — migrazione in scena (v0.6.13)
+
+**Toggle runtime (2026-06-12)**: doppio tap (<350ms) sulla sezione ROUND dell'HUD apre/chiude il DebugPanel — funziona anche nei build di produzione, indipendente dal flag `DEBUG` (che continua a spawnarlo all'avvio). Vedi `GameManager._wireDebugPanelGesture` / `_toggleDebugPanel` / `_spawnDebugPanel`. Il tap passa anche all'InputController (può accennare la mira, si auto-annulla sotto soglia).
 
 Il vecchio `DebugPanel.ts` (canvas 2D programmatico) è ancora attivo ma si sta migrando a nodi nella scena:
 - `WinButton` (nodo Button) → `clickEvents` wired a `GameManager.debugWin()`

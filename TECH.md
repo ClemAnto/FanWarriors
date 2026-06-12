@@ -341,11 +341,13 @@ this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLaunch
 
 ---
 
-## Settings — host hook `onRestart` + tasto "Ricomincia" (v0.8.23)
+## Settings — host hook `onQuit` + tasto "Quit" con conferma (v0.8.62, ex `onRestart` v0.8.23)
 
-**Decisione**: il dialog `Settings` (condiviso MainMenu+Game) espone un host hook `onRestart`. Il `GameManager` lo imposta a `() => director.loadScene(sceneName)`; in MainMenu resta `null`.
+**Decisione**: il dialog `Settings` (condiviso MainMenu+Game) espone un host hook `onQuit`. Il `GameManager` lo imposta a `() => loadScene(MainMenu)` (con commercial break); in MainMenu resta `null`. Ha sostituito il vecchio `onRestart` (2026-06-12): il restart resta disponibile nel `PausePanel`, nel dialog settings servono solo Close + Quit.
 
-**Visibilità scena-specifica senza duplicare il dialog**: il tasto "Ricomincia" è mostrato in `open()` solo se `onRestart` è settato → compare **solo nella scena Game**. Se non è assegnato un nodo dedicato (`restartButton` @property), alla prima apertura ne viene **clonato uno da `closeButton`** (stesso stile), rietichettato e posizionato sopra di esso. Stesso pattern degli host hook esistenti (`canOpen`/`onBeforeOpen`/`onAfterClose`).
+**Visibilità scena-specifica senza duplicare il dialog**: il tasto "Quit" è mostrato in `open()` solo se `onQuit` è settato → compare **solo nella scena Game**. Se non è assegnato un nodo dedicato (`quitButton` @property), alla prima apertura ne viene **clonato uno da `closeButton`** (stesso stile), rietichettato e posizionato **affiancato** (x speculare: il Close in scena sta a `horizontalCenter: -190`, il clone va a `+190`; fallback sopra il Close se questo è centrato). Stesso pattern degli host hook esistenti (`canOpen`/`onBeforeOpen`/`onAfterClose`).
+
+**Conferma in due step (niente UI extra)**: primo click la label diventa `Sure?`, secondo click chiude e quitta; la conferma si disarma a ogni `open()`. Evita un dialog di conferma dedicato (regola no-runtime-UI).
 
 ---
 

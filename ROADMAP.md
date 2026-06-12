@@ -29,6 +29,21 @@
 
 ## Log sessioni recenti
 
+### 2026-06-12 (v0.8.62) — Fix: proximity merge ignorava i warriors nati da merge
+- 🐛 **Bug "warriors vicini ma niente merge"**: `_checkProximityMerge` (GameManager) scartava i warriors con `launched === false` — ma `launched` lo imposta solo `applyImpulse()`. I warriors creati da merge/evolve/powerup hanno `crossedLine`/`fired` ma mai `launched`, quindi il fallback di prossimità li saltava sempre. Il merge via contatto Box2D restava l'unica via, ma il collider ha diametro `2r` contro sprite largo `4r`: visivamente "attaccati" ≠ in contatto fisico. Fix: predicato `launched || crossedLine` (stesso usato in `Warrior.onBeginContact`); il warrior in attesa sul launcher resta escluso. Gotcha in MEMO.
+
+### 2026-06-12 (v0.8.62) — Dialog settings in-game: Quit al posto di Restart
+- 🔘 **Settings in Game**: il dialog ora ha **Close + Quit affiancati** (Close a `horizontalCenter: -190` in scena, Quit clonato a runtime in posizione speculare `+190`). Quit → MainMenu con **conferma in due step** (label `Sure?` al primo click, disarmo a ogni open). Hook `Settings.onRestart` → rinominato **`onQuit`** (restart resta nel PausePanel). Property serializzata `restartButton` → `quitButton` (null) in entrambe le scene.
+- 🐛 **Gotcha scoperto** (in MEMO.md): il clone ereditava il Widget `alignMode: ALWAYS` del Close → risnappato sopra l'originale ogni frame; e `Widget.destroy()` da solo non basta (differito a fine frame) → serve `enabled = false` immediato.
+
+### 2026-06-12 (v0.8.62, sessione parallela) — Tier 5/6 floating score + vortice "tornado" + ghost gomma + debug gesture
+- 🏆 **Tier 5/6 floating score chiusi** (riformulati, vedi checkbox Fase 4): a 10k/12k pt font 72/84 + burst radiale viola (`_spawnScoreBurst`) + shake, in sync con lo slowmo — soglie condivise `SCORE_TIER5_PTS`/`SCORE_TIER6_PTS` esportate da VFXManager e usate da `_maybeScoreSlowmo`.
+- 🌪️ **Blackhole VFX ridisegnato a tornado** (molte iterazioni con l'utente — dinamica e parametri finali in MEMO §Blackhole): texture unica `atom.png` (copiata dalla internal lib di Cocos in `resources/particles/`), nascite accelerate `(i/n)^0.35`, viaggi indipendenti (flusso continuo — il collasso sincronizzato è stato provato e cassato), quote che scendono verso un pozzo 30px sotto il centro spirale (inward+downward), bobble, centro spirale +30px (solo spirale), tinte specie/bianco. **Gerarchia per livello**: count `12×lv−16`, raggio `(30+27×lv)`, durata `×(0.5+0.07×lv)`, sotto lv5 NIENTE streak, giri 1.2–2.0 (vs 2–3.5) e viaggi ×1.25 più lenti — vorticino discreto per i livelli bassi, tornado pieno per Champion+. Flicker fiammella provato e cassato.
+- 🖤 **Merge ghost → implosione "gomma"** (~1.1s ≈ ⅔ del vortice): stira verticale → squash orizzontale → respiro → snap `quartIn`; fade altalenante + shimmer nero↔viola scuro; allo snap burst color SPECIE (`WARRIORS[type].color` lerp 40% bianco — i colori scuri spariscono nel blend additivo). NON ruota.
+- 🐞 **Bug fixato**: `VFXLayer` è creato a runtime senza `UITransform` → `convertToNodeSpaceAR` ritornava `undefined` e il burst non spawnava mai, in silenzio (gotcha in MEMO).
+- 🛠️ **DebugPanel a doppio tap sulla sezione ROUND** dell'HUD — toggle runtime anche nei build di produzione; flag `DEBUG` invariato (`_wireDebugPanelGesture`/`_toggleDebugPanel`/`_spawnDebugPanel`).
+- ℹ️ Remote-control: nessun trigger esiste sull'account (lista vuota) — l'istruzione in CLAUDE.md presuppone un trigger da creare la prima volta.
+
 ### 2026-06-10 sera (v0.8.57 → v0.8.61) — Juice Fase 4 + perf + Poki adapter + size budget
 - ✨ **Juice**: `entities/TrailEffect.ts` (scia additiva dietro il warrior in volo, emissione basata sulla distanza, autogestita) + slowmo sui punteggi alti (`_maybeScoreSlowmo`: ×0.8 ≥10k, ×0.5 ≥12k, su merge e Track Cleared).
 - ⚡ **Perf**: VFXManager senza allocazioni per-frame (scratch `TMP_COLOR`/`TMP_ANCHOR` + costanti hoistate); Bloodhood/Genocide dedupli­cati in `GlowPulseEffect` e i due Sparkle in `TintSparkleEffect` (−430 righe, API pubbliche invariate); `console.log` di gameplay dietro `DEBUG`.
@@ -69,7 +84,7 @@
 - `MainMenu.onLeaderboard()` → `director.loadScene('Ranking')`. Rimossa tutta la diagnostica alert.
 - Build: **`md5Cache=true`** in `scripts/build.js` (evita bundle serviti da cache stale); `patch-html.js` non riscrive URL assoluti (CDN Firebase).
 - 🌐 **Deploy GitHub Pages** verificato dal vivo (l'utente testa da telefono): `npm run build` + `npm run deploy` → https://clemanto.github.io/FanWarriors/. Firestore in **test mode** (rules temporanee).
-- 🇬🇧 **Tutte le label di gioco in inglese** (game over/victory: `YOU WIN!`, `New Game`, `Retry`, `NEW BEST SCORE!`; Settings `Restart`; pannello: `LEADERBOARD`, `Loading…`, `No scores yet.`, `CLOSE`).
+- 🇬🇧 **Tutte le label di gioco in inglese** (game over/victory: `YOU WIN!`, `New Game`, `Retry`, `NEW BEST SCORE!`; Settings `Quit`/`Sure?`/`Close`; pannello: `LEADERBOARD`, `Loading…`, `No scores yet.`, `CLOSE`).
 - 🏆 **Game over**: `Best Score: XXX` mostrato SOLO se non si è battuto il record; altrimenti solo `NEW BEST SCORE!` (mutuamente esclusivi).
 - ⚠️ **Stato a fine sessione**: working tree a **v0.8.51 NON committato**; ultimo deploy = **v0.8.50** (le modifiche Best Score/new best v0.8.51 sono solo locali, da deployare quando l'utente lo chiede). Regola ribadita: **niente build/deploy automatici**.
 
@@ -292,7 +307,7 @@
   | Click UI | |
 
 - [x] Implementare AudioManager con volume controls (musica separata da SFX) — fatto da tempo (toggle in Settings)
-- [ ] Implementare sistema **6-tier floating score** v1 (testo + colori + FX per fascia) — oggi 4 tier attivi
+- [x] ~~Sistema 6-tier floating score~~ → **ridimensionato e chiuso (2026-06-12)**: i 4 tier di testo restano (grigio/bianco/oro/viola — 6 colori non sono percepibili in ~2s); i "tier 5/6" sono **escalation di spettacolo sopra il viola** a 10k/12k pt (font 72/84 + burst scintille + shake), in sincrono con lo slowmo (`SCORE_TIER5/6_PTS` condivise con `_maybeScoreSlowmo`)
 - [x] Implementare slowmo: ×0.8 da 10k pt (tier 5), ×0.5 da 12k pt (tier 6) — `_maybeScoreSlowmo` su merge e Track Cleared (v0.8.59)
 - [x] Trail leggero dietro al warrior in volo — `entities/TrailEffect.ts` (v0.8.59)
 - [x] Squash & stretch sull'atterraggio — già fatto in Fase 3 (squash via PerspectiveMapper)

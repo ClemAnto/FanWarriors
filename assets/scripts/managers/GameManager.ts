@@ -10,7 +10,7 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
-import { VFXManager } from './VFXManager';
+import { VFXManager, SCORE_TIER5_PTS, SCORE_TIER6_PTS } from './VFXManager';
 import { AuraEffect } from '../entities/AuraEffect';
 import { PsychoForceEffect } from '../entities/PsychoForceEffect';
 import { BloodhoodEffect } from '../entities/BloodhoodEffect';
@@ -27,7 +27,7 @@ import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConf
 import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.61';
+export const VERSION     = '0.8.62';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -313,6 +313,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     // hud refs
     private scoreLabel: Label | null = null;
     private roundLabel: Label | null = null;
+    private _debugPanelNode: Node | null = null;
+    private _lastRoundTapAt = 0;
     private roundProgressBar: ProgressBar | null = null;
     private nextPreviewNode: Node | null = null;
     private nextNextWarriorNode: Node | null = null;
@@ -425,13 +427,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.activateWarrior(firstWarrior);
             }
 
-            if (DEBUG) {
-                const debugNode = new Node('DebugPanel');
-                debugNode.setParent(this.uiLayer);
-                const panel = debugNode.addComponent(DebugPanel);
-                panel.layerScaleY = this.box2dLayer.scale.y;
-                panel.init(this);
-            }
+            if (DEBUG) this._debugPanelNode = this._spawnDebugPanel();
             if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
             if (sys.isBrowser) {
                 document.addEventListener('visibilitychange', this._onVisibilityChange);
@@ -1637,7 +1633,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this._trackBestSingle(bonus, `${WARRIORS[aType]?.name ?? '?'} ${LEVEL_CONFIG[maxLevel]?.label ?? 'explosion'}`);
                     this.vfx.spawnFloatingScore(midX, midYC + 30, bonus);
                 }
-                if (ghostFrame && ghostSize > 0) this.vfx.flashMergeGhost(ghostX, ghostY, ghostFrame, ghostSize);
+                if (ghostFrame && ghostSize > 0) this.vfx.flashMergeGhost(ghostX, ghostY, ghostFrame, ghostSize, WARRIORS[aType]?.color);
                 this.vfx.spawnBlackhole(midX, midYC + a.radius * 0.9, a.radius, color, tier, maxLevel);
                 this.vfx.spawnImplosionVFX(midX, midYC, color, tier / 3, tier >= 3 ? 1.0 : tier >= 2 ? 0.7 : 0.5);
                 const impDur   = tier >= 3 ? 2.5 : tier >= 2 ? 2.0 : 1.5;
@@ -2425,6 +2421,37 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     // --- HUD ---
 
+    /** Double-tap on the ROUND HUD section toggles the debug panel (works in production builds too). */
+    private _wireDebugPanelGesture(roundSec: Node): void {
+        roundSec.on(Node.EventType.TOUCH_END, () => {
+            const now = Date.now();
+            if (now - this._lastRoundTapAt < 350) {
+                this._lastRoundTapAt = 0;
+                this._toggleDebugPanel();
+            } else {
+                this._lastRoundTapAt = now;
+            }
+        }, this);
+    }
+
+    private _toggleDebugPanel(): void {
+        if (this._debugPanelNode?.isValid) {
+            this._debugPanelNode.destroy();
+            this._debugPanelNode = null;
+            return;
+        }
+        this._debugPanelNode = this._spawnDebugPanel();
+    }
+
+    private _spawnDebugPanel(): Node {
+        const debugNode = new Node('DebugPanel');
+        debugNode.setParent(this.uiLayer);
+        const panel = debugNode.addComponent(DebugPanel);
+        panel.layerScaleY = this.box2dLayer.scale.y;
+        panel.init(this);
+        return debugNode;
+    }
+
     private initHud(): void {
         // Launch timer: editor node Track > LaunchTimer (Label inside). Position/scale are
         // editor-authoritative — code only updates the value and the colour (updateTimerLabel).
@@ -2444,6 +2471,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (roundSec) {
                 this.roundProgressBar = roundSec.getChildByName('ProgressBar')
                     ?.getComponent(ProgressBar) ?? null;
+                this._wireDebugPanelGesture(roundSec);
             }
             // Settings dialog is centralized in the Settings component on the Dialog node.
             // GameManager only supplies the game-specific pause/resume hooks.
@@ -2453,7 +2481,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._settings.canOpen      = () => this.state !== GameState.GameOver && this.state !== GameState.Paused;
                 this._settings.onBeforeOpen = () => this._enterSettingsPause();
                 this._settings.onAfterClose = () => this._exitSettingsPause();
-                this._settings.onRestart    = () => { void this._withCommercialBreak(() => director.loadScene(this.sceneName)); };
+                this._settings.onQuit       = () => { void this._withCommercialBreak(() => director.loadScene(MAIN_MENU_SCENE)); };
             }
             return;
         }
@@ -2475,6 +2503,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.makeLabel(roundSec, 'ROUND', 0, -12, 28, new Color(180, 180, 180, 255));
         this.roundLabel = this.makeLabel(roundSec, String(this.currentRound), 0, -56, 46, new Color(100, 200, 255, 255));
         this.roundLabel.isBold = true;
+        this._wireDebugPanelGesture(roundSec);
 
         this.updateNextPreview();
         // Timer label comes from the editor node Track > LaunchTimer (resolved at the top of initHud).
@@ -2828,10 +2857,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         for (let i = 0; i < this.warriors.length; i++) {
             const a = this.warriors[i];
-            if (!a.node?.isValid || !a.launched || a.merging || !a.onMergeReady) continue;
+            if (!a.node?.isValid || !(a.launched || a.crossedLine) || a.merging || !a.onMergeReady) continue;
             for (let j = i + 1; j < this.warriors.length; j++) {
                 const b = this.warriors[j];
-                if (!b.node?.isValid || !b.launched || b.merging) continue;
+                if (!b.node?.isValid || !(b.launched || b.crossedLine) || b.merging) continue;
                 if (a.type !== b.type || a.level !== b.level) continue;
                 const dx   = a.node.position.x - b.node.position.x;
                 const dy   = a.node.position.y - b.node.position.y;
@@ -2986,8 +3015,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     /** GDD score tiers 5/6: a single huge score event slows time briefly. */
     private _maybeScoreSlowmo(points: number): void {
         if (this.state === GameState.GameOver || this.roundUpPause) return;
-        if (points >= 12000)      this.activateSlowmo(0.5, 1.2);
-        else if (points >= 10000) this.activateSlowmo(0.8, 0.9);
+        if (points >= SCORE_TIER6_PTS)      this.activateSlowmo(0.5, 1.2);
+        else if (points >= SCORE_TIER5_PTS) this.activateSlowmo(0.8, 0.9);
     }
 
     private activateSlowmo(scale: number, duration: number): void {

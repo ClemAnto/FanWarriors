@@ -3886,7 +3886,7 @@
     "_prefab": null,
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 0,
+      "x": -190,
       "y": -443.7748344370861,
       "z": 0
     },
@@ -4177,7 +4177,7 @@
     "_right": 0,
     "_top": 0,
     "_bottom": 0,
-    "_horizontalCenter": 0,
+    "_horizontalCenter": -190,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
     "_isAbsRight": true,
@@ -7648,7 +7648,7 @@
     "closeButton": {
       "__id__": 101
     },
-    "restartButton": null,
+    "quitButton": null,
     "vibrToggle": {
       "__id__": 121
     },

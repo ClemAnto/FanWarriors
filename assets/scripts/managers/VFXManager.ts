@@ -13,10 +13,17 @@ const WHITE         = new Color(255, 255, 255, 255);
 const SCORE_NEG     = new Color(255, 80, 80, 255);
 const SCORE_LOW     = new Color(210, 210, 210, 255);
 const SHADOW_BLACK  = new Color(0, 0, 0, 180);
+const GHOST_BLACK   = new Color(0, 0, 0, 255);
+const GHOST_VIOLET  = new Color(70, 10, 110, 255);
 const SHADOW_OFFSET = new Vec2(2, -2);
 const SCALE_ONE     = new Vec3(1, 1, 1);
 const SCALE_PULSE   = new Vec3(1.07, 1.07, 1);
 const FLOAT_RISE    = new Vec3(0, 220, 0);
+
+// GDD score tiers 5/6 — soglie condivise con GameManager._maybeScoreSlowmo:
+// slowmo, burst di scintille e shake scattano insieme sullo stesso evento.
+export const SCORE_TIER5_PTS = 10000;
+export const SCORE_TIER6_PTS = 12000;
 
 export class VFXManager {
     private readonly vfxLayer:      Node;
@@ -29,6 +36,7 @@ export class VFXManager {
     private _shakeAmp      = 0;
     private _sparkleFrame:  SpriteFrame | null = null;
     private _stardustFrame: SpriteFrame | null = null;
+    private _atomFrame:     SpriteFrame | null = null;
     private _auraFrame:     SpriteFrame | null = null;
     private _medievalFont:  Font | null = null;
     private _useGoldenText  = true;
@@ -61,6 +69,15 @@ export class VFXManager {
                 const sf = new SpriteFrame(); sf.texture = tex;
                 sf.rect = new Rect(0, 0, tex.width, tex.height);
                 this._stardustFrame = sf;
+            });
+        });
+        resources.load('particles/atom/spriteFrame', SpriteFrame, (err, frame) => {
+            if (!err && frame) { this._atomFrame = frame; return; }
+            resources.load('particles/atom', Texture2D, (err2, tex) => {
+                if (err2 || !tex) { console.warn('[VFXManager] atom unavailable'); return; }
+                const sf = new SpriteFrame(); sf.texture = tex;
+                sf.rect = new Rect(0, 0, tex.width, tex.height);
+                this._atomFrame = sf;
             });
         });
         resources.load('particles/aura/spriteFrame', SpriteFrame, (err, frame) => {
@@ -219,7 +236,7 @@ export class VFXManager {
         }
     }
 
-    flashMergeGhost(wx: number, wy: number, frame: SpriteFrame, size: number): void {
+    flashMergeGhost(wx: number, wy: number, frame: SpriteFrame, size: number, typeColor?: Color): void {
         const node = new Node('MergeGhost');
         node.setParent(this.warriorsLayer);
         node.setWorldPosition(wx, wy, 0);
@@ -232,15 +249,48 @@ export class VFXManager {
         sp.spriteFrame = frame;
         sp.color       = new Color(0, 0, 0, 255);
 
+        // Rubber-band implosion (~1.1s, ≈2/3 of the vortex effect): the silhouette
+        // looks about to grow — stretching vertically, then horizontally — and
+        // instead snaps into a point.
+        tween(node)
+            .to(0.35, { scale: new Vec3(0.70, 1.55, 1) }, { easing: 'sineOut' })   // pull up
+            .to(0.35, { scale: new Vec3(1.65, 0.60, 1) }, { easing: 'sineInOut' }) // squash wide
+            .to(0.20, { scale: new Vec3(0.85, 1.25, 1) }, { easing: 'sineOut' })   // last gasp
+            .to(0.20, { scale: new Vec3(0.02, 0.02, 1) }, { easing: 'quartIn' })   // snap implosion
+            .call(() => {
+                if (!node.isValid) return;
+                // pop as the silhouette snaps out of existence — species colour,
+                // lifted toward white so it reads through the additive blend
+                const burstColor = typeColor
+                    ? Color.lerp(new Color(), typeColor, WHITE, 0.40)
+                    : PURPLE;
+                // vfxLayer may be a bare runtime node — guarantee the UITransform
+                // (zero-size, centred anchor: convert is then a pure inverse transform)
+                const uiT = this.vfxLayer.getComponent(UITransform) ?? this.vfxLayer.addComponent(UITransform);
+                const local = uiT.convertToNodeSpaceAR(node.worldPosition);
+                this._spawnScoreBurst(local.x, local.y, 16, {
+                    parent: this.vfxLayer, color: burstColor,
+                    sizeBase: 26, sizeRand: 28, distBase: 70, distRand: 90,
+                });
+                node.destroy();
+            })
+            .start();
+
+        // Seesaw fade + colour shimmer: opacity swings while the black breathes
+        // toward dark violet, both on independent sine phases.
         const op = node.addComponent(UIOpacity);
         op.opacity = 255;
-
-        tween(node)
-            .to(2.0, { scale: new Vec3(0.05, 0.05, 1) }, { easing: 'quadIn' })
-            .call(() => { if (node.isValid) node.destroy(); })
-            .start();
-        tween(op)
-            .to(2.0, { opacity: 0 })
+        const state = { t: 0 };
+        tween(state)
+            .to(1.10, { t: 1 }, {
+                onUpdate: (target?: { t: number }) => {
+                    if (!target || !node.isValid) return;
+                    const t = target.t;
+                    op.opacity = Math.round(205 + 50 * Math.sin(t * Math.PI * 2 * 3));
+                    const k = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 2.2);
+                    sp.color = Color.lerp(TMP_COLOR, GHOST_BLACK, GHOST_VIOLET, k);
+                }
+            })
             .start();
     }
 
@@ -289,11 +339,20 @@ export class VFXManager {
         inner.setParent(node);
         inner.setScale(0, 0, 1);
 
+        // Tiers 5/6 keep the purple style and escalate spectacle: bigger text,
+        // radial sparkle burst and shake, in sync with the slowmo at the same thresholds.
+        const isEpic   = points >= SCORE_TIER6_PTS;
+        const isMega   = points >= SCORE_TIER5_PTS;
         const isPurple = points > 2000;
         const isGolden = !isPurple && this._useGoldenText && points > 1000;
         const lbl = inner.addComponent(Label);
         lbl.string   = points >= 0 ? `+${points}` : `${points}`;
-        lbl.fontSize = isPurple ? (large ? 64 : 52) : isGolden ? (large ? 58 : 46) : (large ? 44 : 34);
+        lbl.fontSize = isEpic ? 84 : isMega ? 72
+            : isPurple ? (large ? 64 : 52) : isGolden ? (large ? 58 : 46) : (large ? 44 : 34);
+        if (isMega) {
+            this.screenShake(isEpic ? 16 : 10, isEpic ? 0.45 : 0.30);
+            this._spawnScoreBurst(x, y + 75, isEpic ? 26 : 16);
+        }
         lbl.isBold   = true;
         lbl.overflow      = Label.Overflow.NONE;
         lbl.color         = points < 0 ? SCORE_NEG : points <= 500 ? SCORE_LOW : WHITE;
@@ -327,6 +386,58 @@ export class VFXManager {
             .call(() => { if (node.isValid) node.destroy(); })
             .start();
 
+    }
+
+    // Radial sparkle burst — used behind huge floating scores (GDD tiers 5/6)
+    // and, in a smaller violet variant, when the merge ghost snaps.
+    private _spawnScoreBurst(x: number, y: number, count: number,
+        opts?: { parent?: Node; color?: Color; sizeBase?: number; sizeRand?: number; distBase?: number; distRand?: number }): void {
+        if (!this._sparkleFrame) return;
+        const parent   = opts?.parent   ?? this.uiLayer;
+        const tint     = opts?.color    ?? PURPLE;
+        const sizeBase = opts?.sizeBase ?? 30;
+        const sizeRand = opts?.sizeRand ?? 30;
+        const distBase = opts?.distBase ?? 110;
+        const distRand = opts?.distRand ?? 120;
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+            const dist  = distBase + Math.random() * distRand;
+            // slightly flattened ellipse — the label is wide, not tall
+            const endX  = x + Math.cos(angle) * dist;
+            const endY  = y + Math.sin(angle) * dist * 0.7;
+
+            const node = new Node('ScoreBurstSpark');
+            node.setParent(parent);
+            node.setPosition(x, y);
+            node.angle = Math.random() * 360;
+
+            const size = sizeBase + Math.random() * sizeRand;
+            const uit = node.addComponent(UITransform);
+            uit.setContentSize(size, size);
+            const sp = node.addComponent(Sprite);
+            sp.sizeMode    = Sprite.SizeMode.CUSTOM;
+            sp.spriteFrame = this._sparkleFrame;
+            sp.color       = tint;
+            sp.getMaterialInstance(0)?.overridePipelineStates({
+                blendState: { targets: [{ blend: true, blendSrc: gfx.BlendFactor.SRC_ALPHA, blendDst: gfx.BlendFactor.ONE }] }
+            });
+
+            const op = node.addComponent(UIOpacity);
+            op.opacity = 0;
+
+            const stagger = Math.random() * 0.08;
+            const tFly    = 0.35 + Math.random() * 0.20;
+            tween(node)
+                .delay(stagger)
+                .to(tFly, { position: new Vec3(endX, endY, 0) }, { easing: 'quadOut' })
+                .call(() => { if (node.isValid) node.destroy(); })
+                .start();
+            tween(op)
+                .delay(stagger)
+                .to(0.10, { opacity: 235 })
+                .to(tFly - 0.10, { opacity: 0 })
+                .start();
+        }
     }
 
 
@@ -472,8 +583,10 @@ export class VFXManager {
     // Concept: creature explodes like a star → black hole forms at the center
     // Sparkles appear at ~50-70px from centre, fade in, then pull toward centre
     // with a slightly curved trajectory; stretched in the direction of travel.
-    spawnBlackhole(x: number, yCanvas: number, radius: number, _color: Color, tier = 1, level = 3): void {
-        if (!this._sparkleFrame) return;
+    spawnBlackhole(x: number, yCanvas: number, radius: number, color: Color, tier = 1, level = 3): void {
+        if (!this._atomFrame && !this._sparkleFrame) return;
+        // The spiral converges 30px above the creature's anchor; the stardust discs stay put.
+        const vortexY = yCanvas + 30;
 
         // ── stardust overlay: flat disc parent shrinks, child rotates ──────
         if (this._stardustFrame) {
@@ -512,8 +625,8 @@ export class VFXManager {
                         onUpdate: (target?: { p: number }) => {
                             if (!target || !parent.isValid) return;
                             const env = target.p < fadeInEnd
-                                ? (target.p / fadeInEnd) * 220
-                                : 220 * (1 - (target.p - fadeInEnd) / (1 - fadeInEnd));
+                                ? (target.p / fadeInEnd) * 170
+                                : 170 * (1 - (target.p - fadeInEnd) / (1 - fadeInEnd));
                             op.opacity = Math.round(env * (0.5 + Math.random() * 0.5));
                             const s = Math.max(0.01, 1 - target.p * target.p);
                             parent.setScale(s, s * 0.5, 1);
@@ -528,48 +641,76 @@ export class VFXManager {
                     .start();
             };
 
-            const baseSize = (520 + tier * 120);
+            const baseSize = (400 + tier * 100);
             spawnStardust(0.2, baseSize,       -1);
             spawnStardust(0.4, baseSize * 0.8, +1);
         }
 
-        const count   = 8 + level * 5;           // lv3=23, lv4=28, lv5=33, lv6=38, lv7=43
+        const count   = level * 12 - 16;         // lv3=20, lv4=32, lv5=44, lv6=56, lv7=68
         const lvScale = 0.6 + level * 0.15;     // lv3=1.05, lv5=1.35, lv7=1.65
-        const spawnR  = (80 + level * 20) + radius * 0.70;
-
+        // Low levels also get a shorter effect; lv7 keeps the full timings
+        const durScale = 0.5 + level * 0.07;    // lv3≈0.71, lv5≈0.85, lv7≈0.99
+        // Steeper level scaling: low levels get a tight vortex, high levels stay wide
+        const spawnR  = ((30 + level * 27) + radius * 0.70) * (2 / 3);
 
         for (let i = 0; i < count; i++) {
             const angle      = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * Math.PI * 1.4;
-            const r          = spawnR * (0.6 + Math.random() * 1.2);
+            // Spawn far out only — no particle is born near the centre
+            const r          = spawnR * (0.85 + Math.random() * 1.9);
+            // Each particle is born at its own height on the funnel column (plus a
+            // 10–30px raise) and gets sucked DOWN to the base while spiralling in.
+            const lift       = 10 + Math.random() * 20 + Math.random() * 160 * lvScale;
             const startX     = x       + Math.cos(angle) * r;
-            const startY     = yCanvas + Math.sin(angle) * r * 0.5;  // perspective flatten
-            const startAngle = Math.atan2(startY - yCanvas, startX - x);
-            const twist      = -(Math.PI * 1.5 + Math.random() * Math.PI); // 1.5–2.5 clockwise turns
+            const startY     = vortexY + Math.sin(angle) * r * 0.5 + lift;  // perspective flatten + height
+            const startAngle = Math.atan2(startY - vortexY, startX - x);
+            // Low levels swirl gently (fewer turns); Champion+ keeps the fast vortex
+            const turns      = level >= 5 ? 2.0 + Math.random() * 1.5 : 1.2 + Math.random() * 0.8;
+            const twist      = -(Math.PI * 2 * turns);
 
             const node = new Node('ExpSpark');
             node.setParent(this.vfxLayer);
             node.setPosition(startX, startY);
-            node.angle = Math.random() * 360;
             const s = 0.7 + Math.random() * 0.6;
             node.setScale(0.05, 0.05, 1);
 
-            const size = (66 + Math.random() * 200) * lvScale;
+            // Single texture (atom glow dot); variety comes from tint, size, speed and motion.
+            // Streaks read badly on the small low-level vortex — Champion+ (lv5) only;
+            // there ~30% stay round and just bobble, the rest streak along the spiral.
+            const isRound = level < 5 || Math.random() < 0.30;
+            const size = (isRound ? 26 + Math.random() * 34 : 14 + Math.random() * 40) * lvScale;
             const uit  = node.addComponent(UITransform);
             uit.setContentSize(size, size);
             const sp = node.addComponent(Sprite);
             sp.sizeMode    = Sprite.SizeMode.CUSTOM;
-            sp.spriteFrame = this._sparkleFrame;
-            sp.color       = WHITE;
+            sp.spriteFrame = this._atomFrame ?? this._sparkleFrame;
+            const tintRoll = Math.random();
+            sp.color = tintRoll < 0.40 ? WHITE
+                : tintRoll < 0.75 ? color
+                : Color.lerp(TMP_COLOR, color, WHITE, 0.5);
             sp.getMaterialInstance(0)?.overridePipelineStates({
                 blendState: { targets: [{ blend: true, blendSrc: gfx.BlendFactor.SRC_ALPHA, blendDst: gfx.BlendFactor.ONE }] }
             });
 
-            const delay      = Math.sqrt(i / count) * 1.0 + Math.random() * 0.04;
-            const spiralDur  = 0.7 + Math.random() * 0.6;   // 0.7 – 1.3 s per particle
+            // Births accelerate (one by one at first, then a rush); each particle
+            // makes its own trip, so arrivals stream into the centre one after
+            // another — a tornado feeding the funnel, not a synchronized collapse.
+            const delay      = (Math.pow(i / count, 0.35) * 0.6 + Math.random() * 0.05) * durScale;
+            // Low levels travel ~25% slower on their (smaller) spiral
+            const spiralDur  = (0.25 + Math.random() * 0.70) * durScale * (level < 5 ? 1.25 : 1);
             const decayExp   = 1.4 + Math.random() * 1.4;   // 1.4 – 2.8: tight vs loose spiral
+            // Angle winds superlinearly: angular speed grows as the radius shrinks,
+            // so most of the turns happen in the final dive toward the centre.
+            const angleExp   = 1.8 + Math.random() * 0.8;   // 1.8 – 2.6
             const rWobble    = 1 + (Math.random() - 0.5) * 0.3;  // slight radial stretch per particle
+            // Bobble: per-particle scale pulse layered on the sin envelope
+            const bobAmp     = 0.18 + Math.random() * 0.20;
+            const bobFreq    = (2 + Math.random() * 2) * Math.PI * 2;  // 2–4 cycles per life
+            const bobPhase   = Math.random() * Math.PI * 2;
 
-            // Spiral function: t 0→1, radius decays with varied exponent, angle winds inward
+            // Spiral function: t 0→1, radius decays with varied exponent, angle winds inward.
+            // Streaking particles stretch along the direction of travel by actual speed;
+            // the round ones keep their shape and just bobble.
+            let lastX = startX, lastY = startY;
             const state = { t: 0 };
             tween(state)
                 .delay(delay)
@@ -577,12 +718,26 @@ export class VFXManager {
                     onUpdate: (target?: { t: number }) => {
                         if (!target) return;
                         const t  = target.t;
-                        const wr = r * rWobble * (1 - Math.pow(t, decayExp));
-                        const wa = startAngle + t * twist;
-                        const sc = s * Math.sin(t * Math.PI);
+                        // Linear component keeps them drifting/turning from the very first
+                        // frame; the pow component concentrates the dive at the end.
+                        const wr = r * rWobble * (1 - (0.35 * t + 0.65 * Math.pow(t, decayExp)));
+                        const wa = startAngle + (0.25 * t + 0.75 * Math.pow(t, angleExp)) * twist;
+                        const sc = s * Math.sin(t * Math.PI) * (1 + bobAmp * Math.sin(t * bobFreq + bobPhase));
                         if (!node.isValid) return;
-                        node.setPosition(x + Math.cos(wa) * wr, yCanvas + Math.sin(wa) * wr * 0.5);
-                        node.setScale(sc, sc, 1);
+                        const px = x + Math.cos(wa) * wr;
+                        // The sink point sits 30px below the spiral centre
+                        const py = vortexY - 30 * t + Math.sin(wa) * wr * 0.5 + lift * (1 - t);
+                        node.setPosition(px, py);
+                        const dx = px - lastX, dy = py - lastY;
+                        if (isRound) {
+                            node.setScale(sc, sc, 1);
+                        } else {
+                            const dist    = Math.sqrt(dx * dx + dy * dy);
+                            const stretch = Math.min(3.2, 1 + dist * 0.22);
+                            if (dist > 0.1) node.angle = Math.atan2(dy, dx) * 180 / Math.PI;
+                            node.setScale(sc * stretch, sc / Math.sqrt(stretch), 1);
+                        }
+                        lastX = px; lastY = py;
                     }
                 })
                 .call(() => { if (node.isValid) node.destroy(); })

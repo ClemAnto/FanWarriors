@@ -4899,7 +4899,7 @@
     "closeButton": {
       "__id__": 50
     },
-    "restartButton": null,
+    "quitButton": null,
     "vibrToggle": {
       "__id__": 70
     },
