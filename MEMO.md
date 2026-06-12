@@ -159,6 +159,9 @@ sp.color = new Color(255, gb, gb, 255);  // moltiplicatore RGB applicato alla te
 
 ---
 
+### `Label.lineHeight` default 40 — clipping verticale con fontSize grandi
+Il default di `lineHeight` in CC3 è **40px fissi**, NON segue `fontSize`. Una Label creata da codice con `fontSize` > ~40 (es. i numeri 88px del banner round-up) viene **clippata verticalmente** — peggio con MedievalSharp che ha ascendenti alti. Impostare sempre `lbl.lineHeight = fontSize × ~1.15` sulle Label runtime con font grande. (Scoperto 2026-06-12 sul banner round-up.)
+
 ### `enabledContactListener = true` — CRITICO
 **Obbligatorio** su ogni `RigidBody2D` che deve ricevere callback di contatto. Senza, `Contact2DType.BEGIN_CONTACT` non viene mai chiamato. Va impostato in codice prima che il nodo entri in scena.
 ```typescript
@@ -299,6 +302,20 @@ Disegnata in `Track.buildWalls()` sul nodo **Track** — garantisce che sia semp
 
 ---
 
+## Linea di game over DINAMICA (2026-06-12)
+
+La linea **parte alzata e scende** a ogni specie sbloccata (curva di difficoltà: tensione early, sollievo quando la combinatoria peggiora).
+
+- **Quota editor = posizione FINALE (più bassa)**, raggiunta a tutte le specie sbloccate. Il nodo editor `TrackSprite > GameOverLine` **non viene MAI mosso da codice** (resta l'ancora autoritativa; il suo `Sprite` è disattivato a runtime). **Deroga controllata** alla regola "non muovere nodi editor": si muove solo il clone runtime `GameOverLineDyn`.
+- Raise iniziale: `GO_LINE_RAISE_FRAC = 0.13 × TRACK_H` (costante in GameManager, **da tarare in playtest**); scende di ¼ a ogni `introRound` (3/5/7/9).
+- Soglia logica: `gameOverLineLocal = visualToPhys(quota editor + _goLineRaisePx)`; il globale `GAME_OVER_LINE_Y` include il raise via `Track.setGameOverLineRaisePx` (consumatori: penaliseAndReturn spawnY, overlay debug).
+- Larghezza: `funnelWidthRatioAt(raisePx)` — il funnel si stringe verso l'alto, quindi la linea alzata è proporzionalmente più CORTA e si allarga scendendo.
+- **Discesa animata (1.4s) SOLO dentro il freeze fisica del banner round-up** (finestra 2.16s) + `LineDescentEffect`. La logica scatta subito alla quota target (linea più bassa = più permissiva, mai dannosa).
+- **Sicurezza check game-over/malus**: i check usano contatori di permanenza vs `gol` corrente, non attraversamenti prev/now → una linea che SCENDE può solo concedere `crossedLine` a chi è sopra, mai triggerare malus/game-over. Una linea che SALE (solo new-game/debug round-down) azzera `framesBelowLine`; col debug round-down warriors già piazzati possono comunque finire sotto la linea e esplodere dopo i soliti N frame — accettato, è tooling.
+- **Min-force NON è un vincolo**: il lancio debole che non supera la linea alzata cade nel normale percorso failed-launch (malus + ritorno), che con la linea alta è semplicemente più probabile = tensione early voluta.
+
+---
+
 ## Auto-pausa (v0.6.0)
 
 Il gioco si mette in pausa automaticamente quando l'app perde il focus (background/standby).
@@ -413,7 +430,7 @@ Calibrato a iterazioni con l'utente il 2026-06-12 — prima di ritoccare i param
 | `levelBiasChance` | 0.30 | Probabilità di favorire il livello di un warrior stranded |
 | `strandedRadiusMultiplier` | 3.0 | Un warrior è stranded se non ha peer compatibili entro `× 2r` |
 
-**Bag**: array shuffled con `bagMultiplier` copie per specie; si pesca dalla testa; si rigenera vuoto. Quando una nuova specie si sblocca (`setSpawnTypes`), vengono inserite `bagMultiplier` copie a posizioni random nel bag corrente — nessuna ricostruzione da zero.
+**Bag**: array shuffled con copie per specie pesate da `_speciesWeight`; si pesca dalla testa; si rigenera vuoto. **Rampa specie nuova (2026-06-12)**: allo sblocco (`setSpawnTypes`) la specie entra con una **coppia adiacente** spliced a posizione random nel bag corrente (la prima non resta orfana: la gemella arriva subito dopo) e peso 1; il peso sale di +1 a ogni rebuild del bag fino a `bagMultiplier`. Le specie iniziali partono a peso pieno. Nota: il restore da snapshot ripassa da `setSpawnTypes` → una specie già in pista rientra in rampa; distorsione minima, solo percorso di recovery.
 
 **Bias contestuale**: prima di pescare dalla testa, con probabilità `contextBiasChance` cerca specie con warrior stranded in pista, fa weighted pick proporzionale al numero di stranded, cerca quella specie nel bag e la rimuove (non dalla testa); fallback alla testa se non trovata.
 

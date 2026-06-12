@@ -486,6 +486,7 @@ export class VFXManager {
         const wordLbl = wordNode.addComponent(Label);
         wordLbl.string   = 'ROUND';
         wordLbl.fontSize = 44;
+        wordLbl.lineHeight = 52;   // default lineHeight is 40: smaller than fontSize = vertical clipping
         wordLbl.isBold   = true;
         wordLbl.overflow = Label.Overflow.NONE;
         wordLbl.color    = new Color(255, 255, 255, 255);
@@ -505,6 +506,7 @@ export class VFXManager {
         const curLbl = curNode.addComponent(Label);
         curLbl.string   = String(prevRound);
         curLbl.fontSize = 88;
+        curLbl.lineHeight = 102;  // MedievalSharp ascenders overflow the default 40px line
         curLbl.isBold   = true;
         curLbl.overflow = Label.Overflow.NONE;
         curLbl.color    = new Color(255, 220, 50, 255);
@@ -528,6 +530,7 @@ export class VFXManager {
         const newLbl = newNode.addComponent(Label);
         newLbl.string   = String(newRound);
         newLbl.fontSize = 88;
+        newLbl.lineHeight = 102;
         newLbl.isBold   = true;
         newLbl.overflow = Label.Overflow.NONE;
         newLbl.color    = new Color(255, 220, 50, 255);
@@ -546,9 +549,11 @@ export class VFXManager {
 
         // ── new species reveal (optional) ─────────────────────────────────────
         if (silhouetteFrame) {
+            // Pushed further below the number (was -148: the black silhouette sat ~8px under
+            // the digits and read as a rendering artifact, not as the species teaser).
             const rowNode = new Node('NewSpeciesRow');
             rowNode.setParent(root);
-            rowNode.setPosition(0, -148);
+            rowNode.setPosition(0, -172);
             const rowOp = rowNode.addComponent(UIOpacity);
             rowOp.opacity = 0;
             tween(rowOp)
@@ -564,16 +569,27 @@ export class VFXManager {
             const silSp = silNode.addComponent(Sprite);
             silSp.sizeMode    = Sprite.SizeMode.CUSTOM;
             silSp.spriteFrame = silhouetteFrame;
-            silSp.color       = new Color(0, 0, 0, 255);
+            // Dark violet instead of pure black + a gentle breathing pulse: reads as an
+            // intentional "mystery creature" teaser rather than a stray shadow.
+            silSp.color       = new Color(38, 22, 56, 255);
+            // Single breath — the row is only visible for ~0.6s and the root gets destroyed
+            // at T_DESTROY (no repeatForever on soon-to-die nodes).
+            tween(silNode)
+                .delay(T_SPECIES)
+                .to(0.30, { scale: new Vec3(1.07, 1.07, 1) }, { easing: 'sineInOut' })
+                .to(0.30, { scale: new Vec3(1, 1, 1) },       { easing: 'sineInOut' })
+                .start();
 
             const textNode = new Node('SpeciesText');
             textNode.setParent(rowNode);
-            textNode.setPosition(0, -30);
+            textNode.setPosition(0, -32);
             const textLbl = textNode.addComponent(Label);
             textLbl.string   = 'a new warrior is coming...';
-            textLbl.fontSize = 18;
+            textLbl.fontSize = 20;
+            textLbl.lineHeight = 26;
             textLbl.isBold   = false;
             textLbl.color    = new Color(230, 230, 230, 255);
+            this._applyFont(textLbl);
         }
     }
 

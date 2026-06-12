@@ -21,6 +21,35 @@ const ASPECT_RATIO = 6/10;
 
 let _funnelPct = 25; // persisted across initLayout() calls without explicit arg
 
+// ── Dynamic game-over line ────────────────────────────────────────────────────
+// The editor GameOverLine node is the immutable LOWEST quota (end-game position).
+// The line starts the game raised above it and steps down as new species unlock;
+// GameManager owns the policy and calls setGameOverLineRaisePx with the offset.
+let _goBaseLineY = GAME_OVER_LINE_Y; // quota with zero raise (editor-authoritative)
+let _goRaisePx   = 0;                // current raise above the base, canvas px
+
+function _applyGoLine(): void {
+    GAME_OVER_LINE_Y = Math.round(_goBaseLineY + _goRaisePx);
+    GAME_OVER_AREA   = TRACK_H > 0 ? (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) / TRACK_H : 0.5;
+}
+
+export function setGameOverLineRaisePx(px: number): void {
+    _goRaisePx = Math.max(0, px);
+    _applyGoLine();
+}
+
+/** Inner funnel width at the line quota raised by `raisePx`, relative to the un-raised quota.
+ *  The funnel narrows toward the top, so a raised line is proportionally shorter. */
+export function funnelWidthRatioAt(raisePx: number): number {
+    if (TRACK_H <= 0) return 1;
+    const bottomW = WALL_RB.x - WALL_LB.x;
+    const topW    = WALL_RT.x - WALL_LT.x;
+    const widthAt = (t: number) => bottomW + (topW - bottomW) * Math.min(1, Math.max(0, t));
+    const tBase   = (_goBaseLineY - TRACK_BOTTOM_Y) / TRACK_H;
+    const base    = widthAt(tBase);
+    return base > 0 ? widthAt(tBase + raisePx / TRACK_H) / base : 1;
+}
+
 /** Call once before any game objects are created (GameManager.start). */
 export function initLayout(funnelPct?: number): void {
     if (funnelPct !== undefined) _funnelPct = funnelPct;
@@ -31,7 +60,8 @@ export function initLayout(funnelPct?: number): void {
     TRACK_W  = Math.round(TRACK_H * ASPECT_RATIO * 1.2);
 
     TRACK_TOP_Y      = TRACK_BOTTOM_Y + TRACK_H;
-    GAME_OVER_LINE_Y = Math.round((TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2);
+    _goBaseLineY     = Math.round((TRACK_BOTTOM_Y + TRACK_TOP_Y) / 2);
+    _applyGoLine();
     LAYOUT_SCALE     = TRACK_W / 384;
     // topW = TRACK_W * (1 - funnelPct/100)  →  FO = TRACK_W * funnelPct / 200
     FUNNEL_OFFSET    = Math.round(TRACK_W * _funnelPct / 200);
@@ -164,11 +194,12 @@ export class Track extends Component {
             new Vec2(topR - t,  top),
         ], 0.8, 0.05);
 
-        // If TrackSprite has a GameOverLine child, use its world Y as the authoritative threshold
+        // If TrackSprite has a GameOverLine child, use its world Y as the authoritative BASE
+        // threshold (lowest quota); the current dynamic raise is re-applied on top of it.
         const goEditorNode = spriteNode.getChildByName('GameOverLine');
         if (goEditorNode) {
-            GAME_OVER_LINE_Y = Math.round(goEditorNode.worldPosition.y);
-            GAME_OVER_AREA   = TRACK_H > 0 ? (GAME_OVER_LINE_Y - TRACK_BOTTOM_Y) / TRACK_H : 0.5;
+            _goBaseLineY = Math.round(goEditorNode.worldPosition.y);
+            _applyGoLine();
         }
 
         const lineNode = new Node('GameOverLine');

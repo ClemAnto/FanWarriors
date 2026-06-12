@@ -29,6 +29,15 @@
 
 ## Log sessioni recenti
 
+### 2026-06-12 sera (v0.8.64) — Curva di difficoltà: rampa specie + linea game-over dinamica + fix banner round-up
+- 📈 **Rampa specie nuova** (SpawnManager): allo sblocco la specie entra con una **coppia adiacente** nella bag (la prima non resta mai orfana — il giocatore vive subito il primo merge) e poi pesa 1 copia/bag, +1 a ogni rebuild fino a `bagMultiplier`. Risolve il gradino al round 5 (aquila): prima entrava subito a frequenza piena.
+- 📏 **Linea game-over dinamica**: parte alzata di `GO_LINE_RAISE_FRAC=0.13 × TRACK_H` (tensione early) e scende di ¼ a ogni specie sbloccata (round 3/5/7/9) fino alla quota editor, che resta autoritativa come posizione FINALE. Larghezza segue il funnel alla sua quota (`funnelWidthRatioAt`). Discesa animata (1.4s) **dentro il freeze fisica del banner round-up** + `LineDescentEffect` (afterimage + flash additivo + scintille oro verso l'alto). Logica: nodo editor = ancora immobile (sprite disattivato), visuale = clone runtime `GameOverLineDyn`; soglia = quota editor + raise. Sicurezza check: la linea scende solo → può solo CONCEDERE crossing (contatori `y>=gol` per N frame), mai causare game-over/malus spuri; `framesBelowLine` azzerato sugli alzamenti (solo new-game/debug). Min-force non è un vincolo: il lancio debole che non supera la linea alzata passa dal normale malus failed-launch.
+- ✔️ Verificato che timer e specie erano GIÀ disaccoppiati (timer cala ai round 2/4/6/8/11, specie ai 3/5/7/9) — corretta la formula obsoleta in questo file.
+- 🐛 **Fix sync linea a layout instabile**: a `start()` la passata Widget/Canvas non è ancora avvenuta (gotcha CoordConverter) → la linea appariva più BASSA. Risolto con `_syncGoLineWhenStable`: sampler per-frame che applica il raise solo quando la worldPosition dell'ancora è ferma da 2 frame (cap 2s); riarmato su resize live e restore.
+- 🔤 **Fix banner round-up**: numeri tagliati (Label CC3 ha `lineHeight` default 40 — clippava i fontSize 88, gotcha in MEMO) e "ombra" sotto il numero nei round specie = silhouette nera troppo vicina ai numeri → riga a -172, tinta viola scuro, respiro singolo di scala, testo col font MedievalSharp.
+- ⏭️ **Da testare in serve/playtest**: linea dinamica a occhio (quote/larghezza), taratura `GO_LINE_RAISE_FRAC` (0.13), rampa specie al round 5.
+- 🌐 Extra sessione: short link tester **tinyurl.com/funwarriors**; nota in MEMO sul refuso storico repo `FanWarriors`; submission Poki compilata (form /share).
+
 ### 2026-06-12 (v0.8.62) — Fix: proximity merge ignorava i warriors nati da merge
 - 🐛 **Bug "warriors vicini ma niente merge"**: `_checkProximityMerge` (GameManager) scartava i warriors con `launched === false` — ma `launched` lo imposta solo `applyImpulse()`. I warriors creati da merge/evolve/powerup hanno `crossedLine`/`fired` ma mai `launched`, quindi il fallback di prossimità li saltava sempre. Il merge via contatto Box2D restava l'unica via, ma il collider ha diametro `2r` contro sprite largo `4r`: visivamente "attaccati" ≠ in contatto fisico. Fix: predicato `launched || crossedLine` (stesso usato in `Warrior.onBeginContact`); il warrior in attesa sul launcher resta escluso. Gotcha in MEMO.
 
@@ -192,7 +201,7 @@
 - [x] Aggiungere `currentRound` al GameManager
 - [x] Contatore `totalMerges` e tabella soglie merge per avanzare di round (ROUND_THRESHOLDS: 10/25/45/70/100/135)
 - [x] All'avanzare del round: aggiungere specie alla pool, aggiornare regole spawn, ridurre timer di lancio
-- [x] Timer di lancio scala con il round (`max(3, 15 - (round-1)*2)`)
+- [x] Timer di lancio scala con il round — tabella a gradini in `launchTimerForRound` (15/12/10/8/5/3s; cala ai round 2/4/6/8/11, MAI nei round di introduzione specie 3/5/7/9: un solo aumento di pressione alla volta)
 - [x] Notifica visiva "ROUND UP" con tween scala + pausa `roundUpPause`
 
 **Giorno 20-21: Game over e restart** *(26–27 mag)*

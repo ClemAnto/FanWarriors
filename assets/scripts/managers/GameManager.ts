@@ -6,7 +6,7 @@ import { SafeStorage } from '../utils/SafeStorage';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
 import { GameState } from './GameState';
-import { GAME_OVER_LINE_Y, TRACK_W, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track } from '../entities/Track';
+import { GAME_OVER_LINE_Y, TRACK_W, TRACK_H, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track, setGameOverLineRaisePx, funnelWidthRatioAt } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
@@ -18,6 +18,7 @@ import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
 import { GenocideEffect } from '../entities/GenocideEffect';
 import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
 import { TrailEffect } from '../entities/TrailEffect';
+import { LineDescentEffect } from '../entities/LineDescentEffect';
 import { Settings } from './Settings';
 import { EndPanel } from './EndPanel';
 import { PausePanel } from './PausePanel';
@@ -27,7 +28,7 @@ import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConf
 import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.8.63';
+export const VERSION     = '0.8.64';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -72,6 +73,15 @@ const VORTEX_FORCE_BASE      = 220;  // force units per level
 const VORTEX_TTL_BASE        = 0.5;  // base vortex duration in seconds
 const VORTEX_TTL_LEVEL       = 0.15; // extra seconds per level
 const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
+
+// ── Dynamic game-over line ──
+// The editor GameOverLine quota is the END-GAME (lowest) position. The line starts the
+// game raised by GO_LINE_RAISE_FRAC × TRACK_H (early tension: smaller safe zone) and
+// steps down once per species unlock (rounds 3/5/7/9) — relief exactly when the merge
+// combinatorics get harder. Min-force is NOT a constraint: a launch that fails to cross
+// the raised line goes through the regular failed-launch malus path.
+const GO_LINE_RAISE_FRAC  = 0.13; // game-start raise, fraction of TRACK_H — tune in playtest
+const GO_LINE_DESCENT_DUR = 1.4;  // s, fits inside the round-up banner physics freeze (2.16s)
 const NEW_BEST_MIN_SCORE = 10000;  // min score for the "new best" message to appear
 
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
@@ -233,18 +243,126 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _stateBeforePause: GameState | null = null;
     private _autoPaused = false;
     private _settings: Settings | null = null;
-    private _endlineNode: Node | null = null;  // scene GameOverLine node (under TrackSprite)
+    private _endlineNode: Node | null = null;  // scene GameOverLine node (under TrackSprite) — immutable anchor, sprite muted
+    private _goLineVis: Node | null = null;    // runtime visual line, the one the player sees (moves/narrows with the raise)
+    private _goLineRaisePx = 0;                // current logic raise above the editor quota, canvas px
     private get gameOverLineLocal(): number {
         const sy = this.box2dLayer?.scale.y ?? 1;
         // Derive the physics-Y threshold from the GameOverLine node's *visual* position, inverting
         // the same perspective mapping used to render warriors. This makes the threshold land on the
         // red art line (not above it) and self-corrects for layout/resize timing. Computed live each
-        // call — during gameplay all world positions are final.
+        // call — during gameplay all world positions are final. The dynamic raise is added on top:
+        // the editor node never moves, it remains the authoritative end-game (lowest) quota.
         if (this._endlineNode?.isValid && this.warriorsLayer?.isValid && this.coords) {
-            const visualY = this._endlineNode.worldPosition.y - this.warriorsLayer.worldPosition.y;
+            const visualY = this._endlineNode.worldPosition.y - this.warriorsLayer.worldPosition.y + this._goLineRaisePx;
             return this.coords.visualToPhys(visualY);
         }
-        return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y;
+        return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y; // global already includes the raise
+    }
+
+    /** Raise fraction for a round: full at game start, stepping to 0 (editor quota) as species unlock. */
+    private _goLineFracForRound(round: number): number {
+        const extras   = WARRIORS.filter(w => w.introRound > 1);
+        const unlocked = extras.filter(w => w.introRound <= round).length;
+        return extras.length > 0 ? GO_LINE_RAISE_FRAC * (1 - unlocked / extras.length) : 0;
+    }
+
+    /** Build the runtime visual line and mute the editor sprite (the editor node stays as position anchor —
+     *  documented exception to the "never move editor nodes" rule: we never move IT, only our copy). */
+    private _wireGoLineVisual(): void {
+        const anchor = this._endlineNode;
+        if (!anchor?.isValid || !anchor.parent) return;
+        const srcSp = anchor.getComponent(Sprite);
+        if (srcSp) srcSp.enabled = false;
+        const vis = new Node('GameOverLineDyn');
+        vis.layer = anchor.layer;
+        vis.setParent(anchor.parent);
+        vis.setSiblingIndex(anchor.getSiblingIndex() + 1);
+        const srcUit = anchor.getComponent(UITransform);
+        const uit = vis.addComponent(UITransform);
+        if (srcUit) {
+            uit.setContentSize(srcUit.contentSize);
+            uit.setAnchorPoint(srcUit.anchorPoint);
+        }
+        const sp = vis.addComponent(Sprite);
+        sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        if (srcSp) {
+            sp.spriteFrame = srcSp.spriteFrame;
+            sp.color       = srcSp.color.clone();
+        }
+        vis.setPosition(anchor.position);
+        vis.setScale(anchor.scale);
+        this._goLineVis = vis;
+    }
+
+    private _goLineSyncRound    = 1;
+    private _goLineSyncElapsed  = 0;
+    private _goLineLastAnchorY: number | null = null;
+
+    /** Run the line sync only once the layout is STABLE: the anchor's world position must be
+     *  unchanged for two consecutive frames. Covers the post-start() Canvas/Widget layout pass
+     *  (setDesignResolutionSize runs AFTER start — see CoordConverter) and live browser resizes
+     *  still in progress. Safety cap 2s, then sync anyway. Re-entrant: restarts the sampling. */
+    private _syncGoLineWhenStable(round: number): void {
+        this._goLineSyncRound   = round;
+        this._goLineSyncElapsed = 0;
+        this._goLineLastAnchorY = null;
+        this.unschedule(this._goLineStableTick);
+        this.schedule(this._goLineStableTick, 0);
+    }
+
+    private readonly _goLineStableTick = (dt: number): void => {
+        this._goLineSyncElapsed += dt;
+        const anchor = this._endlineNode;
+        if (!anchor?.isValid) { this.unschedule(this._goLineStableTick); return; }
+        const y = anchor.worldPosition.y;
+        const stable = this._goLineLastAnchorY !== null && Math.abs(y - this._goLineLastAnchorY) < 0.25;
+        this._goLineLastAnchorY = y;
+        if (stable || this._goLineSyncElapsed > 2) {
+            this.unschedule(this._goLineStableTick);
+            this._syncGoLineToRound(this._goLineSyncRound, false);
+        }
+    };
+
+    /** Apply the line raise for `round`. Animated descents run inside the round-up physics freeze;
+     *  the LOGIC threshold snaps to the target immediately — a lower line is strictly more
+     *  permissive, so logic ahead of visual can never hurt the player. */
+    private _syncGoLineToRound(round: number, animate: boolean): void {
+        const raisePx = this._goLineFracForRound(round) * TRACK_H;
+        const prevPx  = this._goLineRaisePx;
+        this._goLineRaisePx = raisePx;
+        setGameOverLineRaisePx(raisePx);
+        // A raise INCREASE (new game, debug round-down) can strand warriors below the new line:
+        // their below-line counters are stale by definition — reset them.
+        if (raisePx > prevPx) this.framesBelowLine.clear();
+
+        const anchor = this._endlineNode;
+        const vis    = this._goLineVis;
+        if (!anchor?.isValid || !vis?.isValid || !anchor.parent?.isValid) return;
+        Tween.stopAllByTarget(vis);
+        // Convert "anchor raised by raisePx in world/canvas units" into parent-local space via the
+        // real transform — manual scale arithmetic gets sign/factor wrong (TrackSprite's transform
+        // chain is not trivial; see the ×2 in Track.buildWalls).
+        const parentUit = anchor.parent.getComponent(UITransform);
+        let targetY = anchor.position.y + raisePx / (anchor.parent.worldScale.y || 1);
+        if (parentUit) {
+            const raisedWorld = anchor.worldPosition.clone();
+            raisedWorld.y += raisePx;
+            targetY = parentUit.convertToNodeSpaceAR(raisedWorld).y;
+        }
+        const targetScaleX = anchor.scale.x * funnelWidthRatioAt(raisePx);
+        if (animate && Math.abs(targetY - vis.position.y) > 0.5) {
+            const fromY = vis.position.y;
+            tween(vis)
+                .to(GO_LINE_DESCENT_DUR,
+                    { position: new Vec3(vis.position.x, targetY, 0), scale: new Vec3(targetScaleX, anchor.scale.y, 1) },
+                    { easing: 'sineInOut' })
+                .start();
+            LineDescentEffect.play(vis, this.vfx.sparkleFrame, fromY, targetY, GO_LINE_DESCENT_DUR);
+        } else {
+            vis.setPosition(vis.position.x, targetY);
+            vis.setScale(targetScaleX, anchor.scale.y, 1);
+        }
     }
 
     private syncInputBounds(): void {
@@ -307,6 +425,9 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.inputCtrl?.relayout(LAYOUT_SCALE);
             this.syncInputBounds();
             // LaunchTimer position is editor-authoritative (Widget on the Track child) — no code reposition.
+            // Re-derive the line raise from the new TRACK_H once the layout settles (the resize
+            // may still be in progress — the sampler waits for a stable anchor).
+            this._syncGoLineWhenStable(this.currentRound);
         });
     };
 
@@ -389,6 +510,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.track?.relayout();
         this.nextPreviewNode = this.track?.node.getChildByName('NextPreview') ?? null;
         this._endlineNode = this.track?.node.getChildByName('TrackSprite')?.getChildByName('GameOverLine') ?? null;
+        this._wireGoLineVisual();
+        this._syncGoLineWhenStable(this.currentRound);
 
         this.inputCtrl = this.node.addComponent(InputController);
         this.inputCtrl.ropeParent = this.worldNode;
@@ -492,6 +615,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.timerRemaining = launchTimerForRound(this.currentRound);
+        this._syncGoLineToRound(this.currentRound, false);
         this.updateRoundLabel();
     }
 
@@ -562,6 +686,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.timerRemaining = launchTimerForRound(this.currentRound);
+        this._syncGoLineToRound(this.currentRound, false);
         this.updateRoundLabel();
         this.updateRoundProgress();
     }
@@ -594,6 +719,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(1));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(1));
         this.timerRemaining = launchTimerForRound(1);
+        this._syncGoLineToRound(1, false);
         this.updateRoundLabel();
         this.updateRoundProgress();
         this.updateScoreLabel();
@@ -2715,6 +2841,9 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
             this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
+            // Re-arms the stability sampler started in start() with the restored round
+            // (the scene has just reloaded — layout may still be settling here too).
+            this._syncGoLineWhenStable(this.currentRound);
 
             // On-track warriors
             const created: Warrior[] = (snap.warriors ?? []).map(s => this.addDebugWarrior(s.type, s.level, s.x, s.y));
@@ -3083,6 +3212,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
             this.showRoundUpBanner();
+            // New species unlocked → game-over line steps down as part of the reward.
+            // Runs inside the physics freeze: warriors are static while the line moves,
+            // and a descending line can only GRANT crossings, never cause game over/malus.
+            if (WARRIORS.some(w => w.introRound === this.currentRound)) {
+                this._syncGoLineToRound(this.currentRound, true);
+            }
             this.scheduleOnce(() => {
                 PhysicsSystem2D.instance.enable = true;
                 this.inputCtrl.unfreezeInput();

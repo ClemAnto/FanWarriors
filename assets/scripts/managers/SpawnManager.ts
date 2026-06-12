@@ -33,6 +33,9 @@ export class SpawnManager extends Component {
     private _nextLevel = 1;
     private _activeSpecies: number[] = [];
     private _currentBag: number[] = [];
+    // Copies-per-bag for each species; newly unlocked species ramp 1 → bagMultiplier
+    // across bag rebuilds so they trickle in instead of arriving at full frequency.
+    private _speciesWeight = new Map<number, number>();
 
     onMergeReady:    ((a: Warrior, b: Warrior) => void) | null = null;
     onNextGenerated: (() => void) | null = null;
@@ -93,18 +96,21 @@ export class SpawnManager extends Component {
 
     initializeBag(activeSpecies: number[]): void {
         this._activeSpecies = [...activeSpecies];
-        this._currentBag    = this._makeBag();
+        this._speciesWeight.clear();
+        for (const s of this._activeSpecies) this._speciesWeight.set(s, this.bagMultiplier);
+        this._currentBag = this._makeBag();
         this._shuffle(this._currentBag);
     }
 
     onNewSpeciesUnlocked(species: number): void {
         if (this._activeSpecies.indexOf(species) >= 0) return;
         this._activeSpecies.push(species);
-        // Splice bagMultiplier copies at random positions in the remaining bag
-        for (let i = 0; i < this.bagMultiplier; i++) {
-            const pos = Math.floor(Math.random() * (this._currentBag.length + 1));
-            this._currentBag.splice(pos, 0, species);
-        }
+        this._speciesWeight.set(species, 1);
+        // Splice an ADJACENT pair into the remaining bag: the first specimen of a new
+        // species would otherwise sit stranded on the track with nothing to merge with,
+        // so its partner is guaranteed to be served right after it.
+        const pos = Math.floor(Math.random() * (this._currentBag.length + 1));
+        this._currentBag.splice(pos, 0, species, species);
     }
 
     setSpawnTypes(n: number): void {
@@ -131,7 +137,10 @@ export class SpawnManager extends Component {
     private _makeBag(): number[] {
         const bag: number[] = [];
         for (const s of this._activeSpecies) {
-            for (let i = 0; i < this.bagMultiplier; i++) bag.push(s);
+            const weight = this._speciesWeight.get(s) ?? this.bagMultiplier;
+            for (let i = 0; i < weight; i++) bag.push(s);
+            // Advance the ramp one step per bag rebuild
+            if (weight < this.bagMultiplier) this._speciesWeight.set(s, weight + 1);
         }
         return bag;
     }

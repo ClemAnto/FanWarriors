@@ -40,4 +40,4 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 4 — Polish, audio, bilanciamento (v0.8.57+). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD definitivo (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1 attive), powerup Aura/BloodHood/PsychoForce/Genocide. Restano: audio completo, slowmo/trail/squash, playtest e bilanciamento.
+Fase 4 — Polish, audio, bilanciamento (v0.8.64). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD definitivo (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1 attive), powerup Aura/BloodHood/PsychoForce/Genocide. Audio, slowmo, trail e juice fatti. Curva difficoltà ammorbidita (rampa specie + linea game-over dinamica, 2026-06-12 — da testare). Restano: playtest esterni (link: tinyurl.com/funwarriors) e bilanciamento; submission Poki inviata.
