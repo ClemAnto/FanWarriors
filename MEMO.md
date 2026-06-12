@@ -825,7 +825,9 @@ Deploy attivo su **GitHub Pages** (Netlify rimosso del tutto il 2026-06-10 — f
 npm run deploy   # scripts/deploy.js — inietta versione + pusha su branch gh-pages
 ```
 
-URL live: **https://clemanto.github.io/FanWarriors/**
+URL live: **https://clemanto.github.io/FanWarriors/** — short link per i tester: **https://tinyurl.com/funwarriors**
+
+> ⚠️ Il gioco si chiama **FunWarriors**; solo il repo GitHub (e quindi remote git + URL Pages) è `FanWarriors` per un refuso storico. Decisione 2026-06-12: NON rinominare il repo (romperebbe URL Pages e tinyurl, non recuperabili). Ogni `FanWarriors` nel progetto è un riferimento tecnico al repo, non il nome del gioco.
 
 ### Come funziona il deploy script
 
