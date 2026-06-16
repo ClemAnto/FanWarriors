@@ -200,6 +200,19 @@ export class Warrior extends Component {
         }
     }
 
+    /** Re-fit the collider and visual to the current LAYOUT_SCALE after a live viewport resize.
+     *  Position is handled by the caller (GameManager re-maps it within the funnel). */
+    rescaleToLayout(): void {
+        const r = this.radius; // getter uses the live (post-resize) LAYOUT_SCALE
+        const col = this.getComponent(CircleCollider2D);
+        if (col) { col.radius = r; col.apply(); }  // apply() rebuilds the Box2D fixture at the new size
+        if (this.mapper) this.mapper.yOffset = r * Warrior.viewYOffset;
+        if (this.viewNode?.isValid) {
+            const uit = this.viewNode.getComponent(UITransform);
+            if (uit) uit.setContentSize(r * 4, r * 4);
+        }
+    }
+
     forceStop(): void {
         const rb = this._rb;
         if (!rb) return;

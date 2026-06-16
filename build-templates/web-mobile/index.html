@@ -60,16 +60,12 @@
       letter-spacing: 1px;
       margin-top: 20px;
     }
-    .ls-spinner {
-      width: 44px;
-      height: 44px;
-      border: 3px solid rgba(255, 212, 50, 0.2);
-      border-top-color: #ffd432;
-      border-radius: 50%;
-      animation: ls-spin 0.85s linear infinite;
-    }
-    @keyframes ls-spin {
-      to { transform: rotate(360deg); }
+    .ls-pct {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #ffd432;
+      letter-spacing: 1px;
     }
   </style>
 </head>
@@ -78,7 +74,7 @@
   <div id="loading-screen">
     <img class="ls-logo" src="title.png" alt="FunWarriors"/>
     <div class="ls-subtitle">Loading</div>
-    <div class="ls-spinner"></div>
+    <div class="ls-pct" id="ls-pct">0%</div>
     <div class="ls-version">v__VERSION__</div>
   </div>
 
@@ -88,11 +84,9 @@
     </div>
   </div>
 
-<!-- Firebase compat SDK (leaderboard). Loaded as window.firebase; the engine bundle
-     stays Firebase-free. Remove these two tags for portal builds that use a native
-     leaderboard (and set BACKEND='null' in LeaderboardConfig.ts). -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<!-- Firebase compat SDK is NOT loaded here on purpose: two synchronous gstatic <script> tags
+     would block game startup. FirestoreLeaderboard._loadSdk injects them lazily from the CDN the
+     first time the leaderboard is actually used, so the boot path stays free of external requests. -->
 
 <script src="src/polyfills.bundle.js" charset="utf-8"> </script>
 <script src="src/system.bundle.js" charset="utf-8"> </script>
@@ -100,21 +94,42 @@
 
 <script>
 (function () {
+    var pctEl = document.getElementById('ls-pct');
+    // Hybrid progress (% only): phase 1 (engine cc.js download — no JS hook) eases cosmetically toward
+    // ~72%; phase 2 starts at the REAL "engine ready" milestone and eases toward ~95%; the REAL
+    // scene-launch milestone snaps to 100% and fades out.
+    var pct = 0, launched = false, ccReady = false, t0 = Date.now(), ccAt = 0;
+
+    function render() {
+        if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+    }
+    function loop() {
+        var target;
+        if (launched)      target = 100;
+        else if (ccReady)  target = Math.min(95, 75 + (Date.now() - ccAt) / 25);
+        else               target = Math.min(72, (Date.now() - t0) / 30);
+        pct += (target - pct) * 0.12;
+        if (!launched && pct > 99) pct = 99;
+        render();
+        if (launched && pct >= 99.5) { hideLoading(); return; }
+        requestAnimationFrame(loop);
+    }
     function hideLoading() {
+        if (pctEl) pctEl.textContent = '100%';
         var el = document.getElementById('loading-screen');
         if (!el) return;
         el.classList.add('fade-out');
         setTimeout(function () { el.style.display = 'none'; }, 550);
     }
-
-    // Poll until cc.director is available, then listen for first scene launch
     function waitForCC() {
         if (typeof window.cc !== 'undefined' && window.cc.director) {
-            window.cc.director.once(window.cc.Director.EVENT_AFTER_SCENE_LAUNCH, hideLoading);
+            ccReady = true; ccAt = Date.now();
+            window.cc.director.once(window.cc.Director.EVENT_AFTER_SCENE_LAUNCH, function () { launched = true; });
         } else {
-            setTimeout(waitForCC, 100);
+            setTimeout(waitForCC, 50);
         }
     }
+    requestAnimationFrame(loop);
     waitForCC();
 
     System.import('./index.js').catch(function (err) { console.error(err); });

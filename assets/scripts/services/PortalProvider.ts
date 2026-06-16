@@ -1,6 +1,7 @@
 import { PortalSdk } from './PortalSdk';
 import { NullPortal } from './NullPortal';
 import { PokiPortal } from './PokiPortal';
+import { CrazyGamesPortal } from './CrazyGamesPortal';
 import { PORTAL } from '../config/PortalConfig';
 
 /** Singleton factory — picks the portal implementation from the PORTAL flag. */
@@ -9,7 +10,11 @@ export class PortalProvider {
 
     static get(): PortalSdk {
         if (!PortalProvider._instance) {
-            PortalProvider._instance = PORTAL === 'poki' ? new PokiPortal() : new NullPortal();
+            switch (PORTAL) {
+                case 'poki':       PortalProvider._instance = new PokiPortal();       break;
+                case 'crazygames': PortalProvider._instance = new CrazyGamesPortal(); break;
+                default:           PortalProvider._instance = new NullPortal();        break;
+            }
         }
         return PortalProvider._instance;
     }

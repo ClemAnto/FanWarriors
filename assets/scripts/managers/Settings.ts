@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Toggle, Button, UIOpacity, tween, sys, instantiate, Label, UITransform, Widget } from 'cc';
 import { AudioManager } from './AudioManager';
 import { SafeStorage } from '../utils/SafeStorage';
+import { PORTAL } from '../config/PortalConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -88,8 +89,10 @@ export class Settings extends Component {
         this.musicToggle?.node.on('toggle', () => { if (!this._syncing) AudioManager.instance.toggleMusic(); }, this);
         this.fsToggle?.node.on('toggle',    () => { if (!this._syncing) this._toggleFullscreen(); }, this);
 
-        // Fullscreen unsupported (no requestFullscreen) → hide its row.
-        if (this.fsToggle && (!sys.isBrowser || !(document.documentElement as any).requestFullscreen)) {
+        // Hide the fullscreen row when unsupported (no requestFullscreen) OR on CrazyGames:
+        // custom in-game fullscreen buttons are prohibited there (the platform owns fullscreen).
+        const fsUnsupported = !sys.isBrowser || !(document.documentElement as any).requestFullscreen;
+        if (this.fsToggle && (fsUnsupported || PORTAL === 'crazygames')) {
             this.fsToggle.node.active = false;
         }
     }

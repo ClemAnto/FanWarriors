@@ -29,6 +29,21 @@
 
 ## Log sessioni recenti
 
+### 2026-06-15 (v0.9.1 → v0.10.0) — Integrazione CrazyGames + conformità + fix QA
+- 🎯 **Decisione strategica**: la richiesta Poki era solo l'**account sviluppatore** (silenzio, nessuna risposta) — **non** un submit del gioco. Nessuna esclusività in gioco → si procede in parallelo su **CrazyGames** (dev portal self-service, niente attesa). Correzione: ovunque dicesse "submission Poki inviata" era la richiesta account.
+- 🧩 **Adapter `CrazyGamesPortal`** (SDK v3) + `PortalProvider` switch a 3 vie + flag `PORTAL` esteso a `'crazygames'`. Vedi TECH.md.
+- 📦 **`npm run pack:crazygames`** (`scripts/pack-crazygames.js`): build con `PORTAL='crazygames'` (ripristino flag in `finally`) + patch-html + zip. Si carica la **cartella** `build/web-mobile` nel QA tool (CrazyGames ospita i file). `dist/` in `.gitignore`. Vedi MEMO.
+- ✅ **Conformità CrazyGames** (ricerca su docs.crazygames.com): size 16MB/161 file/path relativi/user-select/no tasti riservati/no link esterni/EN → tutto ok. Fix applicati:
+  - **Niente ad al primo PLAY** + `preloadScene('Game')` (era: `commercialBreak` prima del caricamento → "PLAY non parte"). L'ad solo tra le partite.
+  - **Mute audio solo su `adStarted`** (non alla richiesta): nuova firma `commercialBreak(onAdStart?)` su tutta la catena Portal.
+  - **Toggle Fullscreen nascosto** su CrazyGames (custom fullscreen button vietati).
+  - **Privacy Policy in-game** (`PrivacyPanel.ts`): requisito "user consent" — wiring editor in corso.
+- 🐛 **Fix QA — riallineamento fullscreen**: i warriors non si rimappavano al resize (opzione A: remap normalizzato nel funnel quando il layout è stabile + `Warrior.rescaleToLayout`). Vedi MEMO.
+- 🐛 **Fix QA — `v__VERSION__` nel loading**: patch-html ora gira anche in `pack-crazygames`.
+- ⚙️ **Fisica consistente 144/165Hz**: tutte le forze per-frame normalizzate a 60fps (`FORCE_FPS_REF`, `× dt × 60`) — bilanciamento invariato a 60fps. Vedi MEMO.
+- 🔢 Bump **0.9.1 → 0.10.0** (`package.json` + `GameManager.VERSION`).
+- ℹ️ **Leaderboard nativa CrazyGames** (Leaderboards MVP) esiste: si terrà Firebase per il primo submit, migrazione alla nativa post-onboarding (va configurata lato admin CrazyGames). Vedi TECH.md.
+
 ### 2026-06-12 sera (v0.8.64) — Curva di difficoltà: rampa specie + linea game-over dinamica + fix banner round-up
 - 📈 **Rampa specie nuova** (SpawnManager): allo sblocco la specie entra con una **coppia adiacente** nella bag (la prima non resta mai orfana — il giocatore vive subito il primo merge) e poi pesa 1 copia/bag, +1 a ogni rebuild fino a `bagMultiplier`. Risolve il gradino al round 5 (aquila): prima entrava subito a frequenza piena.
 - 📏 **Linea game-over dinamica**: parte alzata di `GO_LINE_RAISE_FRAC=0.13 × TRACK_H` (tensione early) e scende di ¼ a ogni specie sbloccata (round 3/5/7/9) fino alla quota editor, che resta autoritativa come posizione FINALE. Larghezza segue il funnel alla sua quota (`funnelWidthRatioAt`). Discesa animata (1.4s) **dentro il freeze fisica del banner round-up** + `LineDescentEffect` (afterimage + flash additivo + scintille oro verso l'alto). Logica: nodo editor = ancora immobile (sprite disattivato), visuale = clone runtime `GameOverLineDyn`; soglia = quota editor + raise. Sicurezza check: la linea scende solo → può solo CONCEDERE crossing (contatori `y>=gol` per N frame), mai causare game-over/malus spuri; `framesBelowLine` azzerato sugli alzamenti (solo new-game/debug). Min-force non è un vincolo: il lancio debole che non supera la linea alzata passa dal normale malus failed-launch.
@@ -341,7 +356,9 @@
 
 ### Integrazione Poki SDK *(anticipata — codice fatto 2026-06-10)*
 
-- [ ] [manuale] Registrare account sviluppatore Poki (o CrazyGames)
+- [ ] [manuale] Registrare account sviluppatore Poki (richiesta account inviata, silenzio) **e/o CrazyGames** (self-service, percorso attivo dal 2026-06-15)
+- [x] **Adapter CrazyGames** (`CrazyGamesPortal`, SDK v3) + `npm run pack:crazygames` + conformità (no-ad-primo-PLAY, mute su adStarted, fullscreen toggle off, privacy policy) — 2026-06-15, vedi TECH.md
+- [ ] [manuale] CrazyGames: caricare la cartella `build/web-mobile` in QA, testare, submit; poi leaderboard nativa (post-onboarding) + privacy panel wiring
 - [x] Implementato **adapter portale** (`PortalSdk` + `NullPortal`/`PokiPortal` + `PortalProvider`, flag `PORTAL` in `config/PortalConfig.ts` — default `'none'`, build GitHub Pages invariata; vedi TECH.md):
   - [x] `init()` all'avvio (MainMenu + Game, idempotente; SDK caricato a runtime dal CDN Poki) + `gameLoadingFinished()`
   - [x] `gameplayStart()`/`gameplayStop()` — inizio partita, pause (settings/panel/auto-pausa), game over/victory; dedup interno

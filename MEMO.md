@@ -857,9 +857,30 @@ Flusso:
 4. Init git fresh + commit + `git push -f FanWarriors HEAD:gh-pages`
 5. Cleanup dir temp
 
-**`scripts/patch-html.js`** — modulo condiviso usato da `serve-remote.js` e `deploy.js`. Sostituisce `__VERSION__`, poi aggiunge `?v=X.Y.Z` a ogni `src="*.js"`, `src="*.json"` e a `System.import('./index.js')`. Cocos non hasha i nomi dei file JS/CSS, quindi senza questo il browser serve versioni vecchie ad ogni deploy.
+**`scripts/patch-html.js`** — modulo condiviso usato da `serve-remote.js`, `deploy.js` **e `pack-crazygames.js`** (aggiunto 2026-06-15: senza, la build CrazyGames mostrava `v__VERSION__` nel loading screen). Sostituisce `__VERSION__`, poi aggiunge `?v=X.Y.Z` a ogni `src="*.js"`, `src="*.json"` e a `System.import('./index.js')`. Cocos non hasha i nomi dei file JS/CSS, quindi senza questo il browser serve versioni vecchie ad ogni deploy.
 
 ---
+
+## Pacchetto CrazyGames (2026-06-15)
+
+```powershell
+npm run pack:crazygames   # scripts/pack-crazygames.js
+```
+1. Mette `PORTAL='crazygames'` in `PortalConfig.ts` (temporaneo), 2. builda web-mobile headless, 3. **ripristina sempre** `PortalConfig.ts` in un `finally` (git non porta mai il flag), 4. patch-html (versione + cache-bust), 5. zippa in `dist/funwarriors-crazygames.zip`.
+
+- **Si carica la CARTELLA `build/web-mobile`** nel QA tool di CrazyGames (ospitano loro i file → non vogliono una URL pubblica). Lo zip in `dist/` è un di più, ignorabile (`dist/` è in `.gitignore`).
+- ⚠️ La cartella resta la build CrazyGames finché non rilanci `npm run build`/`deploy` (che usano `PORTAL='none'`): rigenera con `pack:crazygames` prima di ricaricare in QA.
+- Aggiornare su CrazyGames = caricare una nuova build sullo stesso gioco nel dev portal; la versione nel loading screen conferma a colpo d'occhio che il QA serve la build nuova (non cache).
+
+---
+
+## Forze framerate-independent (FORCE_FPS_REF, 2026-06-15)
+
+CrazyGames richiede fisica consistente su monitor 144/165 Hz. Le forze continue sono applicate **una volta per frame di render**, ma Box2D fa step a rate fisso → su 144 Hz la stessa forza si accumula ~2,4× per step fisico. Fix: ogni forza per-frame moltiplicata per `dt × FORCE_FPS_REF` (=`dt × 60`). A 60 fps il valore è 1 → **bilanciamento invariato**; ad alto refresh le applicazioni più frequenti si compensano. Toccati TUTTI i metodi che applicano forze in `GameManager`: `applyMagnetism`, `applyUpwardDrift`, `applyCohesion` (ricevono `dtScale` da `update`), `_applyAuraRepel`, `applyVortexImplosion` (già ricevevano `dt`, ora lo usano anche per la forza, non solo per i timer).
+
+## Resize/fullscreen — remap warriors nel funnel (2026-06-15)
+
+`relayout()` ricostruisce muri/linea dal `TrackSprite` ma NON tocca i warriors in pista → su resize/fullscreen restavano alle vecchie coordinate (disallineati). Fix (opzione A): al primo evento di resize si fotografa la posizione **normalizzata nel funnel** di ogni warrior (`normX` in [-1,1] sulla larghezza, `t` in [0,1] bottom→top) contro i muri *vecchi*; la si ri-applica contro i muri *nuovi* quando il layout è **stabile**, agganciandosi allo stesso sampler `_goLineStableTick` della linea game-over (`GameManager._captureWarriorNorm`/`_applyWarriorNormIfPending`). `Warrior.rescaleToLayout()` ri-adatta collider (`col.apply()`) + visual + `mapper.yOffset` al nuovo `LAYOUT_SCALE`; velocità azzerata (il warrior si ri-assesta). La normalizzazione contro i muri è coordinate-system-agnostica → non serve ragionare sullo `scaleY` del box2dLayer.
 
 ## Testing remoto su mobile
 

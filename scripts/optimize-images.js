@@ -19,10 +19,14 @@ const sharp = require('sharp');
 const ROOT = path.join(__dirname, '..');
 const SCAN_DIRS = ['assets', 'build-templates'];
 
-// dir substring → options
+// dir substring → options (first match wins)
 const RULES = [
-    { match: `particles${path.sep}`, resizeMax: 512, quality: 95 },  // soft glows: shrink + gentle palette
-    { match: '', resizeMax: 0, quality: 85 },                        // everything else: quantize only
+    { match: `particles${path.sep}`,     resizeMax: 512,  quality: 95 },  // soft glows: shrink + gentle palette
+    { match: `illustrations${path.sep}`, resizeMax: 768,  quality: 90 },  // shown on ~600px panels: heavily oversized
+    { match: `menu${path.sep}`,          resizeMax: 1440, quality: 88 },  // full-screen menu bg: modest downscale
+    { match: `background${path.sep}`,    resizeMax: 1440, quality: 88 },  // full-screen game bg: modest downscale
+    { match: `warriors${path.sep}`,      resizeMax: 1024, quality: 90 },  // runtime-sliced sheets (rects = tex/grid): frames 512→256-341, displayed ≤~288px
+    { match: '', resizeMax: 0, quality: 85 },                             // everything else: quantize only
 ];
 
 function* walk(dir) {

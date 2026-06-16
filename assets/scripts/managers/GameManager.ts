@@ -28,7 +28,7 @@ import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConf
 import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.9.1';
+export const VERSION     = '0.10.14';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -40,6 +40,13 @@ const DEBUG_ENGINE       = false;
 const SHOW_ENDLINE_DEBUG = false;  // set true to draw the purple dashed game-over threshold line (debug)
 const LIVE_RESIZE        = true;   // real-time relayout on browser resize — kept on in production too (negligible cost, fires only on resize)
 const TEST_FIRST_LAUNCH_GAMEOVER = false; // TEST: first launch forces game-over @15k to exercise the leaderboard flow
+// Continuous forces are applied once per render frame, but Box2D steps at a fixed rate, so on a
+// 144/165 Hz monitor the same force accumulates ~2.4× per physics step. Multiply every per-frame
+// force by (dt × this) so the integrated force matches 60 fps regardless of refresh rate.
+const FORCE_FPS_REF = 60;
+// Resize freeze: debounce delay after the last resize signal + hard cap so it never stays frozen.
+const RESIZE_SETTLE_S = 0.5;
+const RESIZE_MAX_S    = 2.5;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
 const MAGNET_FORCE_BASE  = 40;  // base force at design width — scaled by LAYOUT_SCALE
 const UPWARD_DRIFT_BASE  = 0;   // slight upward push on settled warriors — keeps pile away from game over line
@@ -180,6 +187,24 @@ export class GameManager extends Component implements IGameManagerDebug {
     private implosionPeakForce: number = 0;
     private cohesionTimeLeft: number = 0;
     private resizeRafId = 0;
+    private _resizeObserver: ResizeObserver | null = null;
+    private _obsW = -1;
+    private _obsH = -1;
+    // Resize freeze: while the viewport is changing we freeze physics + input (like the round-up
+    // freeze) so warriors don't react to mid-transition walls; we unfreeze + remap once the stage
+    // has been stable for RESIZE_SETTLE_S. State is saved/restored to survive a resize during round-up.
+    private _resizeFrozen = false;
+    private _resizeLastW = 0;
+    private _resizeLastH = 0;
+    private _resizeStableElapsed = 0;
+    private _roundUpPauseBeforeResize = false;
+    private _physicsEnabledBeforeResize = true;
+    private _inputBlockedBeforeResize = false;
+    private _lastSettledW = -1;
+    private _lastSettledH = -1;
+    // Warriors' box2dLayer-LOCAL positions captured at freeze start. Local (design-unit, centred) space
+    // is stable across resizes (scale/centre/aspect), so re-applying it keeps them funnel-aligned.
+    private _warriorFreezePos: { w: Warrior; x: number; y: number }[] | null = null;
     private _lastTickSec = -1;
     private _dangerCooldown = 0;
     private _slowmoTimer    = 0;
@@ -418,18 +443,111 @@ export class GameManager extends Component implements IGameManagerDebug {
         console.warn('[GameManager] unhandled promise rejection (ignored for dialog):', ev.reason);
     };
 
-    private readonly onBrowserResize = (): void => {
-        cancelAnimationFrame(this.resizeRafId);
-        this.resizeRafId = requestAnimationFrame(() => {
-            this.track?.relayout();
-            this.inputCtrl?.relayout(LAYOUT_SCALE);
-            this.syncInputBounds();
-            // LaunchTimer position is editor-authoritative (Widget on the Track child) — no code reposition.
-            // Re-derive the line raise from the new TRACK_H once the layout settles (the resize
-            // may still be in progress — the sampler waits for a stable anchor).
-            this._syncGoLineWhenStable(this.currentRound);
-        });
+    // resize / ResizeObserver: size-guarded (ignore spurious same-size fires that would cycle the freeze).
+    private readonly onBrowserResize = (): void => this._handleResize(false);
+    // fullscreenchange: ALWAYS handle (a toggle is real even if innerWidth happens to match), so a
+    // stuck _resizeFrozen from a prior cycle can never make us miss the next toggle.
+    private readonly onFullscreenChange = (): void => this._handleResize(true);
+
+    private _handleResize(force: boolean): void {
+        if (!sys.isBrowser) return;
+        const w = window.innerWidth, h = window.innerHeight;
+        // Ignore spurious resize/observer fires at a size we've already settled at — otherwise the
+        // engine's repeated fires would re-freeze forever and leave input blocked (controls dead).
+        if (!force && !this._resizeFrozen && w === this._lastSettledW && h === this._lastSettledH) return;
+        // A real change freezes the stage (physics + input, like the round-up freeze). Unfreeze is
+        // DEBOUNCED on the events (fires RESIZE_SETTLE_S after the last signal), with a hard cap.
+        if (!this._resizeFrozen) this._beginResizeFreeze();
+        this.unschedule(this._doUnfreeze);
+        this.scheduleOnce(this._doUnfreeze, RESIZE_SETTLE_S);
+        this._resizeLog(`signal${force ? '(fs)' : ''}  inner=${w}x${h}`);
+    }
+
+    private _beginResizeFreeze(): void {
+        this._resizeFrozen = true;
+        this._roundUpPauseBeforeResize   = this.roundUpPause;
+        this._physicsEnabledBeforeResize = PhysicsSystem2D.instance.enable;
+        this._inputBlockedBeforeResize   = this.inputCtrl?.blocked ?? false;
+        this.roundUpPause = true;                       // guards every physics op in update()
+        PhysicsSystem2D.instance.enable = false;
+        if (this.inputCtrl) this.inputCtrl.blocked = true;
+        // Snapshot each warrior's box2dLayer-LOCAL position (stable funnel-relative frame). On unfreeze
+        // we re-apply it so they stay funnel-aligned whatever the new scale/centre/aspect.
+        const snap: { w: Warrior; x: number; y: number }[] = [];
+        const cap = (w: Warrior | null): void => { if (w?.node?.isValid) snap.push({ w, x: w.node.position.x, y: w.node.position.y }); };
+        for (const w of this.warriors) cap(w);
+        if (this._activeLauncherWarrior && !this.warriors.includes(this._activeLauncherWarrior)) cap(this._activeLauncherWarrior);
+        this._warriorFreezePos = snap;
+        this.scheduleOnce(this._doUnfreezeCap, RESIZE_MAX_S);  // hard safety cap — never stay frozen
+        this._resizeLog('FREEZE begin');
+    }
+
+    private readonly _doUnfreezeCap = (): void => { this._resizeLog('unfreeze (CAP hit)'); this._doUnfreeze(); };
+
+    private readonly _doUnfreeze = (): void => {
+        if (!this._resizeFrozen) return;
+        this.unschedule(this._doUnfreeze);
+        this.unschedule(this._doUnfreezeCap);
+        this.track?.relayout();
+        this.inputCtrl?.relayout(LAYOUT_SCALE);
+        this.syncInputBounds();
+        this._recentreGameLayers();
+        this._syncGoLineWhenStable(this.currentRound);
+        // Restore by GAME STATE, not by the captured value: restoring a stale snapshot left input
+        // blocked across resizes (controls dead). Input is blocked only when the game itself blocks it;
+        // physics runs unless paused / mid round-up / auto-paused.
+        this.roundUpPause = this._roundUpPauseBeforeResize;
+        // Block input only where the game itself blocks it (Idle/auto-pause manage their own input).
+        const blocked = this.state === GameState.GameOver || this.state === GameState.Paused;
+        PhysicsSystem2D.instance.enable = !this.roundUpPause && this.state !== GameState.Paused && !this._autoPaused;
+        if (this.inputCtrl) this.inputCtrl.blocked = blocked;
+        this._resizeFrozen = false;
+        // Remember the settled size so trailing/spurious signals at this size don't re-freeze.
+        this._lastSettledW = window.innerWidth; this._lastSettledH = window.innerHeight;
+        // Re-apply each warrior's captured LOCAL position so they stay funnel-aligned regardless of the
+        // new scale/centre (bodies are b2World-pinned → teleport back via Static↔Dynamic).
+        if (PhysicsSystem2D.instance.enable) this._restoreWarriorLocalPos();
+        this._warriorFreezePos = null;
+        this._resizeLog(`UNFREEZE done  blocked=${blocked} state=${this.state} TRACK_W=${TRACK_W}`);
     };
+
+    /** Re-apply the box2dLayer-LOCAL positions captured at freeze start (stable funnel-relative frame). */
+    private _restoreWarriorLocalPos(): void {
+        if (!this._warriorFreezePos) return;
+        for (const { w, x, y } of this._warriorFreezePos) {
+            if (!w?.node?.isValid) continue;
+            if (w === this._activeLauncherWarrior) { w.node.setPosition(x, y, 0); continue; }
+            w.setDragMode(true);
+            w.node.setPosition(x, y, 0);
+            w.setDragMode(false);
+        }
+    }
+
+    /** Re-centre the warriors + track layers so they match the physics world: reset any screen-shake
+     *  anchor offset, re-align World, then snap the layers' world X to the Track's (the walls). */
+    private _recentreGameLayers(): void {
+        const wt = this.worldNode?.getComponent(UITransform);
+        if (wt) wt.anchorPoint = new Vec2(0.5, 0.5);  // screen shake offsets the anchor — reset it
+        this.worldNode?.getComponent(Widget)?.updateAlignment();
+        const trackNode = this.track?.node;
+        if (!trackNode?.isValid) return;
+        // The funnel centre (mid-point of the wall inner edges) in Track-local, mapped to world.
+        const funnelCxLocal = (WALL_LB.x + WALL_RB.x) / 2;
+        const targetX = trackNode.worldPosition.x + funnelCxLocal * (trackNode.worldScale.x || 1);
+        this._resizeLog(`trackX=${trackNode.worldPosition.x.toFixed(1)} funnelCx=${funnelCxLocal.toFixed(1)} target=${targetX.toFixed(1)}`);
+        for (const layer of [this.box2dLayer, this.warriorsLayer, this.vfxLayer]) {
+            if (!layer?.isValid) continue;
+            const wp = layer.worldPosition;
+            const dx = targetX - wp.x;
+            this._resizeLog(`${layer.name} X=${wp.x.toFixed(1)} dx=${dx.toFixed(1)}`);
+            if (Math.abs(dx) > 0.5) layer.setWorldPosition(targetX, wp.y, wp.z);
+        }
+    }
+
+    /** Resize diagnostics → console only (the on-screen overlay was temporary instrumentation). */
+    private _resizeLog(msg: string): void {
+        if (DEBUG) console.log('[Resize]', msg);
+    }
 
     // hud refs
     private scoreLabel: Label | null = null;
@@ -551,7 +669,27 @@ export class GameManager extends Component implements IGameManagerDebug {
             }
 
             if (DEBUG) this._debugPanelNode = this._spawnDebugPanel();
-            if (LIVE_RESIZE && sys.isBrowser) window.addEventListener('resize', this.onBrowserResize);
+            if (LIVE_RESIZE && sys.isBrowser) {
+                window.addEventListener('resize', this.onBrowserResize);
+                // fullscreenchange fires BEFORE the canvas resizes (good early trigger on enter/exit);
+                // a ResizeObserver on the canvas is the robust catch-all for size changes the events miss.
+                document.addEventListener('fullscreenchange', this.onFullscreenChange);
+                document.addEventListener('webkitfullscreenchange', this.onFullscreenChange as EventListener);
+                if (typeof ResizeObserver !== 'undefined') {
+                    const cv = (document.getElementById('GameCanvas') ?? document.querySelector('canvas')) as HTMLElement | null;
+                    if (cv) {
+                        this._resizeObserver = new ResizeObserver((entries) => {
+                            const r = entries[0]?.contentRect; if (!r) return;
+                            const w = Math.round(r.width), h = Math.round(r.height);
+                            if (this._obsW < 0) { this._obsW = w; this._obsH = h; return; } // prime baseline, no trigger
+                            if (w === this._obsW && h === this._obsH) return;
+                            this._obsW = w; this._obsH = h;
+                            this.onBrowserResize();
+                        });
+                        this._resizeObserver.observe(cv);
+                    }
+                }
+            }
             if (sys.isBrowser) {
                 document.addEventListener('visibilitychange', this._onVisibilityChange);
                 window.addEventListener('blur',  this._onWindowBlur);
@@ -569,7 +707,13 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     onDestroy() {
         director.getScheduler().setTimeScale(1.0);
-        if (LIVE_RESIZE && sys.isBrowser) window.removeEventListener('resize', this.onBrowserResize);
+        if (LIVE_RESIZE && sys.isBrowser) {
+            window.removeEventListener('resize', this.onBrowserResize);
+            document.removeEventListener('fullscreenchange', this.onFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', this.onFullscreenChange as EventListener);
+            this._resizeObserver?.disconnect();
+            this._resizeObserver = null;
+        }
         if (sys.isBrowser) {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
             window.removeEventListener('blur',  this._onWindowBlur);
@@ -1018,11 +1162,12 @@ export class GameManager extends Component implements IGameManagerDebug {
             }
             this.zSortWarriors();
             if (!this.roundUpPause) {
+                const dtScale = dt * FORCE_FPS_REF;  // normalize per-frame forces to 60 fps
                 if (!this.timerPaused) {
-                    this.applyMagnetism();
-                    this.applyUpwardDrift();
+                    this.applyMagnetism(dtScale);
+                    this.applyUpwardDrift(dtScale);
                 }
-                if (this.cohesionTimeLeft > 0) { this.applyCohesion(); this.cohesionTimeLeft -= dt; }
+                if (this.cohesionTimeLeft > 0) { this.applyCohesion(dtScale); this.cohesionTimeLeft -= dt; }
                 if (this._auraWarrior?.node?.isValid && this._auraWarrior.crossedLine) {
                     this._applyAuraRepel(dt);
                 }
@@ -2151,7 +2296,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const sx    = this.box2dLayer.scale.x;
         const sy    = this.box2dLayer.scale.y;
         const range = this._auraRangeForType(src.type) * LAYOUT_SCALE;
-        const baseF = AURA_REPEL_FORCE * LAYOUT_SCALE;
+        const baseF = AURA_REPEL_FORCE * LAYOUT_SCALE * dt * FORCE_FPS_REF;  // normalize to 60 fps
         const canZap = src.type >= AURA_ZAP_MIN_TYPE;
         const toZap: Warrior[] = [];
 
@@ -2712,10 +2857,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    /** Run a commercial break (no-op on standalone builds) with audio muted, then continue. */
+    /** Run a commercial break between sessions (no-op on standalone builds), then continue.
+     *  Audio is muted only when the ad actually starts (onAdStart) and unmuted unconditionally. */
     private async _withCommercialBreak(next: () => void): Promise<void> {
-        AudioManager.instance.muteForPause();
-        try { await PortalProvider.get().commercialBreak(); }
+        try { await PortalProvider.get().commercialBreak(() => AudioManager.instance.muteForPause()); }
         finally {
             AudioManager.instance.unmuteForPause();
             next();
@@ -3244,7 +3389,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Curva a campana: 0 → picco a metà → 0, sempre inward
         const elapsed  = this.implosionDuration - this.implosionTimeLeft;
         const progress = Math.sin(Math.PI * elapsed / this.implosionDuration);
-        const force    = this.implosionPeakForce * progress;
+        const force    = this.implosionPeakForce * progress * dt * FORCE_FPS_REF;  // normalize to 60 fps
 
         const cx = this.implosionCenter!.x;
         const cy = this.implosionCenter!.y;
@@ -3262,9 +3407,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private applyCohesion(): void {
+    private applyCohesion(dtScale: number): void {
         const COHESION_RANGE  = 120 * LAYOUT_SCALE;
-        const COHESION_FORCE  = 12  * LAYOUT_SCALE;
+        const COHESION_FORCE  = 12  * LAYOUT_SCALE * dtScale;
         const r1sq = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
         const sx = this.box2dLayer.scale.x;
         const sy = this.box2dLayer.scale.y;
@@ -3436,8 +3581,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             });
     }
 
-    private applyUpwardDrift(): void {
-        const force = UPWARD_DRIFT_BASE * LAYOUT_SCALE;
+    private applyUpwardDrift(dtScale: number): void {
+        const force = UPWARD_DRIFT_BASE * LAYOUT_SCALE * dtScale;
         const r1sq  = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
         for (const w of this.warriors) {
             if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
@@ -3446,7 +3591,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private applyMagnetism(): void {
+    private applyMagnetism(dtScale: number): void {
         const magnetGap   = MAGNET_GAP_BASE   * LAYOUT_SCALE;
         const magnetForce = MAGNET_FORCE_BASE  * LAYOUT_SCALE;
         const r1    = (LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE;
@@ -3485,7 +3630,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 ).normalize();
                 const t = 1 - (nearestGap / magnetGap);
                 const massScale = (a.radius * a.radius) / r1sq;
-                a.applyForce(dir.multiplyScalar(magnetForce * (1 + t * t * 8) * massScale));
+                a.applyForce(dir.multiplyScalar(magnetForce * (1 + t * t * 8) * massScale * dtScale));
             }
         }
     }

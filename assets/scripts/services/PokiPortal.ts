@@ -7,7 +7,7 @@ interface PokiSDKLike {
     gameLoadingFinished(): void;
     gameplayStart(): void;
     gameplayStop(): void;
-    commercialBreak(): Promise<void>;
+    commercialBreak(beforeAd?: () => void): Promise<void>;
 }
 
 /**
@@ -60,11 +60,12 @@ export class PokiPortal implements PortalSdk {
         try { this._sdk?.gameplayStop(); } catch { /* ignore */ }
     }
 
-    commercialBreak(): Promise<void> {
+    commercialBreak(onAdStart?: () => void): Promise<void> {
         if (!this._sdk) return Promise.resolve();
         this.gameplayStop();  // Poki requires gameplay to be stopped during ads
+        // Poki's beforeAd callback fires right as the ad is shown — mute there, not before.
         const breakP = (async () => {
-            try { await this._sdk!.commercialBreak(); }
+            try { await this._sdk!.commercialBreak(() => { try { onAdStart?.(); } catch { /* ignore */ } }); }
             catch (e) { console.warn('[Portal] commercialBreak failed (ignored):', e); }
         })();
         // Never let a stuck ad block the game flow

@@ -16,7 +16,7 @@ console.log('Building web-mobile (headless)...');
 
 const result = spawnSync(CC_EXE, [
     '--project', PROJECT,
-    '--build', 'outputName=web-mobile;platform=web-mobile;debug=false;md5Cache=true',
+    '--build', 'outputName=web-mobile;platform=web-mobile;debug=false;md5Cache=true;nativeCodeBundleMode=wasm;useSplashScreen=false',
 ], { env, stdio: 'inherit' });
 
 const code = result.status ?? -1;

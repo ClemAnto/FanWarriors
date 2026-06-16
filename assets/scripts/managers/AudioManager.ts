@@ -30,6 +30,7 @@ export enum SFX {
     WIN                = 'audio/sfx/win',
     SPAWN              = 'audio/sfx/spawn',
     MUSIC_MAIN         = 'audio/music/main',
+    MUSIC_MENU         = 'audio/music/menu',
 }
 
 const LS_SFX_MUTED   = 'fw_sfx_muted';
@@ -43,6 +44,7 @@ export class AudioManager extends Component {
         if (!AudioManager._inst || !AudioManager._inst.node?.isValid) {
             const node = new Node('AudioManager');
             director.getScene()!.addChild(node);
+            director.addPersistRootNode(node);  // survive scene changes → continuous music + cached clips
             node.addComponent(AudioManager);
         }
         return AudioManager._inst!;
@@ -57,7 +59,8 @@ export class AudioManager extends Component {
     sfxMuted     = false;
     musicMuted   = false;
     private _pauseMuted         = false;
-    private _pendingMusicPlay   = false;
+    private _currentMusic: SFX  = SFX.MUSIC_MAIN;  // track currently requested/playing
+    private _musicLoadingTrack: SFX | null = null;
     private _musicStarted       = false;
     private _gestureUnlockAdded = false;
     private _preDuckVolume      = 0.6;
@@ -73,16 +76,28 @@ export class AudioManager extends Component {
     }
 
     private _preloadAll(): void {
+        // SFX only. Music tracks (the biggest assets) are NOT preloaded — they'd compete with the
+        // Game-scene preload and aren't essential; each is lazy-loaded on its first playMusic() call
+        // (menu.mp3 in menu/tutorial, main.mp3 only when the Game starts).
         for (const path of Object.values(SFX) as SFX[]) {
+            if (path.startsWith('audio/music/')) continue;
             resources.load(path, AudioClip, (err, clip) => {
                 this._clips.set(path, err ? null : clip);
-                if (err) { console.warn(`[AudioManager] missing clip: ${path}`); return; }
-                if (path === SFX.MUSIC_MAIN && this._pendingMusicPlay) {
-                    this._pendingMusicPlay = false;
-                    this.playMusic();
-                }
+                if (err) console.warn(`[AudioManager] missing clip: ${path}`);
             });
         }
+    }
+
+    /** Lazy-load a music track on demand; play it once loaded if it's still the requested track. */
+    private _loadMusic(track: SFX): void {
+        if (this._musicLoadingTrack === track || this._clips.get(track)) return;
+        this._musicLoadingTrack = track;
+        resources.load(track, AudioClip, (err, clip) => {
+            if (this._musicLoadingTrack === track) this._musicLoadingTrack = null;
+            this._clips.set(track, err ? null : clip);
+            if (err) { console.warn('[AudioManager] music load failed:', track); return; }
+            if (this._currentMusic === track) this.playMusic(track);
+        });
     }
 
     muteForPause(): void {
@@ -102,10 +117,12 @@ export class AudioManager extends Component {
         this._sfxSource.playOneShot(clip, relVolume * this.sfxVolume);
     }
 
-    playMusic(): void {
-        const clip = this._clips.get(SFX.MUSIC_MAIN);
-        if (!clip) { this._pendingMusicPlay = true; return; }
-        this._pendingMusicPlay   = false;
+    /** Play a music track (default main). Lazy-loads it if needed; no-op if it's already playing. */
+    playMusic(track: SFX = SFX.MUSIC_MAIN): void {
+        if (track === this._currentMusic && this._musicSource.playing) return;  // don't restart same track
+        this._currentMusic = track;
+        const clip = this._clips.get(track);
+        if (!clip) { this._loadMusic(track); return; }
         this._musicSource.clip   = clip;
         this._musicSource.volume = this.musicMuted ? 0 : this.musicVolume;
         this._musicSource.play();
@@ -116,7 +133,7 @@ export class AudioManager extends Component {
         if (this._gestureUnlockAdded || !sys.isBrowser) return;
         this._gestureUnlockAdded = true;
         const handler = () => {
-            if (!this._musicStarted && !this.musicMuted) this.playMusic();
+            if (!this._musicStarted && !this.musicMuted) this.playMusic(this._currentMusic);
             document.removeEventListener('pointerdown', handler);
         };
         document.addEventListener('pointerdown', handler);

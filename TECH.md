@@ -4,17 +4,24 @@
 
 ---
 
-## Portal SDK (Poki) — adapter spegnibile (2026-06-10)
+## Portal SDK (Poki / CrazyGames) — adapter spegnibile (2026-06-10, CrazyGames 2026-06-15)
 
-**Decisione**: stessa stratificazione del leaderboard — `services/PortalSdk.ts` (interfaccia no-throw), `NullPortal` (standalone), `PokiPortal` (SDK v2, caricato lazy dal CDN a runtime, mai in `index.html`), `PortalProvider.get()` singleton su flag `PORTAL` in `config/PortalConfig.ts` (**default `'none'`** → la build GitHub Pages non cambia di un byte di comportamento).
+**Decisione**: stessa stratificazione del leaderboard — `services/PortalSdk.ts` (interfaccia no-throw), `NullPortal` (standalone), `PokiPortal` (SDK v2), `CrazyGamesPortal` (SDK v3), tutti caricati lazy dal CDN a runtime (mai in `index.html`); `PortalProvider.get()` singleton (switch a 3 vie) su flag `PORTAL` in `config/PortalConfig.ts` (`'none' | 'poki' | 'crazygames'`, **default `'none'`** → la build GitHub Pages non cambia di un byte).
 
-**Mappatura lifecycle** (requisiti Poki):
-- `gameplayStart()` → avvio partita (callback preload in `GameManager.start`) e ogni resume da pausa (`_exitSettingsPause`, dove convergono settings/pause-panel/auto-pausa)
-- `gameplayStop()` → ogni pausa (`_enterSettingsPause`) + `triggerGameOver`/`triggerVictory`. `PokiPortal` dedupa internamente start/stop sbilanciati.
-- `commercialBreak()` → SOLO tra le sessioni: PLAY (MainMenu), Continue end-panel, Restart (pause/settings), Menu. Helper `GameManager._withCommercialBreak(next)`: muta l'audio, aspetta il break (timeout 35s — un ad bloccato non blocca il gioco), smuta e naviga. Il break auto-chiama `gameplayStop` prima dell'ad.
-- `init()` idempotente/coalesced (MainMenu e Game lo chiamano entrambi — copre la preview che parte dalla scena Game) + `gameLoadingFinished()` one-shot.
+**Mappatura lifecycle**:
+- `gameplayStart()` → avvio partita e ogni resume da pausa (`_exitSettingsPause`). Adapter dedupano start/stop sbilanciati.
+- `gameplayStop()` → ogni pausa (`_enterSettingsPause`) + `triggerGameOver`/`triggerVictory`.
+- `commercialBreak(onAdStart?)` → SOLO tra le sessioni, **MAI prima del primo gameplay** (vedi sotto). Helper `GameManager._withCommercialBreak(next)`: aspetta il break (timeout 35s), poi smuta e naviga. **L'audio si muta nel callback `onAdStart`** (CrazyGames `adStarted` / Poki `beforeAd`), NON alla richiesta → niente "mute flicker" se nessun ad è disponibile. CrazyGames: `ad.requestAd('midgame', {adStarted, adFinished, adError})`.
+- `init()` idempotente/coalesced + `gameLoadingFinished()` one-shot (CrazyGames: `sdkGameLoadingStart` in `init`, `sdkGameLoadingStop` in `gameLoadingFinished`).
 
-**Per la submission Poki**: impostare `PORTAL='poki'` in `PortalConfig.ts`, build, test in sandbox. Nessun altro file da toccare.
+**Conformità CrazyGames (fix 2026-06-15, attivi solo con `PORTAL='crazygames'` o sempre):**
+- **Niente ad al primo PLAY**: `MainMenu.onPlay` fa `director.loadScene('Game')` diretto (l'ad solo tra le partite in `_withCommercialBreak`); + `director.preloadScene('Game')` in `MainMenu.start` → transizione istantanea.
+- **Toggle Fullscreen nascosto** quando `PORTAL==='crazygames'` (`Settings.ts`): i custom fullscreen button sono vietati, la piattaforma possiede il fullscreen.
+- **Privacy Policy in-game** (`PrivacyPanel.ts`): requisito "user consent" di CrazyGames (salviamo 3 lettere + score). Behavior-only come `Settings`; testo in `POLICY_TEXT`, pannello+link costruiti nell'editor.
+
+**Build CrazyGames**: `npm run pack:crazygames` (vedi MEMO §workflow) — NON serve una URL pubblica (CrazyGames ospita lui i file): si carica la **cartella** `build/web-mobile` nel QA tool. **Per Poki**: `PORTAL='poki'`, build, sandbox.
+
+**Leaderboard sui portali**: CrazyGames ha una leaderboard **nativa** (Leaderboards MVP — Friends/Country/Global, stagioni settimanali, trofei; submit cifrato AES-GCM via `user.submitScore`, UI nativa, va però **configurata lato admin CrazyGames** → solo post-onboarding). Decisione: per il **primo submit** si tiene la nostra Firebase (`LEADERBOARD_ENABLED=true`); migrazione alla nativa come follow-up dopo l'onboarding.
 
 ---
 

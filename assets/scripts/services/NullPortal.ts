@@ -6,5 +6,5 @@ export class NullPortal implements PortalSdk {
     gameLoadingFinished(): void { /* no-op */ }
     gameplayStart(): void { /* no-op */ }
     gameplayStop(): void { /* no-op */ }
-    commercialBreak(): Promise<void> { return Promise.resolve(); }
+    commercialBreak(_onAdStart?: () => void): Promise<void> { return Promise.resolve(); }
 }

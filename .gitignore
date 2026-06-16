@@ -23,3 +23,9 @@ logs/
 # Node (se userai npm tools)
 node_modules/
 source
+
+# CrazyGames submission package
+dist/
+
+# Local scene/audio backups (created by the asset-edit scripts)
+*.bak

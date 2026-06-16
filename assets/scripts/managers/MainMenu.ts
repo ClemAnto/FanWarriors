@@ -1,14 +1,16 @@
-import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy } from 'cc';
-import { AudioManager } from './AudioManager';
+import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, sys } from 'cc';
+import { AudioManager, SFX } from './AudioManager';
 import { VERSION } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
+import { LS_TUTORIAL_SEEN } from './Tutorial';
 
 const { ccclass, property } = _decorator;
 
-const LS_BEST_SCORE = 'fw_best_score';
-const GAME_SCENE    = 'Game';
-const RANKING_SCENE = 'Ranking';
+const LS_BEST_SCORE  = 'fw_best_score';
+const GAME_SCENE     = 'Game';
+const TUTORIAL_SCENE = 'Tutorial';
+const RANKING_SCENE  = 'Ranking';
 
 /**
  * Main menu scene controller — splash + PLAY + LEADERBOARD.
@@ -30,13 +32,30 @@ export class MainMenu extends Component {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
 
-        // Audio: shared singleton, mute state persisted in localStorage.
-        AudioManager.instance.playMusic();
+        // Audio: shared singleton, mute state persisted in localStorage. Menu uses the tavern loop.
+        AudioManager.instance.playMusic(SFX.MUSIC_MENU);
         AudioManager.instance.ensureMusic();
 
         // Portal SDK (no-op on standalone builds): entry scene = game loaded.
         const portal = PortalProvider.get();
         void portal.init().then(() => portal.gameLoadingFinished());
+
+        // QA helper: from the browser console, `fwResetTutorial()` re-arms the tutorial for the next PLAY.
+        if (sys.isBrowser) {
+            (window as any).fwResetTutorial = (): void => {
+                SafeStorage.set(LS_TUTORIAL_SEEN, '');
+                console.log('[QA] tutorial flag cleared — press PLAY to see it (no reload needed)');
+            };
+        }
+
+        // Background is lazy-loaded (not a scene dependency) so it stays off the loading-screen critical
+        // path; the menu shows instantly on the camera's dark-blue clear colour, then the art fades in.
+        this._loadMenuBg();
+
+        // Preload in the background so PLAY transitions instantly: first-timers go through the
+        // (light) Tutorial scene which itself preloads the Game; returning players preload the Game here.
+        const seen = SafeStorage.get(LS_TUTORIAL_SEEN) === VERSION;
+        director.preloadScene(seen ? GAME_SCENE : TUTORIAL_SCENE);
 
         const best = parseInt(SafeStorage.get(LS_BEST_SCORE) ?? '0', 10) || 0;
         if (this.bestLabel)    this.bestLabel.string    = `Best Score\n${best}`;
@@ -52,11 +71,25 @@ export class MainMenu extends Component {
 
     /** Public so it can also be wired via the editor's clickEvents if preferred. */
     onPlay(): void {
-        // Commercial break before entering the game (no-op on standalone builds)
-        AudioManager.instance.muteForPause();
-        void PortalProvider.get().commercialBreak().then(() => {
-            AudioManager.instance.unmuteForPause();
-            director.loadScene(GAME_SCENE);
+        // No commercial break here: portals forbid ads before the first gameplay and require
+        // landing the player immediately. First PLAY shows the Tutorial (which preloads the Game in
+        // the background); afterwards PLAY goes straight to the Game. Ads run only between sessions.
+        const seen = SafeStorage.get(LS_TUTORIAL_SEEN) === VERSION;
+        director.loadScene(seen ? GAME_SCENE : TUTORIAL_SCENE);
+    }
+
+    /** Lazy-load the menu background from resources/ and fade it in (kept off the loading-screen path). */
+    private _loadMenuBg(): void {
+        const bgNode = find('Canvas/Background');
+        const sp = bgNode?.getComponent(Sprite);
+        if (!sp) return;
+        resources.load('bg/title_bg/spriteFrame', SpriteFrame, (err, sf) => {
+            if (err || !sp.isValid || !sf) return;
+            sp.sizeMode = Sprite.SizeMode.CUSTOM;  // keep the Widget's fullscreen size (don't resize to texture)
+            const op = bgNode!.getComponent(UIOpacity) ?? bgNode!.addComponent(UIOpacity);
+            op.opacity = 0;
+            sp.spriteFrame = sf;
+            tween(op).to(0.3, { opacity: 255 }).start();
         });
     }
 
