@@ -25,6 +25,18 @@
 
 ---
 
+## Tutorial, audio e transizioni (2026-06-17)
+
+**Tutorial come loading-cover** (`scenes/Tutorial.scene` + `managers/Tutorial.ts`): il 1° PLAY (flag `fw_tutorial_seen` ≠ `VERSION`, in localStorage) entra nel Tutorial, che **precarica il Game** (`director.preloadScene` con progress → % su `LoadingLabel`) mentre il giocatore legge la storia; **START** avvia il Game appena pronto. PLAY successivi → Game diretto. Flag legato alla `VERSION` (riappare a ogni aggiornamento). I nodi UI (StartButton, StoryPanel/ScrollView, LoadingLabel) sono iniettati da `scripts/add-tutorial-*.js` (formato `.scene` autorato a mano come per i bottoni). `MainMenu.onPlay` fa fade-al-nero (`FadeOverlay`) + spinner → `loadScene`.
+
+**Audio (`AudioManager`)**: ora **persistente** tra scene (`addPersistRootNode`) → musica continua e clip cacheati una volta. API `playMusic(track)` per-traccia: menu/tutorial = `MUSIC_MENU` (loop taverna), Game = `MUSIC_MAIN`. Entrambe **lazy** (mai nel preload, che salta `audio/music/`); il guard usa il **clip in play** e stoppa la traccia corrente al cambio (il loop menu si interrompe entrando nel Game). Perché lazy: la musica è il singolo asset più pesante e non è essenziale all'avvio.
+
+**Resize/fullscreen** (decisione finale): NON si rimappano le posizioni relative né si traccia un delta in unità-mondo (artefatto col rescale FIXED_HEIGHT). Si **freeza** fisica+input durante il resize e si **ripristina la posizione LOCALE** (frame box2dLayer, design-unit) di ogni warrior allo unfreeze, via Static↔Dynamic. Dettagli e storia dei tentativi in MEMO §Resize/fullscreen.
+
+**Loading**: loading screen HTML a sola **%** (ibrida); musica/Firebase/bg-menu lazy; immagini ridotte; `nativeCodeBundleMode=wasm`; splash off. Vedi MEMO §Loading/§Pacchetto CrazyGames.
+
+---
+
 ## Effetti — base class interne, classi pubbliche dedicate (2026-06-10, v0.8.59)
 
 **Decisione**: la regola "una classe per effetto" resta (ogni VFX ha la sua classe pubblica con la sua API), ma l'implementazione condivisa vive in base class astratte: `GlowPulseEffect` (anelli additive + pulse + sparkle + fade-out → `BloodhoodEffect`/`GenocideEffect`) e `TintSparkleEffect` (tinta pulsante + hop sul mapper → `BloodhoodSparkleEffect`/`GenocideSparkleEffect`). Le sottoclassi contengono solo `static attach()` e i parametri di tuning (`protected readonly` ri-dichiarati).

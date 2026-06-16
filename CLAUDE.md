@@ -40,5 +40,13 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 4/5 — Polish + pubblicazione (v0.10.0). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD definitivo (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1 attive), powerup Aura/BloodHood/PsychoForce/Genocide. Audio, slowmo, trail e juice fatti. Curva difficoltà ammorbidita (rampa specie + linea game-over dinamica).
-**CrazyGames (2026-06-15):** adapter `CrazyGamesPortal` (SDK v3) + `npm run pack:crazygames`; conformità fatta (no-ad-primo-PLAY, mute su adStarted, fullscreen toggle off, fisica framerate-independent, remap warriors al resize, privacy policy). In test nel QA tool (si carica la **cartella** `build/web-mobile`). Poki: solo richiesta account inviata (silenzio), nessuna esclusività in gioco. Restano: wiring privacy panel nell'editor, playtest esterni (tinyurl.com/funwarriors), bilanciamento; leaderboard nativa CrazyGames post-onboarding.
+Fase 5 — Pubblicazione (v0.10.16). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1), powerup Aura/BloodHood/PsychoForce/Genocide. Audio/slowmo/trail/juice fatti. Curva difficoltà ammorbidita.
+**CrazyGames — PRIMA VERSIONE SOTTOMESSA (2026-06-17), in QA review.** Adapter `CrazyGamesPortal` (SDK v3) + `npm run pack:crazygames`; conformità fatta (no-ad-primo-PLAY, mute su adStarted, fullscreen toggle off, fisica framerate-independent, privacy policy in-game). Si carica la **cartella** `build/web-mobile`.
+**Nuovo da v0.10.16:**
+- **Scena Tutorial** come loading-cover: 1° PLAY → Tutorial (preload Game con % su `LoadingLabel`) → tasto START → Game; flag "visto" legato alla `VERSION`; storia (EN) in ScrollView; QA `fwResetTutorial()`.
+- **Fade al nero + spinner** sul PLAY (`FadeOverlay` in MainMenu.scene).
+- **Resize/fullscreen risolto**: freeze fisica+input (debounce + cap), `fullscreenchange` forzato, restore input state-based, ripristino **posizione LOCALE** dei warrior allo unfreeze (robusto a scala/centro).
+- **Audio per-traccia + AudioManager persistente**: menu/tutorial = loop `menu.mp3` (taverna, 15s seamless), Game = `main.mp3`; entrambe **lazy** (fuori dal preload); musica continua tra scene, si interrompe entrando nel Game.
+- **Ottimizzazioni loading**: immagini ridotte (PNG 8.2→5.1MB), `nativeCodeBundleMode=wasm`, splash off, menu bg lazy, Firebase fuori dal boot, loading screen a sola **%** (ibrido).
+
+Poki: solo richiesta account (silenzio), nessuna esclusività. Restano: esito QA CrazyGames + fix eventuali, playtest mobile reale (tinyurl.com/funwarriors), bilanciamento, leaderboard nativa CrazyGames post-onboarding, asset marketing.

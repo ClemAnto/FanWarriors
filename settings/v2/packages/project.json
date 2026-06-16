@@ -2,7 +2,9 @@
   "__version__": "1.0.6",
   "general": {
     "designResolution": {
-      "fitHeight": true
+      "fitHeight": true,
+      "height": 720,
+      "width": 1280
     }
   },
   "physics": {

@@ -878,9 +878,34 @@ npm run pack:crazygames   # scripts/pack-crazygames.js
 
 CrazyGames richiede fisica consistente su monitor 144/165 Hz. Le forze continue sono applicate **una volta per frame di render**, ma Box2D fa step a rate fisso → su 144 Hz la stessa forza si accumula ~2,4× per step fisico. Fix: ogni forza per-frame moltiplicata per `dt × FORCE_FPS_REF` (=`dt × 60`). A 60 fps il valore è 1 → **bilanciamento invariato**; ad alto refresh le applicazioni più frequenti si compensano. Toccati TUTTI i metodi che applicano forze in `GameManager`: `applyMagnetism`, `applyUpwardDrift`, `applyCohesion` (ricevono `dtScale` da `update`), `_applyAuraRepel`, `applyVortexImplosion` (già ricevevano `dt`, ora lo usano anche per la forza, non solo per i timer).
 
-## Resize/fullscreen — remap warriors nel funnel (2026-06-15)
+## Resize/fullscreen — freeze + ripristino posizione LOCALE (2026-06-17, SOLUZIONE FINALE)
 
-`relayout()` ricostruisce muri/linea dal `TrackSprite` ma NON tocca i warriors in pista → su resize/fullscreen restavano alle vecchie coordinate (disallineati). Fix (opzione A): al primo evento di resize si fotografa la posizione **normalizzata nel funnel** di ogni warrior (`normX` in [-1,1] sulla larghezza, `t` in [0,1] bottom→top) contro i muri *vecchi*; la si ri-applica contro i muri *nuovi* quando il layout è **stabile**, agganciandosi allo stesso sampler `_goLineStableTick` della linea game-over (`GameManager._captureWarriorNorm`/`_applyWarriorNormIfPending`). `Warrior.rescaleToLayout()` ri-adatta collider (`col.apply()`) + visual + `mapper.yOffset` al nuovo `LAYOUT_SCALE`; velocità azzerata (il warrior si ri-assesta). La normalizzazione contro i muri è coordinate-system-agnostica → non serve ragionare sullo `scaleY` del box2dLayer.
+Problema: `relayout()` ricostruisce muri/linea dal `TrackSprite` ma i **corpi Box2D vivono nel mondo fisico globale** e NON seguono lo spostamento del layer; inoltre FIXED_HEIGHT, al cambio aspect/altezza, **riscala** il mondo (anche un resize solo-altezza, es. "nascondi barra" CrazyGames, cambia `vs.width` e il centro in unità-mondo). Un delta in unità-mondo è quindi un artefatto e introduce offset.
+
+Soluzione (`GameManager`):
+- **Freeze su qualsiasi resize**: `roundUpPause=true` + physics off + input bloccato (come al round-up; stato salvato/ripristinato per overlap col round-up). Trigger: `ResizeObserver` sul canvas + `window.resize` + **`fullscreenchange` forzato** (rileva sempre il toggle). Guard anti-cicli: ignora segnali alla stessa `innerWidth×innerHeight` già assestata.
+- **Unfreeze debounced** 0.5s dopo l'ultimo segnale, con **cap di sicurezza 2.5s** (mai bloccato per sempre).
+- A freeze-begin si **fotografa la posizione LOCALE** (`node.position`, frame box2dLayer in unità-design, stabile e centrato) di ogni warrior; allo unfreeze la si **ri-applica** via `setDragMode(true)→setPosition→setDragMode(false)` (un corpo dinamico NON segue `setPosition`: serve passare per Static). Robusto a scala/centro/aspect.
+- Restore input **state-based** (bloccato solo se `GameOver`/`Paused`), NON il valore catturato (un valore stantio lasciava i controlli morti).
+
+> Storia: provate e scartate — il remap "normalizzato nel funnel" e il delta in unità-mondo (`_box2dXAtFreeze`); falliscono al cambio scala. La cattura/ripristino della **posizione locale** è l'unica robusta.
+
+## Forze framerate-independent — vedi sopra (FORCE_FPS_REF): invariato.
+
+## Audio per-traccia + AudioManager PERSISTENTE (2026-06-17)
+
+- `AudioManager` ora è **persistente** (`director.addPersistRootNode` nel getter `instance`) → sopravvive ai cambi scena: musica **continua**, clip caricati una volta sola (prima si ricreava ogni scena).
+- **Musica per-traccia**: `playMusic(track = MUSIC_MAIN)`. Menu/Tutorial = `MUSIC_MENU` (`audio/music/menu`, loop taverna 15s seamless), Game = `MUSIC_MAIN`. Il guard si basa sul **clip realmente in play** (non su `_currentMusic`, che è solo "richiesto" — settarlo prima del lazy-load causava il bug "main non parte"); cambiando traccia **stoppa** la corrente (il loop menu si interrompe entrando nel Game).
+- **Entrambe lazy** (saltate in `_preloadAll`, che skippa `audio/music/`): `menu` si carica in menu/tutorial, `main` solo quando il Game chiama `playMusic()`.
+- Loop seamless creato con `ffmpeg-static`: estrai body (0.5–15.5s) + head (0–0.5s) e `acrossfade=d=0.5` tra **file separati** (l'acrossfade con `asplit` va in deadlock → output vuoto).
+
+## Loading screen — solo % (ibrido, 2026-06-17)
+
+`build-templates/web-mobile/index.html`: niente spinner/barra, solo numero **%**. Fase 1 (download engine `cc.js`, non tracciabile da JS perché `cc` non esiste ancora) = easing cosmetico ~0→72%; fase 2 da milestone REALE `window.cc` pronto → ~95%; `EVENT_AFTER_SCENE_LAUNCH` → 100% + fade. Il bg del menu è **lazy** (`resources/bg/title_bg`, fuori dalla dipendenza di scena) → `BgFill.refit()` pubblico, richiamato dopo l'assegnazione dello spriteFrame (altrimenti `BgFill` esce a vuoto perché a `start()` la texture non c'è).
+
+## Tutorial come loading-cover (2026-06-17)
+
+1° PLAY (flag `fw_tutorial_seen` ≠ `VERSION`) → scena **Tutorial** (`Tutorial.ts`): precarica il Game con `director.preloadScene(GAME, onProgress, onComplete)` mostrando **% su `LoadingLabel`**; **START** avvia il Game (subito se pronto, altrimenti attende). Flag legato alla `VERSION` (riappare ad ogni build). Storia EN in ScrollView (`StoryPanel`). Nodi iniettati via `scripts/add-tutorial-{start,text}.js` (+ `LoadingLabel`). QA: `fwResetTutorial()` da console (in `MainMenu`). PLAY → `FadeOverlay` nero + spinner → `loadScene`.
 
 ## Testing remoto su mobile
 

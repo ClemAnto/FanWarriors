@@ -29,6 +29,15 @@
 
 ## Log sessioni recenti
 
+### 2026-06-16/17 (v0.10.0 → v0.10.16) — Tutorial, audio per-traccia, fix fullscreen, ottimizzazioni loading, PRIMO SUBMIT CrazyGames
+- 🚀 **Prima versione sottomessa a CrazyGames (2026-06-17)** — in QA review. main pushato (`60b1296`), deploy v0.10.16 su GitHub Pages.
+- 📚 **Scena Tutorial = loading-cover**: 1° PLAY → Tutorial (precarica il Game con **%** sul nodo `LoadingLabel`) → **START** → Game; PLAY successivi → Game diretto. Flag "visto" legato alla `VERSION` (riappare ad ogni build/aggiornamento). **Storia (EN) in ScrollView** (`StoryPanel`). QA: `fwResetTutorial()`. Scena + nodi iniettati via `scripts/add-tutorial-*.js`.
+- 🎬 **Fade al nero + spinner sul PLAY** (`FadeOverlay` iniettato in MainMenu.scene; spinner se il load non è immediato).
+- 🔧 **Fullscreen/resize RISOLTO** (dopo varie iterazioni): freeze fisica+input come al round-up (debounce + cap 2.5s), `fullscreenchange` forzato + guard size anti-cicli, restore input **state-based** (GameOver/Paused), e — chiave — **ripristino posizione LOCALE** dei warrior in box2dLayer allo unfreeze (il delta in unità-mondo falliva al cambio scala FIXED_HEIGHT; i corpi b2 non seguono il layer). Vedi MEMO.
+- 🎵 **Audio per-traccia + AudioManager persistente** (`addPersistRootNode`): menu/tutorial = `menu.mp3` (loop taverna 15s seamless creato con ffmpeg), Game = `main.mp3`; **entrambe lazy** (fuori dal preload), musica continua tra scene, si interrompe entrando nel Game. Vedi MEMO/TECH.
+- ⚡ **Ottimizzazioni caricamento**: musica lazy; immagini ridotte in-place (PNG **8.2→5.1MB**: warrior sheet a 1024, background/illustrazioni downscale, regole in `optimize-images.js`); `nativeCodeBundleMode=wasm` + `useSplashScreen=false` (in `build.js`/`pack-crazygames.js`); Firebase tolto dal boot (lazy via `_loadSdk`); **menu bg lazy** (in `resources/bg/`, `BgFill.refit()` dopo il load); loading screen HTML a **sola %** (ibrido: cosmetica durante l'engine, milestone reali engine-ready/scena-lanciata).
+- 🔢 Bump 0.10.0 → **0.10.16**.
+
 ### 2026-06-15 (v0.9.1 → v0.10.0) — Integrazione CrazyGames + conformità + fix QA
 - 🎯 **Decisione strategica**: la richiesta Poki era solo l'**account sviluppatore** (silenzio, nessuna risposta) — **non** un submit del gioco. Nessuna esclusività in gioco → si procede in parallelo su **CrazyGames** (dev portal self-service, niente attesa). Correzione: ovunque dicesse "submission Poki inviata" era la richiesta account.
 - 🧩 **Adapter `CrazyGamesPortal`** (SDK v3) + `PortalProvider` switch a 3 vie + flag `PORTAL` esteso a `'crazygames'`. Vedi TECH.md.
