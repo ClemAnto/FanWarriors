@@ -6,9 +6,11 @@ const { ccclass } = _decorator;
  *  Requires the node to have anchor (0.5, 0) set in the scene. */
 @ccclass('BgFill')
 export class BgFill extends Component {
-    start(): void { this.scheduleOnce(() => this.resize()); }
+    start(): void { this.scheduleOnce(() => this.refit()); }
 
-    private resize(): void {
+    /** Cover-fit the background to the screen. Public so a lazy-loaded background can re-fit once
+     *  its spriteFrame is assigned (the start() pass runs before the texture is loaded). */
+    refit(): void {
         const sp = this.node.getComponent(Sprite);
         if (!sp?.spriteFrame) return;
         const vs    = view.getVisibleSize();

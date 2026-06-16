@@ -1,9 +1,10 @@
-import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, sys } from 'cc';
+import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, sys, Graphics, Color } from 'cc';
 import { AudioManager, SFX } from './AudioManager';
 import { VERSION } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
 import { LS_TUTORIAL_SEEN } from './Tutorial';
+import { BgFill } from '../entities/BgFill';
 
 const { ccclass, property } = _decorator;
 
@@ -69,13 +70,45 @@ export class MainMenu extends Component {
         }
     }
 
+    private _playing = false;
+
     /** Public so it can also be wired via the editor's clickEvents if preferred. */
     onPlay(): void {
-        // No commercial break here: portals forbid ads before the first gameplay and require
-        // landing the player immediately. First PLAY shows the Tutorial (which preloads the Game in
-        // the background); afterwards PLAY goes straight to the Game. Ads run only between sessions.
-        const seen = SafeStorage.get(LS_TUTORIAL_SEEN) === VERSION;
-        director.loadScene(seen ? GAME_SCENE : TUTORIAL_SCENE);
+        if (this._playing) return;
+        this._playing = true;
+        // No commercial break here: portals forbid ads before the first gameplay. First PLAY shows the
+        // Tutorial (which preloads the Game); afterwards PLAY goes straight to the Game.
+        const target = SafeStorage.get(LS_TUTORIAL_SEEN) === VERSION ? GAME_SCENE : TUTORIAL_SCENE;
+
+        const overlay = find('Canvas/FadeOverlay');
+        const op = overlay?.getComponent(UIOpacity);
+        const loadTarget = (): void => {
+            // Spinner only if the scene isn't ready almost immediately (avoids a 1-frame flash on a
+            // preloaded scene). On scene launch this whole scene — overlay + spinner — is destroyed.
+            if (overlay) this.scheduleOnce(() => this._showFadeSpinner(overlay), 0.15);
+            director.loadScene(target);
+        };
+        if (op && overlay) {
+            overlay.active = true;
+            tween(op).to(0.35, { opacity: 255 }).call(loadTarget).start();
+        } else {
+            loadTarget();
+        }
+    }
+
+    /** Small spinning arc on the (black) fade overlay while the next scene finishes loading. */
+    private _showFadeSpinner(parent: Node): void {
+        if (!parent?.isValid || parent.getChildByName('FadeSpinner')) return;
+        const n = new Node('FadeSpinner');
+        n.layer = parent.layer;
+        n.setParent(parent);
+        const g = n.addComponent(Graphics);
+        g.lineWidth = 6;
+        g.strokeColor = new Color(255, 212, 50, 230);
+        g.arc(0, 0, 28, 0, Math.PI * 1.5, false);
+        g.stroke();
+        const spin = (): void => { if (n.isValid) tween(n).by(0.7, { angle: -360 }).call(spin).start(); };
+        spin();
     }
 
     /** Lazy-load the menu background from resources/ and fade it in (kept off the loading-screen path). */
@@ -89,6 +122,7 @@ export class MainMenu extends Component {
             const op = bgNode!.getComponent(UIOpacity) ?? bgNode!.addComponent(UIOpacity);
             op.opacity = 0;
             sp.spriteFrame = sf;
+            bgNode!.getComponent(BgFill)?.refit();  // cover-fit now that the texture is loaded
             tween(op).to(0.3, { opacity: 255 }).start();
         });
     }

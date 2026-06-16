@@ -117,12 +117,15 @@ export class AudioManager extends Component {
         this._sfxSource.playOneShot(clip, relVolume * this.sfxVolume);
     }
 
-    /** Play a music track (default main). Lazy-loads it if needed; no-op if it's already playing. */
+    /** Play a music track (default main). Lazy-loads it if needed; switching tracks interrupts the
+     *  current one immediately (e.g. the menu loop stops when entering the game). No restart if the
+     *  exact same clip is already playing (e.g. menu → tutorial). */
     playMusic(track: SFX = SFX.MUSIC_MAIN): void {
-        if (track === this._currentMusic && this._musicSource.playing) return;  // don't restart same track
         this._currentMusic = track;
         const clip = this._clips.get(track);
-        if (!clip) { this._loadMusic(track); return; }
+        if (clip && this._musicSource.clip === clip && this._musicSource.playing) return; // same → keep
+        this._musicSource.stop();  // interrupt whatever is playing (menu loop) before switching
+        if (!clip) { this._loadMusic(track); return; }  // not loaded yet → play in the load callback
         this._musicSource.clip   = clip;
         this._musicSource.volume = this.musicMuted ? 0 : this.musicVolume;
         this._musicSource.play();

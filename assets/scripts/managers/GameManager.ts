@@ -28,7 +28,7 @@ import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConf
 import { PortalProvider } from '../services/PortalProvider';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.10.14';
+export const VERSION     = '0.10.16';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -568,7 +568,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     start() {
         this._spawnLog.clear();
         AudioManager.instance; // trigger singleton init + asset preload as early as possible
-        this.scheduleOnce(() => AudioManager.instance.playMusic(), 0.5);
+        AudioManager.instance.playMusic(); // entering the Game scene: interrupt the menu loop now → main.mp3
         AudioManager.instance.ensureMusic(); // fallback: play on first gesture if browser blocked autoplay
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
