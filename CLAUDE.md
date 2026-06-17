@@ -56,5 +56,6 @@ Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp
 - **Trick QA disabilitati su build CrazyGames** (`PORTAL==='crazygames'`): replay onboarding + gesto DebugPanel. Fullscreen toggle già nascosto su CG.
 - Conformità tecnica verificata: 168 file (<1500), `-webkit-user-select`/no-zoom, audio iOS su gesto, no bottone fullscreen custom, sfondi truecolor (no banding).
 
-Tester link **ripubblicato** (v0.10.17): https://clemanto.github.io/FanWarriors/ (= tinyurl.com/funwarriors).
-**Restano per risottomettere**: asset marketing (3 cover + preview video 15-20s), smoke test AdBlock+Safari, **dichiarare orientamento portrait** alla submission (su schermi larghi il gameplay è uno spicchio centrale — ammesso ma debole). Poi `npm run pack:crazygames` (carica la **cartella** `build/web-mobile`). Poki: solo richiesta account.
+Tester link **ripubblicato** (v0.10.18): https://clemanto.github.io/FanWarriors/ (= tinyurl.com/funwarriors).
+**Pacchetto CrazyGames v0.10.18 generato**: `dist/funwarriors-crazygames.zip` (8,6 MB) — pronto per il developer QA tool. NB: `npm run pack:crazygames` **sovrascrive `build/web-mobile`** con la variante CrazyGames → prima di un nuovo `npm run deploy` su GitHub Pages rifare `npm run build` (variante default).
+**Restano per risottomettere**: asset marketing (3 cover + preview video 15-20s), smoke test AdBlock+Safari, **dichiarare orientamento portrait** alla submission (su schermi larghi il gameplay è uno spicchio centrale — ammesso ma debole), upload dello ZIP. Poki: solo richiesta account.
