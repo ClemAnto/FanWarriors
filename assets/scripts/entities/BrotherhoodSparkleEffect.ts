@@ -4,9 +4,9 @@ import { TintSparkleEffect } from './TintSparkleEffect';
 
 const { ccclass } = _decorator;
 
-/** Infected-warrior tint+hop for the Genocide cascade — implementation in TintSparkleEffect (faster timings). */
-@ccclass('GenocideSparkleEffect')
-export class GenocideSparkleEffect extends TintSparkleEffect {
+/** Infected-warrior tint+hop for the Brotherhood cascade — implementation in TintSparkleEffect (faster timings). */
+@ccclass('BrotherhoodSparkleEffect')
+export class BrotherhoodSparkleEffect extends TintSparkleEffect {
     protected readonly hopUpSec         = 0.10;
     protected readonly hopDownSec       = 0.10;
     protected readonly hopHeight        = 14;
@@ -15,12 +15,12 @@ export class GenocideSparkleEffect extends TintSparkleEffect {
     protected readonly mapperRestoreSec = 0.08;
     protected readonly spriteRestoreSec = 0.15;
 
-    static attach(warrior: Warrior): GenocideSparkleEffect {
-        const node = new Node('GNSparkle');
+    static attach(warrior: Warrior): BrotherhoodSparkleEffect {
+        const node = new Node('BRSparkle');
         node.setParent(warrior.viewNode);
-        const gns = node.addComponent(GenocideSparkleEffect);
-        gns._warrior = warrior;
-        gns._startVFX();
-        return gns;
+        const brs = node.addComponent(BrotherhoodSparkleEffect);
+        brs._warrior = warrior;
+        brs._startVFX();
+        return brs;
     }
 }

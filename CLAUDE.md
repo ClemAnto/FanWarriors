@@ -40,7 +40,7 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 5 — Pubblicazione (v0.10.16). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1), powerup Aura/BloodHood/PsychoForce/Genocide. Audio/slowmo/trail/juice fatti. Curva difficoltà ammorbidita.
+Fase 5 — Pubblicazione (v0.10.16). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti. Curva difficoltà ammorbidita.
 **CrazyGames — PRIMA VERSIONE SOTTOMESSA (2026-06-17), in QA review.** Adapter `CrazyGamesPortal` (SDK v3) + `npm run pack:crazygames`; conformità fatta (no-ad-primo-PLAY, mute su adStarted, fullscreen toggle off, fisica framerate-independent, privacy policy in-game). Si carica la **cartella** `build/web-mobile`.
 **Nuovo da v0.10.16:**
 - **Scena Tutorial** come loading-cover: 1° PLAY → Tutorial (preload Game con % su `LoadingLabel`) → tasto START → Game; flag "visto" legato alla `VERSION`; storia (EN) in ScrollView; QA `fwResetTutorial()`.

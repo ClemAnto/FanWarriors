@@ -10,8 +10,8 @@ const TINT_LIGHT    = new Color(225, 115, 255, 255);
 const TINT_RESTORE  = new Color(255, 255, 255, 255);
 
 /**
- * Internal base for the "infected warrior" effects (BloodhoodSparkleEffect /
- * GenocideSparkleEffect): violet tint pulse on the warrior sprite + bounce hop
+ * Internal base for the "infected warrior" effects (WildRiverSparkleEffect /
+ * BrotherhoodSparkleEffect): violet tint pulse on the warrior sprite + bounce hop
  * on its PerspectiveMapper, both restored on detach. Implementation sharing only —
  * each public effect keeps its own dedicated class (project rule: one class per
  * effect). Subclasses tune the protected fields and keep their own static attach().

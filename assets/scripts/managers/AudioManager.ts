@@ -78,7 +78,7 @@ export class AudioManager extends Component {
     private _preloadAll(): void {
         // SFX only. Music tracks (the biggest assets) are NOT preloaded — they'd compete with the
         // Game-scene preload and aren't essential; each is lazy-loaded on its first playMusic() call
-        // (menu.mp3 in menu/tutorial, main.mp3 only when the Game starts).
+        // (menu.mp3 in the menu, main.mp3 only when the Game starts).
         for (const path of Object.values(SFX) as SFX[]) {
             if (path.startsWith('audio/music/')) continue;
             resources.load(path, AudioClip, (err, clip) => {
@@ -119,7 +119,7 @@ export class AudioManager extends Component {
 
     /** Play a music track (default main). Lazy-loads it if needed; switching tracks interrupts the
      *  current one immediately (e.g. the menu loop stops when entering the game). No restart if the
-     *  exact same clip is already playing (e.g. menu → tutorial). */
+     *  exact same clip is already playing. */
     playMusic(track: SFX = SFX.MUSIC_MAIN): void {
         this._currentMusic = track;
         const clip = this._clips.get(track);

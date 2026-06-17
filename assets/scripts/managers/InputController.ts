@@ -21,6 +21,7 @@ const TRAJ_DOT_ALPHA_END   = 0;
 export class InputController extends Component {
     onLaunch: ((warrior: Warrior, force: number) => void) | null = null;
     onTap:    ((warrior: Warrior) => void) | null = null;
+    onAimStart: (() => void) | null = null;  // fired when a real aiming drag begins (onboarding hook)
     getWarriors: (() => readonly Warrior[]) | null = null;
     ropeParent: Node | null = null;
     launchEnabled = true;
@@ -204,6 +205,7 @@ export class InputController extends Component {
         }
         if (this._isInsideTrack(touch)) {
             this.dragging = true;
+            this.onAimStart?.();
             AudioManager.instance.play(SFX.DRAW, 0.7);
         }
     }

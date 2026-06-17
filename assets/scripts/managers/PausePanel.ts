@@ -32,9 +32,10 @@ export class PausePanel extends Component {
     get isOpen(): boolean { return this.node.active; }
 
     onLoad(): void {
+        // Leave the node INACTIVE in the editor — this onLoad runs on the first open() activation
+        // (so it must NOT self-hide via active=false, or the panel would re-hide on first show).
         this._op = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
         this._op.opacity = 0;
-        this.node.active = false;
         this.resumeButton?.node.on(Button.EventType.CLICK,  () => this.close(),        this);
         this.restartButton?.node.on(Button.EventType.CLICK, () => this.onRestart?.(),  this);
         this.menuButton?.node.on(Button.EventType.CLICK,    () => this.onMenu?.(),     this);

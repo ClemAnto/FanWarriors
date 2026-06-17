@@ -10,7 +10,7 @@ const VISUAL_SCALE = 1.0;
 export class PerspectiveMapper extends Component {
     viewNode!: Node;
     yOffset     = 0;
-    bounceY     = 0;    // extra world-Y offset for hop animations (BHS etc.)
+    bounceY     = 0;    // extra world-Y offset for hop animations (WRS etc.)
     animScale   = 1.0;
     breathScale = 1.0;
     squashX     = 1.0;  // horizontal-only squash for side-wall impact

@@ -379,7 +379,7 @@ Calibrato a iterazioni con l'utente il 2026-06-12 — prima di ritoccare i param
 
 ### Architettura
 - `AuraEffect` — Component in `entities/AuraEffect.ts`, attaccato a `warrior.viewNode`
-- Attivazione via `GameManager.activateAura()` (debug) — ha precedenza su BH e PF (li disattiva)
+- Attivazione via `GameManager.activateAura()` (debug) — ha precedenza su WR e PF (li disattiva)
 - `_auraWarrior`, `_auraEffect`, `_auraProxTimers`, `_zapTargetEnergy`, `_zapTimerFrozen`, `_zapSparkGlobalIdx` (static) in GameManager
 
 ### Parametri chiave
@@ -490,25 +490,25 @@ Formato log:
 
 ---
 
-## BloodHood Powerup — attivazione
+## WildRiver Powerup — attivazione
 
 ### Condizioni (in `activateWarrior`)
 
 ```typescript
 const sameTypeOnTrack = warriors.filter(w => w.crossedLine && w.node?.isValid && w.type === launcher.type).length;
-if (sameTypeOnTrack >= 8 && _bhCooldownLaunches === 0 && launcherSenzaAltriPowerup) {
-    bloodhoodEnabled = true;
+if (sameTypeOnTrack >= 8 && _wrCooldownLaunches === 0 && launcherSenzaAltriPowerup) {
+    wildRiverEnabled = true;
 }
 ```
 
 | Regola | Valore |
 |--------|--------|
 | Stessa specie in pista | ≥ 8 |
-| Cooldown tra BH | 10 lanci (`_bhCooldownLaunches`, resettato al trigger) |
+| Cooldown tra WR | 10 lanci (`_wrCooldownLaunches`, resettato al trigger) |
 | Blocker | launcher con aura *(ex levelBoost)* attiva |
 
-- `_bhCooldownLaunches` viene impostato a 10 in `onWarriorLaunched` quando BH è attivo, decrementato di 1 ad ogni lancio non-BH.
-- BH e PsychoForce sono **mutualmente esclusivi**: PF si valuta solo se `!bloodhoodEnabled`.
+- `_wrCooldownLaunches` viene impostato a 10 in `onWarriorLaunched` quando WR è attivo, decrementato di 1 ad ogni lancio non-WR.
+- WR e PsychoForce sono **mutualmente esclusivi**: PF si valuta solo se `!wildRiverEnabled`.
 
 ---
 
@@ -536,7 +536,7 @@ In `mergeWarriors`:
 - `isPsychoMerge = a.type !== b.type && (a.psychoForce || b.psychoForce)`
 - Tipo risultante = tipo del warrior che **non** porta PsychoForce (per conservare il tipo ospite)
 - `parentWasPsycho = a.psychoForce || b.psychoForce` → se vero, il merged eredita l'infezione via `_infectWarrior(merged)`
-- Cleanup: `a.psychoForce?.detach()` + `b.psychoForce?.detach()` prima di distruggere a e b (sia per merge normale che per branch BH maxLevel)
+- Cleanup: `a.psychoForce?.detach()` + `b.psychoForce?.detach()` prima di distruggere a e b (sia per merge normale che per branch WR maxLevel)
 
 ### Timer e scadenza
 - Expiry: 5s (`EXPIRE_SECS` in `PsychoForceEffect.ts`)
@@ -561,35 +561,35 @@ Usa `auraFrame` (stessa texture di LevelBoost), blend `SRC_ALPHA + ONE`.
 
 ---
 
-## Genocide Powerup
+## Brotherhood Powerup
 
 ### Concetto
-Powerup automatico: il launcher porta l'effetto Genocide; al primo contatto con un warrior in pista scatena una **cascata di implosioni** su tutti i warrior dello stesso tipo del bersaglio (`_triggerGenocideCascade`). Ogni implosione genera punti + un vortice attrattivo.
+Powerup automatico: il launcher porta l'effetto Brotherhood; al primo contatto con un warrior in pista scatena una **cascata di implosioni** su tutti i warrior dello stesso tipo del bersaglio (`_triggerBrotherhoodCascade`). Ogni implosione genera punti + un vortice attrattivo.
 
 ### Condizioni di attivazione (v0.8.55)
 In `onWarriorLaunched`, attivato sul nuovo launcher se **tutte** vere:
 1. `onTrack >= 25` — almeno 25 warrior in pista (`crossedLine`)
-2. `_gnCooldownLaunches === 0` — **cooldown 10 tiri** dall'ultimo genocide
-3. `_gnCooldownMerges === 0` — **cooldown 10 merge** dall'ultimo genocide *(aggiunto v0.8.55)*
-4. `!_genocideCarrier` e `_nextPowerup === null`
+2. `_brCooldownLaunches === 0` — **cooldown 10 tiri** dall'ultimo brotherhood
+3. `_brCooldownMerges === 0` — **cooldown 10 merge** dall'ultimo brotherhood *(aggiunto v0.8.55)*
+4. `!_brotherhoodCarrier` e `_nextPowerup === null`
 
 ### Cooldown
-- Al trigger (`_genocideCarrier === w` in `onWarriorLaunched`): `_gnCooldownLaunches = 10` **e** `_gnCooldownMerges = 10` (prima era solo 20 tiri).
-- `_gnCooldownLaunches` decrementa di 1 ad ogni lancio non-genocide.
-- `_gnCooldownMerges` decrementa di 1 ad ogni **merge reale** (non-effect) in `mergeWarriors`.
-- Entrambi persistiti in snapshot (`cooldowns.gn` / `cooldowns.gnMerges`), azzerati in reset.
+- Al trigger (`_brotherhoodCarrier === w` in `onWarriorLaunched`): `_brCooldownLaunches = 10` **e** `_brCooldownMerges = 10` (prima era solo 20 tiri).
+- `_brCooldownLaunches` decrementa di 1 ad ogni lancio non-brotherhood.
+- `_brCooldownMerges` decrementa di 1 ad ogni **merge reale** (non-effect) in `mergeWarriors`.
+- Entrambi persistiti in snapshot (`cooldowns.br` / `cooldowns.brMerges`), azzerati in reset.
 
 ### Cap livello (verificato)
-Il cascade **non crea merge**: implode (distrugge) i warrior target. I warrior con `onGenocideContact`/`genocideInfected` sono esclusi dal merge (`Warrior.ts`). Eventuali merge indotti dal vortice passano da `mergeWarriors`, cappato a `WARRIORS[type].maxLevel` (blackhole oltre il max). → genocide non può produrre warrior sopra il max-level di specie. Stesso vale per aura (`finalLevel > maxLevel` → blackhole in `_evolveWarrior`).
+Il cascade **non crea merge**: implode (distrugge) i warrior target. I warrior con `onBrotherhoodContact`/`brotherhoodInfected` sono esclusi dal merge (`Warrior.ts`). Eventuali merge indotti dal vortice passano da `mergeWarriors`, cappato a `WARRIORS[type].maxLevel` (blackhole oltre il max). → brotherhood non può produrre warrior sopra il max-level di specie. Stesso vale per aura (`finalLevel > maxLevel` → blackhole in `_evolveWarrior`).
 
 ---
 
 ## Sistema powerup su swap Next↔Launcher (2026-05-26)
 
-Quando un warrior con powerup (aura/PsychoForce/bloodhood) viene swappato nel next, **il powerup segue il warrior**, non lo slot.
+Quando un warrior con powerup (aura/PsychoForce/wildRiver) viene swappato nel next, **il powerup segue il warrior**, non lo slot.
 
 ### Meccanismo (`GameManager.ts`)
-- `_nextPowerup: 'aura' | 'psychoForce' | 'bloodhood' | null` — powerup salvato per il warrior nel next slot
+- `_nextPowerup: 'aura' | 'psychoForce' | 'wildRiver' | null` — powerup salvato per il warrior nel next slot
 - `_nextPowerupPending: boolean` — flag impostato da `createWarrior()`, consumato da `activateWarrior()`
 - `_applyPendingPowerup(w, powerup)` — applica il powerup salvato al warrior che torna al launcher
 
@@ -604,13 +604,13 @@ Quando un warrior con powerup (aura/PsychoForce/bloodhood) viene swappato nel ne
 
 ### Glow nel next preview
 - `_nextPreviewGlowNode` — nodo figlio di `nextNextWarriorNode`, 86×86, blend additivo
-- Colori: arancio-giallo (aura), ciano (PsychoForce), viola (bloodhood)
+- Colori: arancio-giallo (aura), ciano (PsychoForce), viola (wildRiver)
 - Animazione pulsante `repeatForever`; fade-out quando `_nextPowerup = null`
 - `_updateNextPreviewPowerupGlow()` chiamato alla fine di ogni `updateNextPreview()`
 
 ### Regole lifecycle powerup
 - **Lancio warrior Y**: se warrior X (già in pista) ha ancora aura/PF visual attivo, viene rimosso al momento del lancio di Y (effetti già propagati continuano)
-- **Lancio fallito (malus)**: `penaliseAndReturn` fa cleanup esplicito di PF (`_pfLaunchWarrior`) e BH (`_bhLaunchWarrior`) — powerup perso al ritorno del warrior
+- **Lancio fallito (malus)**: `penaliseAndReturn` fa cleanup esplicito di PF (`_pfLaunchWarrior`) e WR (`_wrLaunchWarrior`) — powerup perso al ritorno del warrior
 
 ---
 
@@ -740,7 +740,7 @@ Il flag `Warrior.hitOtherWarrior` viene settato in `onBeginContact` quando `this
 
 ## Merge cap — maxLevel per specie
 
-Ogni specie ha il proprio `maxLevel` (`WARRIORS[type].maxLevel`). Se un merge supera il cap della specie, la creatura **esplode con blackhole VFX** e bonus punti (vedi GDD §6); il Drago oltre il suo max scatena `triggerVictory()`. Vale anche per i merge indotti da aura/genocide (verificato v0.8.55).
+Ogni specie ha il proprio `maxLevel` (`WARRIORS[type].maxLevel`). Se un merge supera il cap della specie, la creatura **esplode con blackhole VFX** e bonus punti (vedi GDD §6); il Drago oltre il suo max scatena `triggerVictory()`. Vale anche per i merge indotti da aura/brotherhood (verificato v0.8.55).
 
 ---
 

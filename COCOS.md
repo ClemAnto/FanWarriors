@@ -326,9 +326,11 @@ Pattern per pannelli modali (pausa, game over, win — vedi `PausePanel`/`EndPan
 - **Card**: `Sprite` SLICED su `wood.png` con i testi/pulsanti come figli.
 - Pulsanti: `button.png` (SLICED) + `cc.Button` + Label figlia.
 
-**Gotcha `onLoad` (CRITICO):** il componente che fa `this.node.active = false` in `onLoad` per auto-nascondersi funziona **solo se l'istanza è ATTIVA in scena all'avvio** (onLoad scatta una sola volta, alla prima attivazione, prima del primo render → niente flash). Se l'istanza è lasciata **inattiva** nell'editor, `onLoad` non parte mai: al primo `show()` (`active=true`) onLoad scatta e la rinasconde subito → pannello invisibile. **Regola: lasciare le istanze modali ATTIVE nell'editor**, si auto-nascondono da sole (stesso pattern di `Settings`).
+**Gotcha `onLoad` (CRITICO) — pattern attuale (v0.10.17+):** `PausePanel`/`EndPanel` **NON** fanno più `this.node.active = false` in `onLoad` (rimosso). `onLoad` ora solo imposta `UIOpacity._opacity = 0` e aggancia i bottoni; scatta alla **prima attivazione**, cioè quando `open()`/`show()` fanno `active = true` (sincrono, prima del render → niente flash). **Regola: lasciare i nodi modali INATTIVI (`active = false`) nell'editor** — così non si accavallano nella Scene view (niente bisogno di opacity-trick né dell'occhio). Identico al pattern di `Settings`, dove il controller sta su un nodo sempre attivo e nasconde il figlio `Dialog`.
 
-**Invisibili nell'editor pur restando attive:** il root del prefab ha `UIOpacity._opacity = 0` di default (impostato da `gen-ui-panels.js`) → l'istanza attiva è trasparente nella Scene view ma `onLoad` parte regolarmente; `show()`/`open()` fanno il fade 0→255. Così non serve disattivarle né vederle in editor.
+**Binding OBBLIGATORio via `@property`:** con i nodi inattivi, il resolver auto (`getComponentsInChildren`) può non trovarli. Quindi i 3 pannelli vanno trascinati negli slot `@property` di `GameManager` (`pausePanel`/`gameOverPanel`/`victoryPanel`) → riferimento serializzato, trovati anche da spenti. `_wirePanels()` salta la ricerca se lo slot è già valorizzato.
+
+**Storico (pre-v0.10.17):** prima il pattern era opposto — `onLoad` faceva `active=false` per auto-nascondersi, quindi le istanze andavano lasciate **ATTIVE** in editor (con `UIOpacity._opacity=0` per non vederle). Se si lasciavano inattive, `onLoad` non partiva mai e al primo `show()` si ri-nascondevano. Questo NON vale più.
 
 ---
 

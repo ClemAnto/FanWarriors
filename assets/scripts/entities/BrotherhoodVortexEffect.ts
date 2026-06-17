@@ -2,14 +2,14 @@ import { _decorator, Component, Node, Vec3, Color, Sprite, SpriteFrame, UIOpacit
 
 const { ccclass } = _decorator;
 
-@ccclass('GenocideVortexEffect')
-export class GenocideVortexEffect extends Component {
+@ccclass('BrotherhoodVortexEffect')
+export class BrotherhoodVortexEffect extends Component {
 
     static attach(parent: Node, pos: Vec3, level: number, frame: SpriteFrame | null): void {
-        const node = new Node('GnVortex');
+        const node = new Node('BrVortex');
         node.setParent(parent);
         node.setPosition(pos);
-        node.addComponent(GenocideVortexEffect)._startVFX(level, frame);
+        node.addComponent(BrotherhoodVortexEffect)._startVFX(level, frame);
     }
 
     private _startVFX(level: number, frame: SpriteFrame | null): void {

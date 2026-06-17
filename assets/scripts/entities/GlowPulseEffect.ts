@@ -14,7 +14,7 @@ const SPARK_PALETTE = [
 ];
 
 /**
- * Internal base for the launcher glow effects (BloodhoodEffect / GenocideEffect):
+ * Internal base for the launcher glow effects (WildRiverEffect / BrotherhoodEffect):
  * two additive-blend rings (fade-in → outer pulse) + scheduled sparkles + fade-out.
  * Implementation sharing only — each public effect keeps its own dedicated class
  * (project rule: one class per effect). Subclasses tune the protected fields and

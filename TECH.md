@@ -39,7 +39,7 @@
 
 ## Effetti — base class interne, classi pubbliche dedicate (2026-06-10, v0.8.59)
 
-**Decisione**: la regola "una classe per effetto" resta (ogni VFX ha la sua classe pubblica con la sua API), ma l'implementazione condivisa vive in base class astratte: `GlowPulseEffect` (anelli additive + pulse + sparkle + fade-out → `BloodhoodEffect`/`GenocideEffect`) e `TintSparkleEffect` (tinta pulsante + hop sul mapper → `BloodhoodSparkleEffect`/`GenocideSparkleEffect`). Le sottoclassi contengono solo `static attach()` e i parametri di tuning (`protected readonly` ri-dichiarati).
+**Decisione**: la regola "una classe per effetto" resta (ogni VFX ha la sua classe pubblica con la sua API), ma l'implementazione condivisa vive in base class astratte: `GlowPulseEffect` (anelli additive + pulse + sparkle + fade-out → `WildRiverEffect`/`BrotherhoodEffect`) e `TintSparkleEffect` (tinta pulsante + hop sul mapper → `WildRiverSparkleEffect`/`BrotherhoodSparkleEffect`). Le sottoclassi contengono solo `static attach()` e i parametri di tuning (`protected readonly` ri-dichiarati).
 
 **Perché**: erano ~240 righe duplicate quasi identiche — un fix andava replicato a mano. Le API pubbliche (`attach`/`detach`/`onExpired`/`startTimer`) sono invariate: GameManager non è stato toccato. Le base sono decorate con `@ccclass` (registrazione corretta nel sistema componenti CC3) ma non vengono mai istanziate direttamente.
 
@@ -199,7 +199,7 @@ viewNode.setScale(scale, scale, 1);
 
 **Decisione**: snapshot completo della partita in `localStorage` (`fw_game_state`), salvato a **ogni attivazione di warrior** (= inizio turno, board assestata) in `_saveSnapshot()`, e ripristinabile dopo un crash.
 
-**Cosa contiene lo STATO** (`GameSnapshot`): score, round, totalMerges, cooldown powerup (bh/pf/gn), `firstLaunchSpecies`, `trackClearedBonusUsed`, best-single, spawnLog, launcher (tipo/livello/**powerup**), `nextPowerup`, next (tipo/livello), e tutti i warrior on-track (tipo/livello/x/y + aura residua). Reset a inizio partita (`_clearSnapshot`).
+**Cosa contiene lo STATO** (`GameSnapshot`): score, round, totalMerges, cooldown powerup (wr/pf/br), `firstLaunchSpecies`, `trackClearedBonusUsed`, best-single, spawnLog, launcher (tipo/livello/**powerup**), `nextPowerup`, next (tipo/livello), e tutti i warrior on-track (tipo/livello/x/y + aura residua). Reset a inizio partita (`_clearSnapshot`).
 
 **Ripristino**: il bottone `RIPRISTINA` del dialog setta un flag **statico** `GameManager._pendingRestore` e fa `director.loadScene` → al nuovo `start()` il board viene ricostruito da `_restoreSnapshot()` invece di partire una partita nuova. Ricaricare la scena (anziché ripristino in-place) è robusto: l'errore può aver lasciato tween/callback/body corrotti.
 

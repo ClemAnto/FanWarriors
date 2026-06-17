@@ -393,7 +393,7 @@ Tutti gli sprite sono già presenti in `assets/warriors/`.
 
 ## 15. AURA Powerup *(ex LevelBoost — riscritto v0.8.19)*
 
-Powerup attivabile via debug (futuro: condizione automatica). Ha precedenza su BloodHood e PsychoForce — li disattiva se attivi.
+Powerup attivabile via debug (futuro: condizione automatica). Ha precedenza su WildRiver e PsychoForce — li disattiva se attivi.
 
 ### Attivazione e durata
 
@@ -481,51 +481,51 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 
 ---
 
-## 16. BloodHood Powerup
+## 16. WildRiver Powerup
 
-Powerup automatico: il launcher si incendia di sangue e al primo contatto con un warrior in pista scatena una cascata BHS (BloodHood Sparkle) che si propaga per contagio, poi implode accumulando punti.
+Powerup automatico: il launcher si incendia di sangue e al primo contatto con un warrior in pista scatena una cascata WRS (WildRiver Sparkle) che si propaga per contagio, poi implode accumulando punti.
 
 ### Condizioni di attivazione
 
-Il BH si attiva sul warrior in rampa **solo se tutte e tre le condizioni sono soddisfatte**:
+Il WR si attiva sul warrior in rampa **solo se tutte e tre le condizioni sono soddisfatte**:
 
 1. **≥ 8 warrior della stessa specie del launcher** sono già in pista (`crossedLine = true`)
-2. **Cooldown 10 tiri** — devono essere passati almeno 10 lanci dall'ultimo BH
+2. **Cooldown 10 tiri** — devono essere passati almeno 10 lanci dall'ultimo WR
 3. **Nessun altro powerup sul launcher** — il launcher non deve avere un'aura *(ex levelBoost)* attiva
 
-### Flusso BHS
+### Flusso WRS
 
-1. Il launcher porta l'effetto `BloodhoodEffect` (aura rossa) mentre è in rampa
-2. Al lancio, il warrior diventa "BH launcher" e al primo contatto fisico con un warrior in pista propaga `BloodhoodSparkleEffect` (contagio per contatto e prossimità)
+1. Il launcher porta l'effetto `WildRiverEffect` (aura rossa) mentre è in rampa
+2. Al lancio, il warrior diventa "WR launcher" e al primo contatto fisico con un warrior in pista propaga `WildRiverSparkleEffect` (contagio per contatto e prossimità)
 3. Il contagio si espande ai warrior vicini della stessa specie e di tipo qualsiasi (via proximity check ogni 0.08s, soglia `+60px` oltre i raggi)
-4. Quando il launcher si ferma, scatta la cascade di implosione BHS: i warrior contagiati implodono in ordine inverso di contagio, con moltiplicatore punti crescente (`+1.5×` per warrior)
+4. Quando il launcher si ferma, scatta la cascade di implosione WRS: i warrior contagiati implodono in ordine inverso di contagio, con moltiplicatore punti crescente (`+1.5×` per warrior)
 
 ### Parametri
 
 | Parametro | Valore |
 |-----------|--------|
 | Soglia specie in pista | ≥ 8 |
-| Cooldown tra BH | 10 lanci |
+| Cooldown tra WR | 10 lanci |
 | Proximity check interval | 0.08s |
 | Proximity margin | 60px oltre i raggi |
 | Contact delay spread | 0s (immediato) |
 | Proximity delay spread | 0.15s |
 | Moltiplicatore implosione | +1.5× per warrior, start ×1 |
-| Punti per warrior BHS | `10 × round × implodeK` |
+| Punti per warrior WRS | `10 × round × implodeK` |
 
 ---
 
-## 17. PsychoForce e Genocide Powerup
+## 17. PsychoForce e Brotherhood Powerup
 
-> Specifiche operative complete in MEMO.md (sezioni "PsychoForce Powerup" e "Genocide Powerup"). Qui solo il design.
+> Specifiche operative complete in MEMO.md (sezioni "PsychoForce Powerup" e "Brotherhood Powerup"). Qui solo il design.
 
 ### PsychoForce (v0.8.9)
 
-Powerup "jolly": crea spazio prima della endline permettendo **merge cross-species** per 5 secondi. Il launcher con PF, al contatto con un warrior in pista, contagia a cascata i warrior in una fascia orizzontale (±35% `TRACK_W` attorno alla Y di contatto). I warrior infetti (tinta ciano) possono fondersi con specie diverse di pari livello; il tipo risultante è quello del warrior **non** portatore. L'infezione scade dopo 5s (`EXPIRE_SECS`). BH e PF sono mutuamente esclusivi.
+Powerup "jolly": crea spazio prima della endline permettendo **merge cross-species** per 5 secondi. Il launcher con PF, al contatto con un warrior in pista, contagia a cascata i warrior in una fascia orizzontale (±35% `TRACK_W` attorno alla Y di contatto). I warrior infetti (tinta ciano) possono fondersi con specie diverse di pari livello; il tipo risultante è quello del warrior **non** portatore. L'infezione scade dopo 5s (`EXPIRE_SECS`). WR e PF sono mutuamente esclusivi.
 
-### Genocide (v0.8.55)
+### Brotherhood (v0.8.55)
 
-Powerup automatico anti-affollamento: con **≥ 25 warrior in pista** (e doppio cooldown: 10 lanci **e** 10 merge dall'ultimo trigger) il launcher porta l'effetto Genocide; al primo contatto scatena una **cascata di implosioni** su tutti i warrior dello stesso tipo del bersaglio, ognuna con punti + vortice attrattivo. Non crea merge sopra il maxLevel di specie.
+Powerup automatico anti-affollamento: con **≥ 25 warrior in pista** (e doppio cooldown: 10 lanci **e** 10 merge dall'ultimo trigger) il launcher porta l'effetto Brotherhood; al primo contatto scatena una **cascata di implosioni** su tutti i warrior dello stesso tipo del bersaglio, ognuna con punti + vortice attrattivo. Non crea merge sopra il maxLevel di specie.
 
 ---
 

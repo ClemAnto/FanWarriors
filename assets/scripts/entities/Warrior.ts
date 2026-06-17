@@ -6,7 +6,7 @@ import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { AudioManager, SFX } from '../managers/AudioManager';
 const { ccclass } = _decorator;
 
-export interface IBloodhoodSparkle {
+export interface IWildRiverSparkle {
     detach(): void;
 }
 
@@ -16,7 +16,7 @@ export interface IPsychoForce {
 }
 
 const MERGE_DELAY      = 0.3;
-const BHS_CONTACT_DELAY = 0;
+const WRS_CONTACT_DELAY = 0;
 const BOUNCE_VOL_MAX   = 280;  // velocity at which wall-bounce volume reaches 1.0
 const HIT_VOL_MAX      = 80;   // velocity at which warrior-hit volume reaches 1.0
 
@@ -45,8 +45,8 @@ export class Warrior extends Component {
     mapper: PerspectiveMapper | null = null;
     psychoForce: IPsychoForce | null = null;
     onPsychoContact: ((source: Warrior, target: Warrior) => void) | null = null;
-    onGenocideContact: ((source: Warrior, target: Warrior) => void) | null = null;
-    genocideInfected: boolean = false;
+    onBrotherhoodContact: ((source: Warrior, target: Warrior) => void) | null = null;
+    brotherhoodInfected: boolean = false;
     // Cached in buildPhysics() — velocity is read dozens of times per frame in GameManager hot paths
     private _rb: RigidBody2D | null = null;
 
@@ -55,9 +55,9 @@ export class Warrior extends Component {
     set velocity(v: Vec2) { if (this._rb) this._rb.linearVelocity = v; }
 
     onMergeReady: ((self: Warrior, other: Warrior) => void) | null = null;
-    onBloodhoodContact: ((source: Warrior, target: Warrior) => void) | null = null;
-    bloodhoodSparkle: IBloodhoodSparkle | null = null;
-    isBHLauncher = false;
+    onWildRiverContact: ((source: Warrior, target: Warrior) => void) | null = null;
+    wildRiverSparkle: IWildRiverSparkle | null = null;
+    isWRLauncher = false;
     private _lastHitSoundMs = 0;
 
     // Upgrade level in-place (sprite + mapper, physics collider not resized at runtime)
@@ -119,8 +119,8 @@ export class Warrior extends Component {
     }
 
     private mergeCallbacks    = new Map<Warrior, () => void>();
-    private _bhsContactCbs   = new Map<Warrior, () => void>();
-    private _gnContactCbs    = new Map<Warrior, () => void>();
+    private _wrsContactCbs   = new Map<Warrior, () => void>();
+    private _brContactCbs    = new Map<Warrior, () => void>();
 
     static spawn(parent: Node, visualParent: Node, type: number, level: number, x: number, y: number): Warrior {
         const node = new Node('Warrior');
@@ -262,15 +262,15 @@ export class Warrior extends Component {
 
         if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;
 
-        // Bloodhood contact — spread only after 300ms of sustained contact
-        if (this.onBloodhoodContact && otherW && !this._bhsContactCbs.has(otherW)) {
+        // WildRiver contact — spread only after 300ms of sustained contact
+        if (this.onWildRiverContact && otherW && !this._wrsContactCbs.has(otherW)) {
             const src = this, tgt = otherW;
             const cb = () => {
-                this._bhsContactCbs.delete(tgt);
-                if (src.node?.isValid && tgt.node?.isValid) src.onBloodhoodContact?.(src, tgt);
+                this._wrsContactCbs.delete(tgt);
+                if (src.node?.isValid && tgt.node?.isValid) src.onWildRiverContact?.(src, tgt);
             };
-            this._bhsContactCbs.set(tgt, cb);
-            this.scheduleOnce(cb, BHS_CONTACT_DELAY);
+            this._wrsContactCbs.set(tgt, cb);
+            this.scheduleOnce(cb, WRS_CONTACT_DELAY);
         }
 
         // PsychoForce spread — fires once (callback cleared in GameManager after first use)
@@ -278,23 +278,23 @@ export class Warrior extends Component {
             this.onPsychoContact?.(this, otherW);
         }
 
-        // Genocide contact — immediate trigger (next frame via scheduleOnce 0)
-        if (this.onGenocideContact && otherW.crossedLine && !this._gnContactCbs.has(otherW)) {
+        // Brotherhood contact — immediate trigger (next frame via scheduleOnce 0)
+        if (this.onBrotherhoodContact && otherW.crossedLine && !this._brContactCbs.has(otherW)) {
             const src = this, tgt = otherW;
             const cb = () => {
-                this._gnContactCbs.delete(tgt);
-                if (src.node?.isValid && tgt.node?.isValid) src.onGenocideContact?.(src, tgt);
+                this._brContactCbs.delete(tgt);
+                if (src.node?.isValid && tgt.node?.isValid) src.onBrotherhoodContact?.(src, tgt);
             };
-            this._gnContactCbs.set(tgt, cb);
+            this._brContactCbs.set(tgt, cb);
             this.scheduleOnce(cb, 0);
         }
 
         if (otherW.level !== this.level) return;
         if (otherW.type !== this.type && !this.psychoForce && !otherW.psychoForce) return;
-        if (this.bloodhoodSparkle || otherW.bloodhoodSparkle) return;
-        if (this.onBloodhoodContact || otherW.onBloodhoodContact) return;
-        if (this.onGenocideContact || otherW.onGenocideContact) return;
-        if (this.genocideInfected    || otherW.genocideInfected)    return;
+        if (this.wildRiverSparkle || otherW.wildRiverSparkle) return;
+        if (this.onWildRiverContact || otherW.onWildRiverContact) return;
+        if (this.onBrotherhoodContact || otherW.onBrotherhoodContact) return;
+        if (this.brotherhoodInfected    || otherW.brotherhoodInfected)    return;
         if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
 
         // Snap: equalize velocities so they don't bounce apart
@@ -326,15 +326,15 @@ export class Warrior extends Component {
             this.unschedule(cb);
             this.mergeCallbacks.delete(otherW);
         }
-        const bhsCb = this._bhsContactCbs.get(otherW);
-        if (bhsCb) {
-            this.unschedule(bhsCb);
-            this._bhsContactCbs.delete(otherW);
+        const wrsCb = this._wrsContactCbs.get(otherW);
+        if (wrsCb) {
+            this.unschedule(wrsCb);
+            this._wrsContactCbs.delete(otherW);
         }
-        const gnCb = this._gnContactCbs.get(otherW);
-        if (gnCb) {
-            this.unschedule(gnCb);
-            this._gnContactCbs.delete(otherW);
+        const brCb = this._brContactCbs.get(otherW);
+        if (brCb) {
+            this.unschedule(brCb);
+            this._brContactCbs.delete(otherW);
         }
     }
 

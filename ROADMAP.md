@@ -79,7 +79,7 @@
 
 ### 2026-06-10 sera (v0.8.57 → v0.8.61) — Juice Fase 4 + perf + Poki adapter + size budget
 - ✨ **Juice**: `entities/TrailEffect.ts` (scia additiva dietro il warrior in volo, emissione basata sulla distanza, autogestita) + slowmo sui punteggi alti (`_maybeScoreSlowmo`: ×0.8 ≥10k, ×0.5 ≥12k, su merge e Track Cleared).
-- ⚡ **Perf**: VFXManager senza allocazioni per-frame (scratch `TMP_COLOR`/`TMP_ANCHOR` + costanti hoistate); Bloodhood/Genocide dedupli­cati in `GlowPulseEffect` e i due Sparkle in `TintSparkleEffect` (−430 righe, API pubbliche invariate); `console.log` di gameplay dietro `DEBUG`.
+- ⚡ **Perf**: VFXManager senza allocazioni per-frame (scratch `TMP_COLOR`/`TMP_ANCHOR` + costanti hoistate); WildRiver/Brotherhood dedupli­cati in `GlowPulseEffect` e i due Sparkle in `TintSparkleEffect` (−430 righe, API pubbliche invariate); `console.log` di gameplay dietro `DEBUG`.
 - 🧩 **Poki portal adapter** (Fase 5 anticipata): `PortalSdk`/`NullPortal`/`PokiPortal`/`PortalProvider`, flag `PORTAL` default `'none'` — vedi TECH.md. Restano account Poki + test sandbox.
 - 📦 **Size budget**: build **44,3 → 14,9 MB** (requisito Poki <20MB ✓): `npm run optimize:images` (PNG8 in-place, particelle→512px), `main.mp3` 112kbps senza cover, musica alternativa fuori da `resources/`. Workflow in MEMO.
 - 🧹 **Housekeeping**: Netlify rimosso del tutto; tsconfig fix deprecazione TS6 (`moduleResolution: bundler`) + `lib ES2017` → `npx tsc --noEmit` a zero errori.
@@ -87,9 +87,9 @@
 - 🚀 Deploy v0.8.61 su GitHub Pages; `main` pushato (4 commit).
 
 ### 2026-06-10 (v0.8.56 → v0.8.57) — Robustezza codice + riallineamento docs + chiusura Fase 3
-- 🛡️ **Pass di robustezza** (da code-review a 3 agenti): `RigidBody2D` cachato in `Warrior` (getter `velocity` era hot path con `getComponent` per chiamata); nuovo `utils/SafeStorage.ts` (localStorage try/catch — incognito safe) usato ovunque; guard doppio-submit in `NameEntry` (confirm disabilitato); cleanup tween/schedule su destroy in Warrior, tutti gli effetti (Aura/BH/BHS/PF/GN/GNS), PausePanel, EndPanel e tinte PF (`Tween.stopAllByTarget` — i tween su component NON si fermano da soli alla destroy del nodo).
+- 🛡️ **Pass di robustezza** (da code-review a 3 agenti): `RigidBody2D` cachato in `Warrior` (getter `velocity` era hot path con `getComponent` per chiamata); nuovo `utils/SafeStorage.ts` (localStorage try/catch — incognito safe) usato ovunque; guard doppio-submit in `NameEntry` (confirm disabilitato); cleanup tween/schedule su destroy in Warrior, tutti gli effetti (Aura/WR/WRS/PF/BR/BRS), PausePanel, EndPanel e tinte PF (`Tween.stopAllByTarget` — i tween su component NON si fermano da soli alla destroy del nodo).
 - 📐 **`LIVE_RESIZE` resta `true` anche in produzione** (decisione: costo trascurabile).
-- 📚 **Riallineamento .md**: risolte contraddizioni doc↔codice (aura 1.5s, damping 16, friction 0.3, formula pista 6/10×1.2, endline editor-driven), fuse sezioni leaderboard doppie in TECH, GDD §17 (PsychoForce+Genocide), README services aggiornato al flusso Ranking.
+- 📚 **Riallineamento .md**: risolte contraddizioni doc↔codice (aura 1.5s, damping 16, friction 0.3, formula pista 6/10×1.2, endline editor-driven), fuse sezioni leaderboard doppie in TECH, GDD §17 (PsychoForce+Brotherhood), README services aggiornato al flusso Ranking.
 - ✅ **Fase 3 chiusa**: HUD completato (round animato, font MedievalSharp), posizione NextPreview sistemata, migrazione DebugPanel cassata. **Rules Firestore v1 applicate** in console. Follow-up chiusi (bug 2 non ripresentato, auto-attivazione AURA).
 - 🚀 Build + deploy v0.8.57 su GitHub Pages.
 
@@ -452,11 +452,11 @@
 >
 > Storico 2026-06-07 — v0.8.23: fix bug 1 (anti-tunneling muri, `rb.bullet=true`) + bug 2 (game over/victory robusti: schermata schedulata prima dei side-effect in `try/catch`); messaggio "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (score > 10000); tasto "Ricomincia" nel dialog Settings (solo scena Game, via host hook `onRestart`).
 >
-> Storico 2026-06-08 — v0.8.55: rebalance genocide (trigger ≥25 warrior + cooldown 10 tiri **e** 10 merge; nuovo `_gnCooldownMerges`) + depotenziamento aura per specie basse (range quadratico su 7 specie, zap disabilitato sotto `AURA_ZAP_MIN_TYPE=2`). Verificato che né genocide né aura possono creare merge sopra il max-level di specie.
+> Storico 2026-06-08 — v0.8.55: rebalance brotherhood (trigger ≥25 warrior + cooldown 10 tiri **e** 10 merge; nuovo `_brCooldownMerges`) + depotenziamento aura per specie basse (range quadratico su 7 specie, zap disabilitato sotto `AURA_ZAP_MIN_TYPE=2`). Verificato che né brotherhood né aura possono creare merge sopra il max-level di specie.
 >
 > Storico 2026-06-04 — v0.8.22: MainMenu scene (PLAY/Best Score/versione) + dialog opzioni centralizzato in `Settings.ts` (condiviso con Game); loading screen con logo `title.png`; tutorial iniziale rimosso.
 >
-> Storico 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/BH); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).
+> Storico 2026-05-26 — v0.8.19+: powerup segue il warrior nel next slot (swap preserva aura/PF/WR); glow indicator nel next preview; fix aura (durata 1.5s, trasferimento su merge, lifecycle corretto); regole lifecycle powerup (nuovo lancio / lancio fallito).
 
 1. ~~**Completare sprite livelli speciali**~~ ✅ fatto
 2. ~~**Animazioni rimanenti**~~ ✅ fatto (idle respiro, squash on landing, esplosioni 3 tier con scintille)

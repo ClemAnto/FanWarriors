@@ -1,16 +1,14 @@
-import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, sys, Graphics, Color } from 'cc';
+import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, Graphics, Color } from 'cc';
 import { AudioManager, SFX } from './AudioManager';
 import { VERSION } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
-import { LS_TUTORIAL_SEEN } from './Tutorial';
 import { BgFill } from '../entities/BgFill';
 
 const { ccclass, property } = _decorator;
 
 const LS_BEST_SCORE  = 'fw_best_score';
 const GAME_SCENE     = 'Game';
-const TUTORIAL_SCENE = 'Tutorial';
 const RANKING_SCENE  = 'Ranking';
 
 /**
@@ -41,22 +39,13 @@ export class MainMenu extends Component {
         const portal = PortalProvider.get();
         void portal.init().then(() => portal.gameLoadingFinished());
 
-        // QA helper: from the browser console, `fwResetTutorial()` re-arms the tutorial for the next PLAY.
-        if (sys.isBrowser) {
-            (window as any).fwResetTutorial = (): void => {
-                SafeStorage.set(LS_TUTORIAL_SEEN, '');
-                console.log('[QA] tutorial flag cleared — press PLAY to see it (no reload needed)');
-            };
-        }
-
         // Background is lazy-loaded (not a scene dependency) so it stays off the loading-screen critical
         // path; the menu shows instantly on the camera's dark-blue clear colour, then the art fades in.
         this._loadMenuBg();
 
-        // Preload in the background so PLAY transitions instantly: first-timers go through the
-        // (light) Tutorial scene which itself preloads the Game; returning players preload the Game here.
-        const seen = SafeStorage.get(LS_TUTORIAL_SEEN) === VERSION;
-        director.preloadScene(seen ? GAME_SCENE : TUTORIAL_SCENE);
+        // Preload the Game in the background so PLAY transitions instantly (CrazyGames: land in
+        // gameplay with a single click — onboarding is now in-game, no separate tutorial scene).
+        director.preloadScene(GAME_SCENE);
 
         const best = parseInt(SafeStorage.get(LS_BEST_SCORE) ?? '0', 10) || 0;
         if (this.bestLabel)    this.bestLabel.string    = `Best Score\n${best}`;
@@ -76,9 +65,9 @@ export class MainMenu extends Component {
     onPlay(): void {
         if (this._playing) return;
         this._playing = true;
-        // No commercial break here: portals forbid ads before the first gameplay. First PLAY shows the
-        // Tutorial (which preloads the Game); afterwards PLAY goes straight to the Game.
-        const target = SafeStorage.get(LS_TUTORIAL_SEEN) === VERSION ? GAME_SCENE : TUTORIAL_SCENE;
+        // No commercial break here: portals forbid ads before the first gameplay. PLAY goes straight
+        // to the Game (single click into gameplay); onboarding is handled in-game.
+        const target = GAME_SCENE;
 
         const overlay = find('Canvas/FadeOverlay');
         const op = overlay?.getComponent(UIOpacity);

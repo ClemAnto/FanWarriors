@@ -24,14 +24,14 @@ const DIV2_Y = -78;  // MERGES ↔ SAVE/LOAD/RESET
 const DIV3_Y = -110; // SAVE   ↔ PALETTE
 const DIV4_Y = -302; // PALETTE ↔ WIN
 
-// WIN + BH + PF + AURA button row (four buttons)
+// WIN + WR + PF + AURA button row (four buttons)
 const WIN_BTN_Y  = -322;
 const WIN_BTN_H  =   26;
 const WIN_BTN_W  =   58;
 const WIN_CX     =  CX - 78;   // 152
-const BH_BTN_W   =   43;
-const BH_CX      =  CX - 23;   // 207
-const BH_BTN_H   =  WIN_BTN_H;
+const WR_BTN_W   =   43;
+const WR_CX      =  CX - 23;   // 207
+const WR_BTN_H   =  WIN_BTN_H;
 const PF_BTN_W   =   43;
 const PF_CX      =  CX + 32;   // 262
 const PF_BTN_H   =  WIN_BTN_H;
@@ -39,13 +39,13 @@ const AURA_BTN_W =   43;
 const AURA_CX    =  CX + 87;   // 317
 const AURA_BTN_H =  WIN_BTN_H;
 
-// GN (Genocide) button — second row below WIN/BH/PF/AURA
-const GN_BTN_Y   = -356;
-const GN_BTN_W   =  160;
-const GN_BTN_H   =   26;
-const GN_CX      =  CX;        // 230
+// BR (Brotherhood) button — second row below WIN/WR/PF/AURA
+const BR_BTN_Y   = -356;
+const BR_BTN_W   =  160;
+const BR_BTN_H   =   26;
+const BR_CX      =  CX;        // 230
 
-// LOSE (instant game over) button — third row below GN
+// LOSE (instant game over) button — third row below BR
 const LOSE_BTN_Y = -388;
 const LOSE_BTN_W =  160;
 const LOSE_BTN_H =   26;
@@ -99,11 +99,11 @@ export interface IGameManagerDebug {
     setLauncherBlocked(v: boolean): void;
     debugWin(): void;
     debugLose(): void;
-    toggleBloodhood(): void;
-    isBloodhoodEnabled(): boolean;
+    toggleWildRiver(): void;
+    isWildRiverEnabled(): boolean;
     activatePsychoForce(): void;
     activateAura(): void;
-    activateGenocide(): void;
+    activateBrotherhood(): void;
 }
 
 @ccclass('DebugPanel')
@@ -120,14 +120,14 @@ export class DebugPanel extends Component {
     private pressedAction: 'save' | 'load' | 'reset' | null = null;
     private winPressed = false;
     private winLbl!: Label;
-    private bhPressed  = false;
-    private bhLbl!: Label;
+    private wrPressed  = false;
+    private wrLbl!: Label;
     private pfPressed   = false;
     private pfLbl!:   Label;
     private auraPressed = false;
     private auraLbl!: Label;
-    private gnPressed   = false;
-    private gnLbl!:   Label;
+    private brPressed   = false;
+    private brLbl!:   Label;
     private losePressed = false;
     private loseLbl!: Label;
     private pauseFlash = false;
@@ -203,14 +203,14 @@ export class DebugPanel extends Component {
             this.lbl(String(t), CX + ICON_R + 12, y, 10, WARRIORS[t]?.color ?? new Color(200, 200, 200));
         }
 
-        // WIN + BH + PF + AURA buttons
+        // WIN + WR + PF + AURA buttons
         this.winLbl  = this.lbl('🏆 WIN!', WIN_CX,  WIN_BTN_Y, 10, new Color(255, 220, 50, 255));
-        this.bhLbl   = this.lbl('BH',      BH_CX,   WIN_BTN_Y, 13, new Color(200, 100, 255, 255));
+        this.wrLbl   = this.lbl('WR',      WR_CX,   WIN_BTN_Y, 13, new Color(200, 100, 255, 255));
         this.pfLbl   = this.lbl('PF',      PF_CX,   WIN_BTN_Y, 13, new Color(60, 220, 255, 255));
         this.auraLbl = this.lbl('AURA',    AURA_CX, WIN_BTN_Y, 11, new Color(255, 190, 40, 255));
 
-        // GN button
-        this.gnLbl = this.lbl('☠ GENOCIDE', GN_CX, GN_BTN_Y, 11, new Color(255, 60, 60, 255));
+        // BR button
+        this.brLbl = this.lbl('⚡ BROTHERHOOD', BR_CX, BR_BTN_Y, 11, new Color(255, 60, 60, 255));
 
         // LOSE button (instant game over)
         this.loseLbl = this.lbl('💀 LOSE', LOSE_CX, LOSE_BTN_Y, 11, new Color(255, 120, 120, 255));
@@ -310,14 +310,14 @@ export class DebugPanel extends Component {
         g.rect(WIN_CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
         g.stroke();
 
-        // BH toggle button (purple when on)
-        const bhOn = this.gm?.isBloodhoodEnabled() ?? false;
-        g.fillColor   = bhOn ? new Color(120, 30, 180, 255) : new Color(40, 20, 70, 230);
-        g.strokeColor = bhOn ? new Color(200, 100, 255, 255) : new Color(120, 60, 180, 180);
-        g.lineWidth   = bhOn ? 2.5 : 1.5;
-        g.rect(BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H);
+        // WR toggle button (purple when on)
+        const wrOn = this.gm?.isWildRiverEnabled() ?? false;
+        g.fillColor   = wrOn ? new Color(120, 30, 180, 255) : new Color(40, 20, 70, 230);
+        g.strokeColor = wrOn ? new Color(200, 100, 255, 255) : new Color(120, 60, 180, 180);
+        g.lineWidth   = wrOn ? 2.5 : 1.5;
+        g.rect(WR_CX - WR_BTN_W / 2, WIN_BTN_Y - WR_BTN_H / 2, WR_BTN_W, WR_BTN_H);
         g.fill();
-        g.rect(BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H);
+        g.rect(WR_CX - WR_BTN_W / 2, WIN_BTN_Y - WR_BTN_H / 2, WR_BTN_W, WR_BTN_H);
         g.stroke();
 
         // PF button (cyan flash on press)
@@ -338,13 +338,13 @@ export class DebugPanel extends Component {
         g.rect(AURA_CX - AURA_BTN_W / 2, WIN_BTN_Y - AURA_BTN_H / 2, AURA_BTN_W, AURA_BTN_H);
         g.stroke();
 
-        // GN (Genocide) button — red flash on press
-        g.fillColor   = this.gnPressed ? new Color(220, 30, 30, 255) : new Color(80, 10, 10, 230);
-        g.strokeColor = this.gnPressed ? new Color(255, 140, 140, 255) : new Color(180, 40, 40, 180);
-        g.lineWidth   = this.gnPressed ? 2.5 : 1.5;
-        g.rect(GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H);
+        // BR (Brotherhood) button — red flash on press
+        g.fillColor   = this.brPressed ? new Color(220, 30, 30, 255) : new Color(80, 10, 10, 230);
+        g.strokeColor = this.brPressed ? new Color(255, 140, 140, 255) : new Color(180, 40, 40, 180);
+        g.lineWidth   = this.brPressed ? 2.5 : 1.5;
+        g.rect(BR_CX - BR_BTN_W / 2, BR_BTN_Y - BR_BTN_H / 2, BR_BTN_W, BR_BTN_H);
         g.fill();
-        g.rect(GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H);
+        g.rect(BR_CX - BR_BTN_W / 2, BR_BTN_Y - BR_BTN_H / 2, BR_BTN_W, BR_BTN_H);
         g.stroke();
 
         // LOSE (instant game over) button — red flash on press
@@ -506,10 +506,10 @@ export class DebugPanel extends Component {
             return;
         }
 
-        // BH toggle
-        if (this.inRect(p, BH_CX - BH_BTN_W / 2, WIN_BTN_Y - BH_BTN_H / 2, BH_BTN_W, BH_BTN_H)) {
-            this.gm.toggleBloodhood();
-            this.bhLbl.color = this.gm.isBloodhoodEnabled()
+        // WR toggle
+        if (this.inRect(p, WR_CX - WR_BTN_W / 2, WIN_BTN_Y - WR_BTN_H / 2, WR_BTN_W, WR_BTN_H)) {
+            this.gm.toggleWildRiver();
+            this.wrLbl.color = this.gm.isWildRiverEnabled()
                 ? new Color(220, 140, 255, 255)
                 : new Color(200, 100, 255, 255);
             this.drawPanel();
@@ -534,12 +534,12 @@ export class DebugPanel extends Component {
             return;
         }
 
-        // GN — activate Genocide on launcher
-        if (this.inRect(p, GN_CX - GN_BTN_W / 2, GN_BTN_Y - GN_BTN_H / 2, GN_BTN_W, GN_BTN_H)) {
-            this.gnPressed = true;
+        // BR — activate Brotherhood on launcher
+        if (this.inRect(p, BR_CX - BR_BTN_W / 2, BR_BTN_Y - BR_BTN_H / 2, BR_BTN_W, BR_BTN_H)) {
+            this.brPressed = true;
             this.drawPanel();
-            this.scheduleOnce(() => { this.gnPressed = false; this.drawPanel(); }, 0.18);
-            this.gm.activateGenocide();
+            this.scheduleOnce(() => { this.brPressed = false; this.drawPanel(); }, 0.18);
+            this.gm.activateBrotherhood();
             return;
         }
 

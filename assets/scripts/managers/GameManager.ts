@@ -5,6 +5,7 @@ import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
 import { SafeStorage } from '../utils/SafeStorage';
 import { InputController } from './InputController';
 import { SpawnManager } from './SpawnManager';
+import { OnboardingHints } from './OnboardingHints';
 import { GameState } from './GameState';
 import { GAME_OVER_LINE_Y, TRACK_W, TRACK_H, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_LB, WALL_LT, WALL_RB, WALL_RT, initLayout, Track, setGameOverLineRaisePx, funnelWidthRatioAt } from '../entities/Track';
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
@@ -13,10 +14,10 @@ import { AudioManager, SFX } from './AudioManager';
 import { VFXManager, SCORE_TIER5_PTS, SCORE_TIER6_PTS } from './VFXManager';
 import { AuraEffect } from '../entities/AuraEffect';
 import { PsychoForceEffect } from '../entities/PsychoForceEffect';
-import { BloodhoodEffect } from '../entities/BloodhoodEffect';
-import { BloodhoodSparkleEffect } from '../entities/BloodhoodSparkleEffect';
-import { GenocideEffect } from '../entities/GenocideEffect';
-import { GenocideSparkleEffect } from '../entities/GenocideSparkleEffect';
+import { WildRiverEffect } from '../entities/WildRiverEffect';
+import { WildRiverSparkleEffect } from '../entities/WildRiverSparkleEffect';
+import { BrotherhoodEffect } from '../entities/BrotherhoodEffect';
+import { BrotherhoodSparkleEffect } from '../entities/BrotherhoodSparkleEffect';
 import { TrailEffect } from '../entities/TrailEffect';
 import { LineDescentEffect } from '../entities/LineDescentEffect';
 import { Settings } from './Settings';
@@ -26,9 +27,10 @@ import { LeaderboardPanel } from './LeaderboardPanel';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 import { PortalProvider } from '../services/PortalProvider';
+import { PORTAL } from '../config/PortalConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.10.16';
+export const VERSION     = '0.10.17';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -60,21 +62,21 @@ const CROSS_LINE_FRAMES    = 3;     // consecutive frames above gol before cross
 const GAME_OVER_FRAMES     = 3;     // consecutive frames below gol before game over triggers (prevents physics-jitter false-positive)
 const GAME_OVER_DESCENT_RADII = 6;  // how far below the line (in warrior radii) the physics centre must sink before game over — the visual base passes the line only after a large physics descent (perspective compresses Y by 4×). Tune for "base fully past the line".
 
-const BHS_PROX_INTERVAL      = 0.08; // seconds between BHS proximity spread checks
+const WRS_PROX_INTERVAL      = 0.08; // seconds between WRS proximity spread checks
 const AURA_REPEL_RANGE       = 160;  // design-px — max distance at which repelling force is applied
 const AURA_REPEL_FORCE       = 500;  // base force magnitude (design-px units, scaled by LAYOUT_SCALE)
 const AURA_ZAPP_HOLD         = 0.2;  // seconds a warrior must stay in range before being zapped
 const AURA_ZAP_MIN_TYPE      = 2;    // species below this index only repel — no zap/auto-merge
-const BHS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
-const BHS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before BHS spreads
+const WRS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
+const WRS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before WRS spreads
 const PF_PROX_INTERVAL       = 0.08;
 const PF_PROX_MARGIN         = 60;
 const PF_CONTACT_DELAY       = 0.15;
-const GENOCIDE_PROX_MARGIN   = 20;   // extra px beyond touch radius to trigger cascade
-const GENOCIDE_CASCADE_DELAY = 0.3;  // seconds between each infection step (nearest → farthest)
-const GENOCIDE_IMPLODE_HOLD  = 0.5;  // seconds from infection to implosion
-const GENOCIDE_EXPIRE_SEC    = 2.0;  // max carrier duration before effect expires
-const GENOCIDE_PROX_INTERVAL = 0.06; // seconds between proximity checks
+const BROTHERHOOD_PROX_MARGIN   = 20;   // extra px beyond touch radius to trigger cascade
+const BROTHERHOOD_CASCADE_DELAY = 0.3;  // seconds between each infection step (nearest → farthest)
+const BROTHERHOOD_IMPLODE_HOLD  = 0.5;  // seconds from infection to implosion
+const BROTHERHOOD_EXPIRE_SEC    = 2.0;  // max carrier duration before effect expires
+const BROTHERHOOD_PROX_INTERVAL = 0.06; // seconds between proximity checks
 const VORTEX_RANGE_BASE      = 70;   // design px per level (level 1 = 70, level 5 = 350)
 const VORTEX_FORCE_BASE      = 220;  // force units per level
 const VORTEX_TTL_BASE        = 0.5;  // base vortex duration in seconds
@@ -99,7 +101,7 @@ const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
 // recovered by reloading the scene and rebuilding the exact turn-start situation.
 const STATE_KEY = 'fw_game_state';
 
-type PowerupKind = 'aura' | 'psychoForce' | 'bloodhood' | 'genocide';
+type PowerupKind = 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood';
 
 interface WarriorSnap {
     type: number;
@@ -114,7 +116,7 @@ interface GameSnapshot {
     score: number;
     round: number;
     totalMerges: number;
-    cooldowns: { bh: number; pf: number; gn: number; gnMerges: number };
+    cooldowns: { wr: number; pf: number; br: number; brMerges: number };
     firstLaunchSpecies: number[];
     trackClearedBonusUsed: boolean;
     bestSingle: { score: number; desc: string };
@@ -150,6 +152,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     gameOverPanel: EndPanel | null = null;
     @property({ type: EndPanel, tooltip: 'Victory modal (UILayer/Modals/VictoryPanel). Auto-resolved by name if unset.' })
     victoryPanel: EndPanel | null = null;
+    @property({ type: OnboardingHints, tooltip: 'In-gameplay onboarding hints (optional). Drives editor-authored hint nodes.' })
+    onboarding: OnboardingHints | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -217,13 +221,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _zapTargetEnergy  = new Map<Warrior, { energy: number; count: number }>();
     private _zapTimerFrozen   = false;
     private static _zapSparkGlobalIdx = 0;
-    private _launcherBloodhoodEffect: BloodhoodEffect | null = null;
-    private _bhsActive = new Map<Warrior, BloodhoodSparkleEffect>();
-    private _bhsProxTimer = 0;
-    private _bhsProxTimers = new Map<Warrior, number>(); // candidate → accumulated proximity time
-    private _bhLaunchWarrior: Warrior | null = null;
-    private _bhLaunchEffect: BloodhoodSparkleEffect | null = null;
-    private _bhsOrder: Warrior[] = [];
+    private _launcherWildRiverEffect: WildRiverEffect | null = null;
+    private _wrsActive = new Map<Warrior, WildRiverSparkleEffect>();
+    private _wrsProxTimer = 0;
+    private _wrsProxTimers = new Map<Warrior, number>(); // candidate → accumulated proximity time
+    private _wrLaunchWarrior: Warrior | null = null;
+    private _wrLaunchEffect: WildRiverSparkleEffect | null = null;
+    private _wrsOrder: Warrior[] = [];
     private _pfActive       = new Map<Warrior, Sprite | null>();
     private _pfOrder:         Warrior[] = [];
     private _pfProxTimer    = 0;
@@ -233,19 +237,19 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _pfLaunchWarrior: Warrior | null = null;
     private _pfCooldownLaunches = 0;
     psychoForceEnabled      = false;
-    private _bhsImploding = false;
-    private _bhsImplodeK = 1;
-    bloodhoodEnabled = false;
-    private _bhCooldownLaunches = 0;
-    private _gnCooldownLaunches = 0;
-    private _gnCooldownMerges = 0;
-    private _nextPowerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null = null;
+    private _wrsImploding = false;
+    private _wrsImplodeK = 1;
+    wildRiverEnabled = false;
+    private _wrCooldownLaunches = 0;
+    private _brCooldownLaunches = 0;
+    private _brCooldownMerges = 0;
+    private _nextPowerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood' | null = null;
     private _nextPowerupPending = false;
-    private _genocideCarrier:   Warrior | null = null;
-    private _genocideEffect:    GenocideEffect | null = null;
-    private _genocideTriggered  = false;
-    private _genocideProxTimer  = 0;
-    private _gnTimerStarted     = false;
+    private _brotherhoodCarrier:   Warrior | null = null;
+    private _brotherhoodEffect:    BrotherhoodEffect | null = null;
+    private _brotherhoodTriggered  = false;
+    private _brotherhoodProxTimer  = 0;
+    private _brTimerStarted     = false;
     private _activeVortices: { x: number; y: number; range: number; force: number; ttl: number }[] = [];
     private _firstLaunchSpecies   = new Set<number>(); // species launched for the first time this game
     private _didFirstLaunchRefresh = false; // one-shot track-geometry refresh on the very first launch
@@ -635,6 +639,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.ropeParent = this.worldNode;
         this.inputCtrl.onLaunch     = (w, forcePct) => this.onWarriorLaunched(w, forcePct);
         this.inputCtrl.onTap        = (w) => this.cycleLauncherLevel(w);
+        this.inputCtrl.onAimStart   = () => { this.onboarding?.hideAimHint(); this.onboarding?.maybeShowMergeHint(); };
         this.inputCtrl.getWarriors  = () => this.warriors;
         this.inputCtrl.showBounds   = DEBUG_ENGINE;
         this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLauncher(), this);
@@ -652,6 +657,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
             this.initHud();
+            this._wireOnboardingReplayTap();
             this._wirePanels();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(SafeStorage.get('fw_best_score') ?? '0', 10) || 0;
@@ -666,6 +672,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.warriors.push(...prefilled);
                 const firstWarrior = this.createWarrior();
                 this.activateWarrior(firstWarrior);
+                this.onboarding?.maybeShowAimHint();  // first-turn "drag & release" gesture hint
             }
 
             if (DEBUG) this._debugPanelNode = this._spawnDebugPanel();
@@ -844,10 +851,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         });
         // this.warriors.push(...this.spawnMgr.prefill());
 
-        this._expireGenocide();
-        this._gnCooldownLaunches = 0;
-        this._gnCooldownMerges   = 0;
-        this._bhCooldownLaunches = 0;
+        this._expireBrotherhood();
+        this._brCooldownLaunches = 0;
+        this._brCooldownMerges   = 0;
+        this._wrCooldownLaunches = 0;
         this._pfCooldownLaunches = 0;
         this.currentRound     = 1;
         this.totalMerges      = 0;
@@ -877,39 +884,39 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     debugLose(): void { this.triggerGameOver(); }
 
-    toggleBloodhood(): void {
-        this.bloodhoodEnabled = !this.bloodhoodEnabled;
+    toggleWildRiver(): void {
+        this.wildRiverEnabled = !this.wildRiverEnabled;
         if (this._activeLauncherWarrior) {
-            this._launcherBloodhoodEffect?.detach();
-            this._launcherBloodhoodEffect = null;
-            if (this.bloodhoodEnabled) {
-                this._launcherBloodhoodEffect = BloodhoodEffect.attach(
+            this._launcherWildRiverEffect?.detach();
+            this._launcherWildRiverEffect = null;
+            if (this.wildRiverEnabled) {
+                this._launcherWildRiverEffect = WildRiverEffect.attach(
                     this._activeLauncherWarrior, this.vfx.sparkleFrame, this.vfx.auraFrame);
             }
         }
         this._updateNextPreviewPowerupGlow();
     }
 
-    isBloodhoodAvailable(): boolean {
+    isWildRiverAvailable(): boolean {
         return this.warriors.filter(w => w.crossedLine && w.node?.isValid).length > 30;
     }
-    isBloodhoodEnabled(): boolean { return this.bloodhoodEnabled; }
+    isWildRiverEnabled(): boolean { return this.wildRiverEnabled; }
 
     activateAura(): void {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid) return;
         // Disattiva qualsiasi altro powerup attivo sul launcher
-        if (this.bloodhoodEnabled) {
-            this._launcherBloodhoodEffect?.detach();
-            this._launcherBloodhoodEffect = null;
-            this.bloodhoodEnabled = false;
+        if (this.wildRiverEnabled) {
+            this._launcherWildRiverEffect?.detach();
+            this._launcherWildRiverEffect = null;
+            this.wildRiverEnabled = false;
         }
         if (this.psychoForceEnabled || w.psychoForce) {
             w.psychoForce?.detach();
             w.psychoForce = null;
             this.psychoForceEnabled = false;
         }
-        if (this._genocideCarrier === w) this._expireGenocide();
+        if (this._brotherhoodCarrier === w) this._expireBrotherhood();
         this._auraEffect?.detach();
         this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
         this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
@@ -927,25 +934,25 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    activateGenocide(): void {
+    activateBrotherhood(): void {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid) return;
-        this._expireGenocide();
-        const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
-        ge.onExpired = () => this._expireGenocide();
-        w.onGenocideContact = (s, t) => this._onGenocideContact(s, t);
-        this._genocideCarrier   = w;
-        this._genocideEffect    = ge;
-        this._genocideTriggered = false;
-        this._genocideProxTimer = 0;
-        this._gnTimerStarted    = false;
-        if (DEBUG) console.log('[Genocide] effect activated on launcher');
+        this._expireBrotherhood();
+        const ge = BrotherhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        ge.onExpired = () => this._expireBrotherhood();
+        w.onBrotherhoodContact = (s, t) => this._onBrotherhoodContact(s, t);
+        this._brotherhoodCarrier   = w;
+        this._brotherhoodEffect    = ge;
+        this._brotherhoodTriggered = false;
+        this._brotherhoodProxTimer = 0;
+        this._brTimerStarted    = false;
+        if (DEBUG) console.log('[Brotherhood] effect activated on launcher');
     }
 
-    private _applyPendingPowerup(w: Warrior, powerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide'): void {
-        this._launcherBloodhoodEffect?.detach();
-        this._launcherBloodhoodEffect = null;
-        this.bloodhoodEnabled = false;
+    private _applyPendingPowerup(w: Warrior, powerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood'): void {
+        this._launcherWildRiverEffect?.detach();
+        this._launcherWildRiverEffect = null;
+        this.wildRiverEnabled = false;
         if (w.psychoForce) { w.psychoForce.detach(); w.psychoForce = null; }
         this.psychoForceEnabled = false;
         if (this._auraWarrior === w) {
@@ -955,7 +962,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._auraWarrior = null;
             this._auraProxTimers.clear();
         }
-        if (this._genocideCarrier === w) this._expireGenocide();
+        if (this._brotherhoodCarrier === w) this._expireBrotherhood();
         if (powerup === 'aura') {
             this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
             this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
@@ -963,66 +970,66 @@ export class GameManager extends Component implements IGameManagerDebug {
         } else if (powerup === 'psychoForce') {
             this.psychoForceEnabled = true;
             w.psychoForce = PsychoForceEffect.attach(w, this.vfx.auraFrame, true);
-        } else if (powerup === 'bloodhood') {
-            this.bloodhoodEnabled = true;
-            this._launcherBloodhoodEffect = BloodhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        } else if (powerup === 'wildRiver') {
+            this.wildRiverEnabled = true;
+            this._launcherWildRiverEffect = WildRiverEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
         } else {
-            const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
-            ge.onExpired = () => this._expireGenocide();
-            w.onGenocideContact = (s, t) => this._onGenocideContact(s, t);
-            this._genocideCarrier   = w;
-            this._genocideEffect    = ge;
-            this._genocideTriggered = false;
-            this._genocideProxTimer = 0;
-            this._gnTimerStarted    = false;
+            const ge = BrotherhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+            ge.onExpired = () => this._expireBrotherhood();
+            w.onBrotherhoodContact = (s, t) => this._onBrotherhoodContact(s, t);
+            this._brotherhoodCarrier   = w;
+            this._brotherhoodEffect    = ge;
+            this._brotherhoodTriggered = false;
+            this._brotherhoodProxTimer = 0;
+            this._brTimerStarted    = false;
         }
     }
 
-    // --- genocide powerup ---
+    // --- brotherhood powerup ---
 
-    private _onGenocideContact(source: Warrior, target: Warrior): void {
-        if (this._genocideTriggered) return;
+    private _onBrotherhoodContact(source: Warrior, target: Warrior): void {
+        if (this._brotherhoodTriggered) return;
         if (!source.node?.isValid || !target.node?.isValid) return;
-        this._triggerGenocideCascade(target.type);
+        this._triggerBrotherhoodCascade(target.type);
     }
 
-    private _expireGenocide(): void {
-        if (this._genocideCarrier) this._genocideCarrier.onGenocideContact = null;
-        this._genocideEffect?.detach();
-        this._genocideEffect    = null;
-        this._genocideCarrier   = null;
-        this._genocideTriggered = false;
-        this._genocideProxTimer = 0;
-        this._gnTimerStarted    = false;
+    private _expireBrotherhood(): void {
+        if (this._brotherhoodCarrier) this._brotherhoodCarrier.onBrotherhoodContact = null;
+        this._brotherhoodEffect?.detach();
+        this._brotherhoodEffect    = null;
+        this._brotherhoodCarrier   = null;
+        this._brotherhoodTriggered = false;
+        this._brotherhoodProxTimer = 0;
+        this._brTimerStarted    = false;
         this._updateNextPreviewPowerupGlow();
     }
 
-    private _tickGenocideProximity(): void {
-        const carrier = this._genocideCarrier!;
-        if (!carrier.node?.isValid) { this._expireGenocide(); return; }
+    private _tickBrotherhoodProximity(): void {
+        const carrier = this._brotherhoodCarrier!;
+        if (!carrier.node?.isValid) { this._expireBrotherhood(); return; }
         const cp = carrier.node.position;
         for (const w of this.warriors) {
             if (w === carrier || !w.node?.isValid || !w.crossedLine) continue;
             const wp = w.node.position;
             const dx = cp.x - wp.x, dy = cp.y - wp.y;
-            const threshold = carrier.radius + w.radius + GENOCIDE_PROX_MARGIN * LAYOUT_SCALE;
+            const threshold = carrier.radius + w.radius + BROTHERHOOD_PROX_MARGIN * LAYOUT_SCALE;
             if (dx * dx + dy * dy <= threshold * threshold) {
-                this._triggerGenocideCascade(w.type);
+                this._triggerBrotherhoodCascade(w.type);
                 return;
             }
         }
     }
 
-    private _triggerGenocideCascade(targetType: number): void {
-        if (this._genocideTriggered) return;
-        this._genocideTriggered = true;
-        if (DEBUG) console.log(`[Genocide] cascade on type=${targetType}`);
+    private _triggerBrotherhoodCascade(targetType: number): void {
+        if (this._brotherhoodTriggered) return;
+        this._brotherhoodTriggered = true;
+        if (DEBUG) console.log(`[Brotherhood] cascade on type=${targetType}`);
 
-        this._genocideEffect?.detach();
-        this._genocideEffect = null;
+        this._brotherhoodEffect?.detach();
+        this._brotherhoodEffect = null;
 
-        const carrier = this._genocideCarrier;
-        if (carrier) carrier.onGenocideContact = null;
+        const carrier = this._brotherhoodCarrier;
+        if (carrier) carrier.onBrotherhoodContact = null;
         const cp = carrier?.node?.isValid ? carrier.node.position : null;
 
         const targets = this.warriors.filter(w =>
@@ -1040,21 +1047,21 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         for (let i = 0; i < targets.length; i++) {
             const w = targets[i];
-            w.genocideInfected = true;
-            const infectDelay = i * GENOCIDE_CASCADE_DELAY;
+            w.brotherhoodInfected = true;
+            const infectDelay = i * BROTHERHOOD_CASCADE_DELAY;
             this.scheduleOnce(() => {
-                if (!w.node?.isValid) { w.genocideInfected = false; return; }
-                const gns = GenocideSparkleEffect.attach(w);
-                this.scheduleOnce(() => this._implodeGenocideWarrior(w, gns), GENOCIDE_IMPLODE_HOLD);
+                if (!w.node?.isValid) { w.brotherhoodInfected = false; return; }
+                const brs = BrotherhoodSparkleEffect.attach(w);
+                this.scheduleOnce(() => this._implodeBrotherhoodWarrior(w, brs), BROTHERHOOD_IMPLODE_HOLD);
             }, infectDelay);
         }
 
-        this._genocideCarrier = null;
+        this._brotherhoodCarrier = null;
     }
 
-    private _implodeGenocideWarrior(w: Warrior, gns: GenocideSparkleEffect): void {
+    private _implodeBrotherhoodWarrior(w: Warrior, brs: BrotherhoodSparkleEffect): void {
         if (!w.node?.isValid) return;
-        gns.detach();
+        brs.detach();
         const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));
         this.score += pts;
         this.updateScoreLabel();
@@ -1075,7 +1082,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.framesAboveLine.delete(w);
             this.framesBelowLine.delete(w);
             if (w.node?.isValid) w.node.destroy();
-            this._logOnTrack('genocide-implode');
+            this._logOnTrack('brotherhood-implode');
             this.checkTrackClearedBonus(wx, wyC);
         };
         if (mapper?.node?.isValid) {
@@ -1174,27 +1181,27 @@ export class GameManager extends Component implements IGameManagerDebug {
                 if (this.implosionCenter) this.applyVortexImplosion(dt);
                 this.checkLineLogic(dt);
             }
-            if (this._bhLaunchWarrior?.node?.isValid) {
-                if (this._bhLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
-                    this._bhLaunchWarrior.onBloodhoodContact = null;
-                    this._bhLaunchWarrior = null;
-                    this._bhLaunchEffect?.detach();
-                    this._bhLaunchEffect = null;
-                    this.bloodhoodEnabled = false;
-                    this.scheduleOnce(() => this._startBHSCascade(), 0.3);
+            if (this._wrLaunchWarrior?.node?.isValid) {
+                if (this._wrLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
+                    this._wrLaunchWarrior.onWildRiverContact = null;
+                    this._wrLaunchWarrior = null;
+                    this._wrLaunchEffect?.detach();
+                    this._wrLaunchEffect = null;
+                    this.wildRiverEnabled = false;
+                    this.scheduleOnce(() => this._startWRSCascade(), 0.3);
                 }
-            } else if (this._bhLaunchWarrior) {
-                this._bhLaunchWarrior = null;
-                this._bhLaunchEffect?.detach();
-                this._bhLaunchEffect = null;
-                this.bloodhoodEnabled = false;
-                this.scheduleOnce(() => this._startBHSCascade(), 0.3);
+            } else if (this._wrLaunchWarrior) {
+                this._wrLaunchWarrior = null;
+                this._wrLaunchEffect?.detach();
+                this._wrLaunchEffect = null;
+                this.wildRiverEnabled = false;
+                this.scheduleOnce(() => this._startWRSCascade(), 0.3);
             }
-            if (this._bhsActive.size > 0) {
-                this._bhsProxTimer += dt;
-                if (this._bhsProxTimer >= BHS_PROX_INTERVAL) {
-                    this._bhsProxTimer = 0;
-                    this._tickBHSProximity();
+            if (this._wrsActive.size > 0) {
+                this._wrsProxTimer += dt;
+                if (this._wrsProxTimer >= WRS_PROX_INTERVAL) {
+                    this._wrsProxTimer = 0;
+                    this._tickWRSProximity();
                 }
             }
             if (this._pfLaunchWarrior?.node?.isValid) {
@@ -1216,20 +1223,20 @@ export class GameManager extends Component implements IGameManagerDebug {
                     this._tickPFProximity();
                 }
             }
-            if (this._genocideCarrier?.node?.isValid && !this._genocideTriggered) {
-                if (!this._gnTimerStarted &&
-                    this._genocideCarrier.crossedLine &&
-                    this._genocideCarrier.velocity.length() < SETTLE_VELOCITY) {
-                    this._gnTimerStarted = true;
-                    this._genocideEffect?.startTimer(GENOCIDE_EXPIRE_SEC);
+            if (this._brotherhoodCarrier?.node?.isValid && !this._brotherhoodTriggered) {
+                if (!this._brTimerStarted &&
+                    this._brotherhoodCarrier.crossedLine &&
+                    this._brotherhoodCarrier.velocity.length() < SETTLE_VELOCITY) {
+                    this._brTimerStarted = true;
+                    this._brotherhoodEffect?.startTimer(BROTHERHOOD_EXPIRE_SEC);
                 }
-                this._genocideProxTimer += dt;
-                if (this._genocideProxTimer >= GENOCIDE_PROX_INTERVAL) {
-                    this._genocideProxTimer = 0;
-                    this._tickGenocideProximity();
+                this._brotherhoodProxTimer += dt;
+                if (this._brotherhoodProxTimer >= BROTHERHOOD_PROX_INTERVAL) {
+                    this._brotherhoodProxTimer = 0;
+                    this._tickBrotherhoodProximity();
                 }
-            } else if (this._genocideCarrier && !this._genocideCarrier.node?.isValid) {
-                this._expireGenocide();
+            } else if (this._brotherhoodCarrier && !this._brotherhoodCarrier.node?.isValid) {
+                this._expireBrotherhood();
             }
             if (this._activeVortices.length > 0) {
                 for (let i = this._activeVortices.length - 1; i >= 0; i--) {
@@ -1285,26 +1292,26 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._auraProxTimers.clear();
         }
 
-        this._launcherBloodhoodEffect?.detach();
-        this._launcherBloodhoodEffect = null;
+        this._launcherWildRiverEffect?.detach();
+        this._launcherWildRiverEffect = null;
 
-        // Genocide auto: ≥25 warrior sul track, cooldown 10 tiri + 10 merge
+        // Brotherhood auto: ≥25 warrior sul track, cooldown 10 tiri + 10 merge
         const onTrack = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length;
-        if (onTrack >= 25 && this._gnCooldownLaunches === 0 && this._gnCooldownMerges === 0 && !this._genocideCarrier && this._nextPowerup === null) {
-            this._expireGenocide();
-            const ge = GenocideEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
-            ge.onExpired = () => this._expireGenocide();
-            w.onGenocideContact = (s, t) => this._onGenocideContact(s, t);
-            this._genocideCarrier   = w;
-            this._genocideEffect    = ge;
-            this._genocideTriggered = false;
-            this._genocideProxTimer = 0;
-            this._gnTimerStarted    = false;
+        if (onTrack >= 25 && this._brCooldownLaunches === 0 && this._brCooldownMerges === 0 && !this._brotherhoodCarrier && this._nextPowerup === null) {
+            this._expireBrotherhood();
+            const ge = BrotherhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+            ge.onExpired = () => this._expireBrotherhood();
+            w.onBrotherhoodContact = (s, t) => this._onBrotherhoodContact(s, t);
+            this._brotherhoodCarrier   = w;
+            this._brotherhoodEffect    = ge;
+            this._brotherhoodTriggered = false;
+            this._brotherhoodProxTimer = 0;
+            this._brTimerStarted    = false;
         }
 
-        // Bloodhood (debug toggle only)
-        if (this.bloodhoodEnabled) {
-            this._launcherBloodhoodEffect = BloodhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        // WildRiver (debug toggle only)
+        if (this.wildRiverEnabled) {
+            this._launcherWildRiverEffect = WildRiverEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
 
         // PsychoForce auto-activation disabled
@@ -1327,6 +1334,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private onWarriorLaunched(w: Warrior, forcePct = 1): void {
+        this.onboarding?.hideAimHint();          // safety: also covers timer auto-launch (no drag fired)
+        this.onboarding?.fadeMergeHintAfterLaunch();  // merge hint lingered during the drag; fade it now
         // First launch: force one last full relayout so the Box2D walls, exported wall
         // geometry (WALL_*), game-over line and input bounds are all final before flight —
         // the responsive TrackSprite size may have settled only after Track/GameManager start().
@@ -1346,25 +1355,25 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Flight trail — self-detaches when the warrior stops, merges or dies
         this._trailEffect?.detach();
         this._trailEffect = TrailEffect.attach(w, this.vfxLayer, this.vfx.sparkleFrame, y => this.coords.physToVisual(y));
-        this._launcherBloodhoodEffect?.detach();
-        this._launcherBloodhoodEffect = null;
-        if (this.bloodhoodEnabled) {
-            this._bhCooldownLaunches = 10;
-            this._bhsOrder = [];
-            this._bhsImploding = false;
-            this._bhsImplodeK = 1;
-            w.isBHLauncher = true;
-            w.onBloodhoodContact = (s, t) => this._onBloodhoodContact(s, t);
-            this._bhLaunchWarrior = w;
-            this._bhLaunchEffect = BloodhoodSparkleEffect.attach(w);
-        } else if (this._bhCooldownLaunches > 0) {
-            this._bhCooldownLaunches--;
+        this._launcherWildRiverEffect?.detach();
+        this._launcherWildRiverEffect = null;
+        if (this.wildRiverEnabled) {
+            this._wrCooldownLaunches = 10;
+            this._wrsOrder = [];
+            this._wrsImploding = false;
+            this._wrsImplodeK = 1;
+            w.isWRLauncher = true;
+            w.onWildRiverContact = (s, t) => this._onWildRiverContact(s, t);
+            this._wrLaunchWarrior = w;
+            this._wrLaunchEffect = WildRiverSparkleEffect.attach(w);
+        } else if (this._wrCooldownLaunches > 0) {
+            this._wrCooldownLaunches--;
         }
-        if (this._genocideCarrier === w) {
-            this._gnCooldownLaunches = 10;
-            this._gnCooldownMerges   = 10;
-        } else if (this._gnCooldownLaunches > 0) {
-            this._gnCooldownLaunches--;
+        if (this._brotherhoodCarrier === w) {
+            this._brCooldownLaunches = 10;
+            this._brCooldownMerges   = 10;
+        } else if (this._brCooldownLaunches > 0) {
+            this._brCooldownLaunches--;
         }
         if (this.psychoForceEnabled) {
             this._pfCooldownLaunches = 10;
@@ -1404,7 +1413,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const inPlay = this.warriors.filter(w => w.launched && w.node?.isValid);
         inPlay.forEach(w => { if (w.velocity.length() < SETTLE_VELOCITY) w.forceStop(); });
         if (!inPlay.every(w => w.velocity.length() < SETTLE_VELOCITY)) return;
-        if (this._bhsActive.size > 0 || this._bhLaunchWarrior !== null || this._pfActive.size > 0 || this._pfLaunchWarrior !== null) return;
+        if (this._wrsActive.size > 0 || this._wrLaunchWarrior !== null || this._pfActive.size > 0 || this._pfLaunchWarrior !== null) return;
 
         AudioManager.instance.play(SFX.LAND, 0.5);
         this.activateWarrior(this.createWarrior());
@@ -1444,15 +1453,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._pfLaunchWarrior = null;
             this.psychoForceEnabled = false;
         }
-        if (this._bhLaunchWarrior === w) {
-            this._bhLaunchEffect?.detach();
-            this._bhLaunchEffect = null;
-            w.isBHLauncher = false;
-            w.onBloodhoodContact = null;
-            this._bhLaunchWarrior = null;
-            this.bloodhoodEnabled = false;
+        if (this._wrLaunchWarrior === w) {
+            this._wrLaunchEffect?.detach();
+            this._wrLaunchEffect = null;
+            w.isWRLauncher = false;
+            w.onWildRiverContact = null;
+            this._wrLaunchWarrior = null;
+            this.wildRiverEnabled = false;
         }
-        if (this._genocideCarrier === w) this._expireGenocide();
+        if (this._brotherhoodCarrier === w) this._expireBrotherhood();
 
         w.launched = false;
         w.forceStop();
@@ -1491,7 +1500,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                             w.onPsychoContact = (s, t) => this._onPFContact(s, t);
                         }
                         if (this.state === GameState.Inflight) {
-                            if (this.waitForSettling || this._bhLaunchWarrior !== null || this._bhsActive.size > 0 || this._pfLaunchWarrior !== null || this._pfActive.size > 0) {
+                            if (this.waitForSettling || this._wrLaunchWarrior !== null || this._wrsActive.size > 0 || this._pfLaunchWarrior !== null || this._pfActive.size > 0) {
                                 this.state = GameState.Settling;
                             } else {
                                 this.activateWarrior(this.createWarrior());
@@ -1576,11 +1585,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         const spawnY = cur.node.position.y;
 
         // Powerup on cur follows it to the next slot; save what was pending for nw (from a previous swap)
-        const curPowerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null =
+        const curPowerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood' | null =
             (this._auraWarrior === cur)      ? 'aura' :
             (cur.psychoForce != null)        ? 'psychoForce' :
-            this.bloodhoodEnabled            ? 'bloodhood' :
-            (this._genocideCarrier === cur)  ? 'genocide' : null;
+            this.wildRiverEnabled            ? 'wildRiver' :
+            (this._brotherhoodCarrier === cur)  ? 'brotherhood' : null;
         const pendingForNw = this._nextPowerup;
         this._nextPowerup  = curPowerup;
 
@@ -1595,15 +1604,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             cur.psychoForce?.detach();
             this.psychoForceEnabled = false;
         }
-        if (curPowerup === 'bloodhood') {
-            this.bloodhoodEnabled = false;
+        if (curPowerup === 'wildRiver') {
+            this.wildRiverEnabled = false;
         }
-        if (curPowerup === 'genocide') {
-            this._genocideEffect?.detach();
-            this._genocideEffect    = null;
-            this._genocideCarrier   = null;
-            this._genocideTriggered = false;
-            this._gnTimerStarted    = false;
+        if (curPowerup === 'brotherhood') {
+            this._brotherhoodEffect?.detach();
+            this._brotherhoodEffect    = null;
+            this._brotherhoodCarrier   = null;
+            this._brotherhoodTriggered = false;
+            this._brTimerStarted    = false;
         }
 
         this.warriors = this.warriors.filter(w => w !== cur);
@@ -1620,14 +1629,14 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         const isFirstSpeciesNw = this._checkFirstAura(nw);
 
-        this._launcherBloodhoodEffect?.detach();
-        this._launcherBloodhoodEffect = null;
+        this._launcherWildRiverEffect?.detach();
+        this._launcherWildRiverEffect = null;
         if (pendingForNw) {
             this._applyPendingPowerup(nw, pendingForNw);
         } else if (isFirstSpeciesNw) {
             this._applyPendingPowerup(nw, 'aura');
-        } else if (this.bloodhoodEnabled) {
-            this._launcherBloodhoodEffect = BloodhoodEffect.attach(nw, this.vfx.sparkleFrame, this.vfx.auraFrame);
+        } else if (this.wildRiverEnabled) {
+            this._launcherWildRiverEffect = WildRiverEffect.attach(nw, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
 
         this.inputCtrl.setWarrior(nw);
@@ -1839,10 +1848,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.framesAboveLine.delete(b); this.framesBelowLine.delete(b);
 
         const isEffectMerge = isPsychoMerge ||
-            a.bloodhoodSparkle != null || b.bloodhoodSparkle != null;
+            a.wildRiverSparkle != null || b.wildRiverSparkle != null;
         if (!isEffectMerge) {
             this.totalMerges++;
-            if (this._gnCooldownMerges > 0) this._gnCooldownMerges--;
+            if (this._brCooldownMerges > 0) this._brCooldownMerges--;
             this.checkRoundAdvance();
         }
         this.mergesThisLaunch++;
@@ -1867,8 +1876,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             ? (a.viewNode.worldPosition.y + b.viewNode.worldPosition.y) / 2 : midYC;
 
         this.scheduleOnce(() => {
-            this._cleanupBHS(a);
-            this._cleanupBHS(b);
+            this._cleanupWRS(a);
+            this._cleanupWRS(b);
             this._cleanupPF(a);
             this._cleanupPF(b);
             const auraInvolved = a === this._auraWarrior || b === this._auraWarrior;
@@ -1890,8 +1899,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const bonus   = lvConf?.bonus ?? 0;
                 const tier    = Math.max(1, Math.min(3, maxLevel - 2)) as 1 | 2 | 3;
 
-                const bhSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4, SFX.MERGE_5, SFX.MERGE_6];
-                AudioManager.instance.play(bhSfxs[Math.min(maxLevel, bhSfxs.length - 1)]);
+                const wrSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4, SFX.MERGE_5, SFX.MERGE_6];
+                AudioManager.instance.play(wrSfxs[Math.min(maxLevel, wrSfxs.length - 1)]);
                 const expSfx = newLevel >= 7 ? SFX.EXPLOSION_3 : newLevel >= 6 ? SFX.EXPLOSION_2 : SFX.EXPLOSION_1;
                 this.scheduleOnce(() => AudioManager.instance.play(expSfx), 0.25);
 
@@ -2150,84 +2159,84 @@ export class GameManager extends Component implements IGameManagerDebug {
             .start();
     }
 
-    // --- bloodhood sparkle ---
+    // --- wildRiver sparkle ---
 
-    private _cleanupBHS(w: Warrior): void {
-        const bhs = this._bhsActive.get(w);
-        if (bhs) { bhs.detach(); this._bhsActive.delete(w); }
-        w.bloodhoodSparkle = null;
-        w.onBloodhoodContact = null;
+    private _cleanupWRS(w: Warrior): void {
+        const wrs = this._wrsActive.get(w);
+        if (wrs) { wrs.detach(); this._wrsActive.delete(w); }
+        w.wildRiverSparkle = null;
+        w.onWildRiverContact = null;
     }
 
-    private _applyBHS(target: Warrior, source?: Warrior): void {
-        if (this._bhsActive.has(target)) return;
-        if (this._bhsImploding) return;
-        if (target.isBHLauncher) return;
+    private _applyWRS(target: Warrior, source?: Warrior): void {
+        if (this._wrsActive.has(target)) return;
+        if (this._wrsImploding) return;
+        if (target.isWRLauncher) return;
         if (!target.node?.isValid) return;
-        if (DEBUG) console.log(`[BHS] contagio: src type=${source?.type ?? 'BH'} lv=${source?.level ?? '-'} → tgt type=${target.type} lv=${target.level}`);
-        const spreadFn = (s: Warrior, t: Warrior) => this._onBHSSpread(s, t);
-        target.onBloodhoodContact = spreadFn;
-        const bhs = BloodhoodSparkleEffect.attach(target);
-        target.bloodhoodSparkle = bhs;
-        this._bhsActive.set(target, bhs);
-        this._bhsOrder.push(target);
-        bhs.onExpired = () => {
-            target.bloodhoodSparkle = null;
-            if (target.onBloodhoodContact === spreadFn) target.onBloodhoodContact = null;
-            this._bhsActive.delete(target);
+        if (DEBUG) console.log(`[WRS] contagio: src type=${source?.type ?? 'WR'} lv=${source?.level ?? '-'} → tgt type=${target.type} lv=${target.level}`);
+        const spreadFn = (s: Warrior, t: Warrior) => this._onWRSSpread(s, t);
+        target.onWildRiverContact = spreadFn;
+        const wrs = WildRiverSparkleEffect.attach(target);
+        target.wildRiverSparkle = wrs;
+        this._wrsActive.set(target, wrs);
+        this._wrsOrder.push(target);
+        wrs.onExpired = () => {
+            target.wildRiverSparkle = null;
+            if (target.onWildRiverContact === spreadFn) target.onWildRiverContact = null;
+            this._wrsActive.delete(target);
         };
     }
 
-    private _onBloodhoodContact(source: Warrior, target: Warrior): void {
+    private _onWildRiverContact(source: Warrior, target: Warrior): void {
         if (!source.node?.isValid || !target.node?.isValid) return;
         if (source === target) return;
-        this._applyBHS(target, source);
+        this._applyWRS(target, source);
     }
 
-    private _onBHSSpread(source: Warrior, target: Warrior): void {
+    private _onWRSSpread(source: Warrior, target: Warrior): void {
         if (!source.node?.isValid || !target.node?.isValid) return;
         if (source === target || source.type !== target.type) return;
-        this._applyBHS(target, source);
+        this._applyWRS(target, source);
     }
 
-    private _tickBHSProximity(): void {
-        const inRange = new Map<Warrior, Warrior>(); // candidate → source BHS warrior
+    private _tickWRSProximity(): void {
+        const inRange = new Map<Warrior, Warrior>(); // candidate → source WRS warrior
 
-        for (const [bhsW] of this._bhsActive) {
-            if (!bhsW.node?.isValid) continue;
-            const pos = bhsW.node.position;
+        for (const [wrsW] of this._wrsActive) {
+            if (!wrsW.node?.isValid) continue;
+            const pos = wrsW.node.position;
             for (const w of this.warriors) {
-                if (w === bhsW || w.type !== bhsW.type || !w.node?.isValid) continue;
-                if (this._bhsActive.has(w)) continue;
+                if (w === wrsW || w.type !== wrsW.type || !w.node?.isValid) continue;
+                if (this._wrsActive.has(w)) continue;
                 const wp = w.node.position;
                 const dx = pos.x - wp.x, dy = pos.y - wp.y;
-                const threshold = bhsW.radius + w.radius + BHS_PROX_MARGIN * LAYOUT_SCALE;
+                const threshold = wrsW.radius + w.radius + WRS_PROX_MARGIN * LAYOUT_SCALE;
                 if (dx * dx + dy * dy <= threshold * threshold) {
-                    if (!inRange.has(w)) inRange.set(w, bhsW);
+                    if (!inRange.has(w)) inRange.set(w, wrsW);
                 }
             }
         }
 
-        for (const w of this._bhsProxTimers.keys()) {
-            if (!inRange.has(w) || this._bhsActive.has(w)) this._bhsProxTimers.delete(w);
+        for (const w of this._wrsProxTimers.keys()) {
+            if (!inRange.has(w) || this._wrsActive.has(w)) this._wrsProxTimers.delete(w);
         }
-        for (const [w, bhsW] of inRange) {
-            if (this._bhsActive.has(w) || this._bhsImploding) continue;
-            const t = (this._bhsProxTimers.get(w) ?? 0) + BHS_PROX_INTERVAL;
-            if (t >= BHS_CONTACT_DELAY) {
-                this._bhsProxTimers.delete(w);
-                this._applyBHS(w, bhsW);
+        for (const [w, wrsW] of inRange) {
+            if (this._wrsActive.has(w) || this._wrsImploding) continue;
+            const t = (this._wrsProxTimers.get(w) ?? 0) + WRS_PROX_INTERVAL;
+            if (t >= WRS_CONTACT_DELAY) {
+                this._wrsProxTimers.delete(w);
+                this._applyWRS(w, wrsW);
             } else {
-                this._bhsProxTimers.set(w, t);
+                this._wrsProxTimers.set(w, t);
             }
         }
     }
 
-    private _startBHSCascade(): void {
-        if (this._bhsImploding) return;
+    private _startWRSCascade(): void {
+        if (this._wrsImploding) return;
         if (this.state === GameState.GameOver) return;
-        this._bhsImploding = true;
-        const toImplode = [...this._bhsOrder].reverse();
+        this._wrsImploding = true;
+        const toImplode = [...this._wrsOrder].reverse();
         let delay = 0;
         for (const w of toImplode) {
             this.scheduleOnce(() => this._implodeWarrior(w), delay);
@@ -2236,24 +2245,24 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private _implodeWarrior(w: Warrior): void {
-        if (!w.node?.isValid || !this._bhsActive.has(w)) return;
-        this._cleanupBHS(w);
-        this._bhsOrder = this._bhsOrder.filter(x => x !== w);
-        this._bhsProxTimers.delete(w);
-        const pts = Math.round(10 * this.currentRound * this._bhsImplodeK);
+        if (!w.node?.isValid || !this._wrsActive.has(w)) return;
+        this._cleanupWRS(w);
+        this._wrsOrder = this._wrsOrder.filter(x => x !== w);
+        this._wrsProxTimers.delete(w);
+        const pts = Math.round(10 * this.currentRound * this._wrsImplodeK);
         this.score += pts;
         this.updateScoreLabel();
         const wx  = w.node.position.x;
         const wyC = this.coords.physToVisual(w.node.position.y);
         this.vfx.spawnFloatingScore(wx, wyC, pts);
-        this._bhsImplodeK += 1.5;
+        this._wrsImplodeK += 1.5;
         const mapper = w.mapper;
         const finish = () => {
             this.warriors = this.warriors.filter(x => x !== w);
             this.framesAboveLine.delete(w);
             this.framesBelowLine.delete(w);
             if (w.node?.isValid) w.node.destroy();
-            this._logOnTrack('bhs-implode');
+            this._logOnTrack('wrs-implode');
             this.checkTrackClearedBonus(wx, wyC);
         };
         if (mapper?.node?.isValid) {
@@ -2593,7 +2602,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const finalLevel = Math.floor(Math.log2(initEnergy + accEnergy)) + 1;
         const maxLevel   = WARRIORS[aType]?.maxLevel ?? 7;
 
-        this._cleanupBHS(target);
+        this._cleanupWRS(target);
         this._cleanupPF(target);
         this.warriors = this.warriors.filter(w => w !== target);
         this.framesAboveLine.delete(target);
@@ -2692,8 +2701,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     // --- HUD ---
 
-    /** Double-tap on the ROUND HUD section toggles the debug panel (works in production builds too). */
+    /** Double-tap on the ROUND HUD section toggles the debug panel (kept for standalone/playtest
+     *  builds). Disabled on the CrazyGames submission build. */
     private _wireDebugPanelGesture(roundSec: Node): void {
+        if (PORTAL === 'crazygames') return;
         roundSec.on(Node.EventType.TOUCH_END, () => {
             const now = Date.now();
             if (now - this._lastRoundTapAt < 350) {
@@ -2823,6 +2834,21 @@ export class GameManager extends Component implements IGameManagerDebug {
         else this._exitSettingsPause();
     }
 
+    private _lastScoreTap = 0;
+
+    /** Double-tap the SCORE value to replay the onboarding hints (QA + "replay tutorial" gesture).
+     *  Disabled on the CrazyGames submission build. */
+    private _wireOnboardingReplayTap(): void {
+        if (PORTAL === 'crazygames') return;
+        const node = this.scoreLabel?.node;
+        if (!node) return;
+        node.on(Node.EventType.TOUCH_END, () => {
+            const now = Date.now();
+            if (now - this._lastScoreTap < 350) { this._lastScoreTap = 0; this.onboarding?.replay(); }
+            else this._lastScoreTap = now;
+        }, this);
+    }
+
     /** Resolve the modal panels (prefer the editor @property binding, else find by name under UILayer)
      *  and wire their buttons to the game-navigation hooks. */
     private _wirePanels(): void {
@@ -2893,8 +2919,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!w?.node?.isValid) return null;
         if (this._auraWarrior === w) return 'aura';
         if (w.psychoForce != null) return 'psychoForce';
-        if (this.bloodhoodEnabled && this._launcherBloodhoodEffect) return 'bloodhood';
-        if (this._genocideCarrier === w) return 'genocide';
+        if (this.wildRiverEnabled && this._launcherWildRiverEffect) return 'wildRiver';
+        if (this._brotherhoodCarrier === w) return 'brotherhood';
         return null;
     }
 
@@ -2924,7 +2950,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 score:       this.score,
                 round:       this.currentRound,
                 totalMerges: this.totalMerges,
-                cooldowns:   { bh: this._bhCooldownLaunches, pf: this._pfCooldownLaunches, gn: this._gnCooldownLaunches, gnMerges: this._gnCooldownMerges },
+                cooldowns:   { wr: this._wrCooldownLaunches, pf: this._pfCooldownLaunches, br: this._brCooldownLaunches, brMerges: this._brCooldownMerges },
                 firstLaunchSpecies:    [...this._firstLaunchSpecies],
                 trackClearedBonusUsed: this._trackClearedBonusUsed,
                 bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
@@ -2974,10 +3000,10 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.totalMerges   = Math.max(0, snap.totalMerges ?? 0);
             this.score         = Math.max(0, snap.score ?? 0);
             this._scoreProxy.val = this.score;
-            this._bhCooldownLaunches = snap.cooldowns?.bh ?? 0;
+            this._wrCooldownLaunches = snap.cooldowns?.wr ?? 0;
             this._pfCooldownLaunches = snap.cooldowns?.pf ?? 0;
-            this._gnCooldownLaunches = snap.cooldowns?.gn ?? 0;
-            this._gnCooldownMerges   = snap.cooldowns?.gnMerges ?? 0;
+            this._brCooldownLaunches = snap.cooldowns?.br ?? 0;
+            this._brCooldownMerges   = snap.cooldowns?.brMerges ?? 0;
             this._firstLaunchSpecies    = new Set(snap.firstLaunchSpecies ?? []);
             this._trackClearedBonusUsed = !!snap.trackClearedBonusUsed;
             this._bestSingleScore       = snap.bestSingle?.score ?? 0;
@@ -3479,11 +3505,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _updateNextPreviewPowerupGlow(): void {
         if (!this.nextNextWarriorNode?.isValid) return;
 
-        let powerup: 'aura' | 'psychoForce' | 'bloodhood' | 'genocide' | null = this._nextPowerup;
-        if (!powerup && this.bloodhoodEnabled) powerup = 'bloodhood';
-        if (!powerup && this._gnCooldownLaunches === 0 && this._gnCooldownMerges === 0 && !this._genocideCarrier) {
+        let powerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood' | null = this._nextPowerup;
+        if (!powerup && this.wildRiverEnabled) powerup = 'wildRiver';
+        if (!powerup && this._brCooldownLaunches === 0 && this._brCooldownMerges === 0 && !this._brotherhoodCarrier) {
             const onTrack = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
-            if (onTrack >= 25) powerup = 'genocide';
+            if (onTrack >= 25) powerup = 'brotherhood';
         }
 
         if (!powerup) {
@@ -3517,8 +3543,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const glowOp = this._nextPreviewGlowNode.getComponent(UIOpacity)!;
         glowSp.color  = powerup === 'aura'        ? new Color(255, 200, 50,  255) :
                         powerup === 'psychoForce'  ? new Color(60,  230, 255, 255) :
-                        powerup === 'bloodhood'    ? new Color(220,  60,  60, 255) :
-                                                    new Color(180,  60, 240, 255); // genocide
+                        powerup === 'wildRiver'    ? new Color(220,  60,  60, 255) :
+                                                    new Color(180,  60, 240, 255); // brotherhood
         Tween.stopAllByTarget(glowOp);
         tween(glowOp)
             .to(0.3, { opacity: 160 }, { easing: 'quadOut' })

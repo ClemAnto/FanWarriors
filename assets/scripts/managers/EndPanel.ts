@@ -34,9 +34,10 @@ export class EndPanel extends Component {
     private _op: UIOpacity | null = null;
 
     onLoad(): void {
+        // Leave the node INACTIVE in the editor — this onLoad runs on the first show() activation
+        // (so it must NOT self-hide via active=false, or the panel would re-hide on first show).
         this._op = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
         this._op.opacity = 0;
-        this.node.active = false;
         this.continueButton?.node.on(Button.EventType.CLICK, () => this.onContinue?.(), this);
     }
 
