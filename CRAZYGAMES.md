@@ -167,7 +167,7 @@ Regole: niente bordi · **solo il titolo del gioco** come testo · no icone/stor
 
 ### 🟡 Alta priorità (qualità / first impression)
 - [ ] Polish dei **primi 30 secondi**: feel del lancio, juice sui merge, zero attese artificiali.
-- [ ] Verificare **artefatti di compressione** sugli asset ridotti (PNG 5.1MB).
+- [x] **Artefatti di compressione**: nessun rischio — sfondi/illustrazioni/warrior sono **truecolor 24-bit** (la quantizzazione PNG8 ha toccato solo asset piccoli a colori piatti; il calo 8.2→5.1MB viene da resize + ricompressione lossless).
 - [ ] Leggibilità HUD a **800×450**.
 - [x] **Nessun bottone fullscreen custom**: `Settings` nasconde il toggle quando `PORTAL==='crazygames'` ([Settings.ts:95](../assets/scripts/managers/Settings.ts#L95)).
 - [x] Rinominati i powerup vs **PEGI 12**: `BloodHood→WildRiver`, `Genocide→Brotherhood` (rename completo classi/file/costanti). Aura e PsychoForce invariati.
