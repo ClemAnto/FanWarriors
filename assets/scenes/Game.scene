@@ -2255,7 +2255,7 @@
       "__id__": 53
     },
     "handBob": 70,
-    "mergeHoldSec": 3,
+    "mergeHoldSec": 1.5,
     "_id": "ObC00000000000000000h"
   },
   {
