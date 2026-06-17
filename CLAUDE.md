@@ -40,13 +40,17 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 5 — Pubblicazione (v0.10.16). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking, rules v1), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti. Curva difficoltà ammorbidita.
-**CrazyGames — PRIMA VERSIONE SOTTOMESSA (2026-06-17), in QA review.** Adapter `CrazyGamesPortal` (SDK v3) + `npm run pack:crazygames`; conformità fatta (no-ad-primo-PLAY, mute su adStarted, fullscreen toggle off, fisica framerate-independent, privacy policy in-game). Si carica la **cartella** `build/web-mobile`.
-**Nuovo da v0.10.16:**
-- **Scena Tutorial** come loading-cover: 1° PLAY → Tutorial (preload Game con % su `LoadingLabel`) → tasto START → Game; flag "visto" legato alla `VERSION`; storia (EN) in ScrollView; QA `fwResetTutorial()`.
-- **Fade al nero + spinner** sul PLAY (`FadeOverlay` in MainMenu.scene).
-- **Resize/fullscreen risolto**: freeze fisica+input (debounce + cap), `fullscreenchange` forzato, restore input state-based, ripristino **posizione LOCALE** dei warrior allo unfreeze (robusto a scala/centro).
-- **Audio per-traccia + AudioManager persistente**: menu/tutorial = loop `menu.mp3` (taverna, 15s seamless), Game = `main.mp3`; entrambe **lazy** (fuori dal preload); musica continua tra scene, si interrompe entrando nel Game.
-- **Ottimizzazioni loading**: immagini ridotte (PNG 8.2→5.1MB), `nativeCodeBundleMode=wasm`, splash off, menu bg lazy, Firebase fuori dal boot, loading screen a sola **%** (ibrido).
+Fase 5 — Pubblicazione (v0.10.17). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti.
 
-Poki: solo richiesta account (silenzio), nessuna esclusività. Restano: esito QA CrazyGames + fix eventuali, playtest mobile reale (tinyurl.com/funwarriors), bilanciamento, leaderboard nativa CrazyGames post-onboarding, asset marketing.
+**CrazyGames — PRIMA VERSIONE RIGETTATA (2026-06-17)** con mail generica (nessun motivo specifico). Diagnosi: non un fail tecnico (eravamo conformi) ma **first-impression/qualità**. Sorgente di verità: **`CRAZYGAMES.md`** (requisiti completi dalle 7 pagine doc + checklist risottomissione + esito ricerca). Email di richiesta motivo **inviata**.
+
+**Pass di risottomissione fatto in v0.10.17:**
+- **Scena Tutorial ELIMINATA** → PLAY entra **diretto nel Game** (1 click), regola "land in gameplay". (Rimossi Tutorial.scene/.ts, flag `fwResetTutorial`, storia ScrollView.)
+- **Onboarding in-gameplay** (`OnboardingHints.ts` + nodi `Onboarding/AimHint/MergeHint` in Game.scene): hint mano (press→carica→rilascia, sprite `hud/hand.png`) al 1° turno; hint "Merge 2 warriors to create a stronger one!" al drag, fade `mergeHoldSec=1.5s` dopo il lancio. Skippabili, una-tantum (`fw_hint_*_seen`). Replay: **doppio-tap SCORE** o `fwShowHints()`.
+- **Modali rifattorizzate**: `EndPanel`/`PausePanel` NON fanno più `active=false` in `onLoad` → vanno lasciate **INATTIVE in editor** + binding via `@property` su GameManager (vedi COCOS.md). DebugPanel: doppio-tap su ROUND.
+- **Powerup rinominati (PEGI12)**: Genocide→**Brotherhood**, BloodHood→**WildRiver** (rename completo classi/file/costanti, script `scripts/rename-powerups.js`). Aura/PsychoForce invariati.
+- **Trick QA disabilitati su build CrazyGames** (`PORTAL==='crazygames'`): replay onboarding + gesto DebugPanel. Fullscreen toggle già nascosto su CG.
+- Conformità tecnica verificata: 168 file (<1500), `-webkit-user-select`/no-zoom, audio iOS su gesto, no bottone fullscreen custom, sfondi truecolor (no banding).
+
+Tester link **ripubblicato** (v0.10.17): https://clemanto.github.io/FanWarriors/ (= tinyurl.com/funwarriors).
+**Restano per risottomettere**: asset marketing (3 cover + preview video 15-20s), smoke test AdBlock+Safari, **dichiarare orientamento portrait** alla submission (su schermi larghi il gameplay è uno spicchio centrale — ammesso ma debole). Poi `npm run pack:crazygames` (carica la **cartella** `build/web-mobile`). Poki: solo richiesta account.

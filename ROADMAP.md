@@ -29,6 +29,15 @@
 
 ## Log sessioni recenti
 
+### 2026-06-17 (v0.10.17) — CrazyGames RIGETTATO → pass di risottomissione
+- ❌ **CrazyGames ha rigettato** la prima versione (mail generica, nessun motivo specifico). Diagnosi: non tecnico ma **first-impression/qualità**. Letti tutti i requisiti (7 pagine doc) + deep-research → **`CRAZYGAMES.md`** (requisiti + checklist + esito ricerca: clone/originalità e "land in gameplay" i rischi #1; risottomissione ammessa; route Basic Launch). Email di richiesta motivo **inviata**.
+- 🗑️ **Scena Tutorial eliminata** → PLAY entra **diretto nel Game** (1 click). Rimossi Tutorial.scene/.ts, `fwResetTutorial`, storia ScrollView, build-script add-tutorial-*.
+- 👆 **Onboarding in-gameplay** (`OnboardingHints.ts`, nodi iniettati via `scripts/add-onboarding-hints.js`): hint mano (press→carica→rilascia, `hud/hand.png`) al 1° turno; hint "Merge 2 warriors…" al drag, fade 1.5s dopo il lancio. Skippabili, una-tantum. Replay: doppio-tap SCORE / `fwShowHints()`.
+- 🪟 **Modali**: tolto il self-hide (`active=false`) da `onLoad` di EndPanel/PausePanel → vanno **inattive in editor** + binding `@property` (COCOS.md aggiornato).
+- 🏷️ **Powerup rinominati (PEGI12)**: Genocide→Brotherhood, BloodHood→WildRiver (rename completo, `scripts/rename-powerups.js`, ~600 edit).
+- 🔒 **Trick QA spenti su build CrazyGames** (`PORTAL==='crazygames'`): replay onboarding + DebugPanel. Verifiche tecniche 🟢 tutte ok (168 file, user-select, audio iOS, no fullscreen btn, sfondi truecolor).
+- 🚀 main pushato (`ced873b`), deploy v0.10.17 su GitHub Pages. Restano: asset marketing + dichiarare portrait alla submission.
+
 ### 2026-06-16/17 (v0.10.0 → v0.10.16) — Tutorial, audio per-traccia, fix fullscreen, ottimizzazioni loading, PRIMO SUBMIT CrazyGames
 - 🚀 **Prima versione sottomessa a CrazyGames (2026-06-17)** — in QA review. main pushato (`60b1296`), deploy v0.10.16 su GitHub Pages.
 - 📚 **Scena Tutorial = loading-cover**: 1° PLAY → Tutorial (precarica il Game con **%** sul nodo `LoadingLabel`) → **START** → Game; PLAY successivi → Game diretto. Flag "visto" legato alla `VERSION` (riappare ad ogni build/aggiornamento). **Storia (EN) in ScrollView** (`StoryPanel`). QA: `fwResetTutorial()`. Scena + nodi iniettati via `scripts/add-tutorial-*.js`.
