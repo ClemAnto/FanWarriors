@@ -748,7 +748,7 @@ Ogni specie ha il proprio `maxLevel` (`WARRIORS[type].maxLevel`). Se un merge su
 
 Flag `LIVE_RESIZE` in `GameManager.ts`: **`true` anche in produzione** (decisione 2026-06-10 — costo trascurabile, scatta solo al resize del browser).
 
-- `true` → ascolta `window.resize`; ad ogni resize chiama `track.relayout()` che ricalcola `initLayout()`, ridisegna la pista e ricostruisce i muri fisici; debounce via `requestAnimationFrame` (max 1 relayout/frame)
+- `true` → ascolta `window.resize` + `ResizeObserver` + `fullscreenchange`; ogni resize **freeza** fisica+input e, allo unfreeze (debounce 0.5s, cap 2.5s, **solo a fisica accesa**), chiama `_refreshTrackGeometry()` (→ `track.relayout()` ricalcola `initLayout()`, ridisegna la pista, ricostruisce i muri) + re-pin dei warrior. Dettagli completi in §Resize/fullscreen.
 - `false` → layout calcolato una sola volta in `start()`
 
 **Cosa si aggiorna al relayout:**
@@ -878,17 +878,20 @@ npm run pack:crazygames   # scripts/pack-crazygames.js
 
 CrazyGames richiede fisica consistente su monitor 144/165 Hz. Le forze continue sono applicate **una volta per frame di render**, ma Box2D fa step a rate fisso → su 144 Hz la stessa forza si accumula ~2,4× per step fisico. Fix: ogni forza per-frame moltiplicata per `dt × FORCE_FPS_REF` (=`dt × 60`). A 60 fps il valore è 1 → **bilanciamento invariato**; ad alto refresh le applicazioni più frequenti si compensano. Toccati TUTTI i metodi che applicano forze in `GameManager`: `applyMagnetism`, `applyUpwardDrift`, `applyCohesion` (ricevono `dtScale` da `update`), `_applyAuraRepel`, `applyVortexImplosion` (già ricevevano `dt`, ora lo usano anche per la forza, non solo per i timer).
 
-## Resize/fullscreen — freeze + ripristino posizione LOCALE (2026-06-17, SOLUZIONE FINALE)
+## Resize/fullscreen — frame centrato via Widget + re-pin a fisica accesa (2026-06-18, SOLUZIONE FINALE)
 
-Problema: `relayout()` ricostruisce muri/linea dal `TrackSprite` ma i **corpi Box2D vivono nel mondo fisico globale** e NON seguono lo spostamento del layer; inoltre FIXED_HEIGHT, al cambio aspect/altezza, **riscala** il mondo (anche un resize solo-altezza, es. "nascondi barra" CrazyGames, cambia `vs.width` e il centro in unità-mondo). Un delta in unità-mondo è quindi un artefatto e introduce offset.
+Problema: i **corpi Box2D dinamici vivono nel b2World globale** e NON seguono il layout responsive dei Widget — Cocos sincronizza `b2Body → node.worldPosition` ad ogni step (pixel-mondo via PTM_RATIO), quindi spostare/scalare i layer NON muove i corpi dinamici. Al cambio risoluzione/fullscreen i layer si ri-centrano ma i corpi restano pinnati alla posizione vecchia → offset. Inoltre FIXED_HEIGHT riscala il mondo al cambio aspect/altezza.
 
-Soluzione (`GameManager`):
-- **Freeze su qualsiasi resize**: `roundUpPause=true` + physics off + input bloccato (come al round-up; stato salvato/ripristinato per overlap col round-up). Trigger: `ResizeObserver` sul canvas + `window.resize` + **`fullscreenchange` forzato** (rileva sempre il toggle). Guard anti-cicli: ignora segnali alla stessa `innerWidth×innerHeight` già assestata.
-- **Unfreeze debounced** 0.5s dopo l'ultimo segnale, con **cap di sicurezza 2.5s** (mai bloccato per sempre).
-- A freeze-begin si **fotografa la posizione LOCALE** (`node.position`, frame box2dLayer in unità-design, stabile e centrato) di ogni warrior; allo unfreeze la si **ri-applica** via `setDragMode(true)→setPosition→setDragMode(false)` (un corpo dinamico NON segue `setPosition`: serve passare per Static). Robusto a scala/centro/aspect.
-- Restore input **state-based** (bloccato solo se `GameOver`/`Paused`), NON il valore catturato (un valore stantio lasciava i controlli morti).
+Architettura (`GameManager` + `Game.scene`):
+- **Centraggio DICHIARATIVO via Widget**: `World` ha `alignFlags=60` (HORIZONTAL_CENTER + TOP/BOTTOM/VCENTER), `Track` `alignFlags=20` (TOP + HCENTER). Prima `World` era LEFT-pinned (45) → su schermo largo il centro = `bordoSx+288`, fuori dal centro schermo: era la radice dell'offset. `Box2DLayer`/`WarriorsLayer` (no Widget, `lpos 0`, anchor 0.5) ereditano il centro di World. **`_recentreGameLayers` RIMOSSO** (lo snap manuale agganciava i layer a una X del Track mal risolta → introduceva esso stesso offset).
+- **Freeze su qualsiasi resize**: physics off + input bloccato + `roundUpPause`. Trigger: `ResizeObserver` + `window.resize` + **`fullscreenchange` forzato**. Guard anti-cicli sulla `innerWidth×innerHeight` già assestata.
+- **Cattura una-tantum**: a freeze-begin si fotografa la posizione **LOCALE** (`node.position`, frame box2dLayer, stabile/centrato) di ogni warrior, ma **solo se lo snapshot non è già pendente** (un 2° resize durante la stessa pausa NON ri-cattura: i corpi sono già spostati → si preserva la 1ª cattura buona).
+- **Unfreeze debounced** 0.5s (cap 2.5s): re-pin via `setDragMode(true)→setPosition→setDragMode(false)` (un dinamico non segue `setPosition`: serve passare per Static).
+- **CRITICO — rebuild muri + re-pin SOLO a fisica ACCESA**: toccare collider/corpi mentre `PhysicsSystem2D.enable=false` accumula proxy nel broadphase → crash `UpdatePairs / b2TreeNode.get` al primo Step (vedi §Box2D crash `b2BroadPhase.UpdatePairs`). Se l'unfreeze scatta mentre **Settings è in pausa**, `_doUnfreeze` **rinvia tutto** (tiene lo snapshot, niente rebuild/re-pin); al resume (`_exitSettingsPause`) si riaccende la fisica e **solo allora** si fa rebuild muri + re-pin → niente salto alla chiusura modale, niente crash.
+- **Refresh al ritorno dal fullscreen**: `_didFirstLaunchRefresh` viene **ri-armato a ogni resize** → il lancio successivo rifà un `_refreshTrackGeometry` autorevole (la TrackSprite responsive si ri-assesta tardi dopo il toggle, come dopo `start()`).
+- Restore input **state-based** (bloccato solo se `GameOver`/`Paused`), NON il valore catturato.
 
-> Storia: provate e scartate — il remap "normalizzato nel funnel" e il delta in unità-mondo (`_box2dXAtFreeze`); falliscono al cambio scala. La cattura/ripristino della **posizione locale** è l'unica robusta.
+> Storia: scartati il remap "normalizzato nel funnel", il delta in unità-mondo (`_box2dXAtFreeze`) e lo **snap manuale dei layer** (`_recentreGameLayers`). Il centraggio dichiarativo via Widget + re-pin dei corpi a fisica accesa è l'unica soluzione robusta.
 
 ## Forze framerate-independent — vedi sopra (FORCE_FPS_REF): invariato.
 

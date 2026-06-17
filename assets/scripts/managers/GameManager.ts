@@ -30,7 +30,7 @@ import { PortalProvider } from '../services/PortalProvider';
 import { PORTAL } from '../config/PortalConfig';
 const { ccclass, property } = _decorator;
 
-export const VERSION     = '0.10.17';
+export const VERSION     = '0.10.18';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -46,7 +46,7 @@ const TEST_FIRST_LAUNCH_GAMEOVER = false; // TEST: first launch forces game-over
 // 144/165 Hz monitor the same force accumulates ~2.4× per physics step. Multiply every per-frame
 // force by (dt × this) so the integrated force matches 60 fps regardless of refresh rate.
 const FORCE_FPS_REF = 60;
-// Resize freeze: debounce delay after the last resize signal + hard cap so it never stays frozen.
+// Resize: debounce delay after the last resize signal + hard cap so physics never stays frozen.
 const RESIZE_SETTLE_S = 0.5;
 const RESIZE_MAX_S    = 2.5;
 const MAGNET_GAP_BASE    = 30;  // surface-to-surface px at design width — scaled by LAYOUT_SCALE
@@ -190,24 +190,18 @@ export class GameManager extends Component implements IGameManagerDebug {
     private implosionDuration: number = 0;
     private implosionPeakForce: number = 0;
     private cohesionTimeLeft: number = 0;
-    private resizeRafId = 0;
     private _resizeObserver: ResizeObserver | null = null;
     private _obsW = -1;
     private _obsH = -1;
-    // Resize freeze: while the viewport is changing we freeze physics + input (like the round-up
-    // freeze) so warriors don't react to mid-transition walls; we unfreeze + remap once the stage
-    // has been stable for RESIZE_SETTLE_S. State is saved/restored to survive a resize during round-up.
+    // Resize: the layers re-centre via their HCENTER Widgets, BUT dynamic Box2D bodies live in the
+    // fixed b2World and do NOT follow the Widget layout — so on a resize we freeze physics, capture each
+    // warrior's funnel-relative LOCAL position (box2dLayer space, stable across scale/centre), then
+    // re-apply it on settle to re-pin the bodies to the re-centred funnel. No manual layer recentre.
     private _resizeFrozen = false;
-    private _resizeLastW = 0;
-    private _resizeLastH = 0;
-    private _resizeStableElapsed = 0;
     private _roundUpPauseBeforeResize = false;
-    private _physicsEnabledBeforeResize = true;
     private _inputBlockedBeforeResize = false;
     private _lastSettledW = -1;
     private _lastSettledH = -1;
-    // Warriors' box2dLayer-LOCAL positions captured at freeze start. Local (design-unit, centred) space
-    // is stable across resizes (scale/centre/aspect), so re-applying it keeps them funnel-aligned.
     private _warriorFreezePos: { w: Warrior; x: number; y: number }[] | null = null;
     private _lastTickSec = -1;
     private _dangerCooldown = 0;
@@ -447,20 +441,24 @@ export class GameManager extends Component implements IGameManagerDebug {
         console.warn('[GameManager] unhandled promise rejection (ignored for dialog):', ev.reason);
     };
 
-    // resize / ResizeObserver: size-guarded (ignore spurious same-size fires that would cycle the freeze).
+    // resize / ResizeObserver: size-guarded (ignore spurious same-size fires).
     private readonly onBrowserResize = (): void => this._handleResize(false);
-    // fullscreenchange: ALWAYS handle (a toggle is real even if innerWidth happens to match), so a
-    // stuck _resizeFrozen from a prior cycle can never make us miss the next toggle.
+    // fullscreenchange: ALWAYS handle (a toggle is real even if innerWidth happens to match).
     private readonly onFullscreenChange = (): void => this._handleResize(true);
 
     private _handleResize(force: boolean): void {
         if (!sys.isBrowser) return;
         const w = window.innerWidth, h = window.innerHeight;
-        // Ignore spurious resize/observer fires at a size we've already settled at — otherwise the
-        // engine's repeated fires would re-freeze forever and leave input blocked (controls dead).
+        // Ignore spurious resize/observer fires at a size we've already settled at.
         if (!force && !this._resizeFrozen && w === this._lastSettledW && h === this._lastSettledH) return;
-        // A real change freezes the stage (physics + input, like the round-up freeze). Unfreeze is
-        // DEBOUNCED on the events (fires RESIZE_SETTLE_S after the last signal), with a hard cap.
+        // Re-arm the one-shot geometry refresh: the responsive TrackSprite re-settles AFTER a fullscreen
+        // toggle / resize (just like after start()), and the debounced _doUnfreeze refresh can run before
+        // that settles. Re-arming makes the NEXT launch redo an authoritative _refreshTrackGeometry once
+        // everything is final — so the Box2D world is always rebuilt after returning from fullscreen.
+        this._didFirstLaunchRefresh = false;
+        // Freeze physics + input and snapshot funnel-relative LOCAL positions NOW (before the layout
+        // changes); re-apply on settle (DEBOUNCED, with a hard cap) to re-pin the b2World bodies to the
+        // re-centred funnel. The layers themselves re-centre via their HCENTER Widgets — no manual snap.
         if (!this._resizeFrozen) this._beginResizeFreeze();
         this.unschedule(this._doUnfreeze);
         this.scheduleOnce(this._doUnfreeze, RESIZE_SETTLE_S);
@@ -469,19 +467,21 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _beginResizeFreeze(): void {
         this._resizeFrozen = true;
-        this._roundUpPauseBeforeResize   = this.roundUpPause;
-        this._physicsEnabledBeforeResize = PhysicsSystem2D.instance.enable;
-        this._inputBlockedBeforeResize   = this.inputCtrl?.blocked ?? false;
+        this._roundUpPauseBeforeResize = this.roundUpPause;
+        this._inputBlockedBeforeResize = this.inputCtrl?.blocked ?? false;
         this.roundUpPause = true;                       // guards every physics op in update()
         PhysicsSystem2D.instance.enable = false;
         if (this.inputCtrl) this.inputCtrl.blocked = true;
-        // Snapshot each warrior's box2dLayer-LOCAL position (stable funnel-relative frame). On unfreeze
-        // we re-apply it so they stay funnel-aligned whatever the new scale/centre/aspect.
-        const snap: { w: Warrior; x: number; y: number }[] = [];
-        const cap = (w: Warrior | null): void => { if (w?.node?.isValid) snap.push({ w, x: w.node.position.x, y: w.node.position.y }); };
-        for (const w of this.warriors) cap(w);
-        if (this._activeLauncherWarrior && !this.warriors.includes(this._activeLauncherWarrior)) cap(this._activeLauncherWarrior);
-        this._warriorFreezePos = snap;
+        // Snapshot each warrior's box2dLayer-LOCAL position (stable funnel-relative frame). Skip if a
+        // snapshot is already pending (e.g. a 2nd resize during the same paused dialog) — the warriors are
+        // already displaced by then, so we must preserve the FIRST, still-correct capture.
+        if (!this._warriorFreezePos) {
+            const snap: { w: Warrior; x: number; y: number }[] = [];
+            const cap = (w: Warrior | null): void => { if (w?.node?.isValid) snap.push({ w, x: w.node.position.x, y: w.node.position.y }); };
+            for (const w of this.warriors) cap(w);
+            if (this._activeLauncherWarrior && !this.warriors.includes(this._activeLauncherWarrior)) cap(this._activeLauncherWarrior);
+            this._warriorFreezePos = snap;
+        }
         this.scheduleOnce(this._doUnfreezeCap, RESIZE_MAX_S);  // hard safety cap — never stay frozen
         this._resizeLog('FREEZE begin');
     }
@@ -492,26 +492,26 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!this._resizeFrozen) return;
         this.unschedule(this._doUnfreeze);
         this.unschedule(this._doUnfreezeCap);
-        this.track?.relayout();
-        this.inputCtrl?.relayout(LAYOUT_SCALE);
-        this.syncInputBounds();
-        this._recentreGameLayers();
-        this._syncGoLineWhenStable(this.currentRound);
-        // Restore by GAME STATE, not by the captured value: restoring a stale snapshot left input
-        // blocked across resizes (controls dead). Input is blocked only when the game itself blocks it;
-        // physics runs unless paused / mid round-up / auto-paused.
+        // Restore by GAME STATE (a stale snapshot once left input dead): input is blocked only where the
+        // game itself blocks it; physics runs unless paused / mid round-up / auto-paused.
         this.roundUpPause = this._roundUpPauseBeforeResize;
-        // Block input only where the game itself blocks it (Idle/auto-pause manage their own input).
         const blocked = this.state === GameState.GameOver || this.state === GameState.Paused;
         PhysicsSystem2D.instance.enable = !this.roundUpPause && this.state !== GameState.Paused && !this._autoPaused;
         if (this.inputCtrl) this.inputCtrl.blocked = blocked;
         this._resizeFrozen = false;
-        // Remember the settled size so trailing/spurious signals at this size don't re-freeze.
         this._lastSettledW = window.innerWidth; this._lastSettledH = window.innerHeight;
-        // Re-apply each warrior's captured LOCAL position so they stay funnel-aligned regardless of the
-        // new scale/centre (bodies are b2World-pinned → teleport back via Static↔Dynamic).
-        if (PhysicsSystem2D.instance.enable) this._restoreWarriorLocalPos();
-        this._warriorFreezePos = null;
+        // Re-pin bodies ONLY with physics ENABLED (re-pinning while OFF is futile — the node→b2Body sync runs
+        // inside the step). We do NOT rebuild walls here: the static wall colliders already follow the Track's
+        // Widget re-centre via the scene→physics sync, and DESTROYING/recreating colliders (_refreshTrack-
+        // Geometry) in the same frame we move many bodies frees broadphase proxies that FindNewContacts then
+        // walks → crash (b2BroadPhase.UpdatePairs / b2TreeNode.get). Geometry (TRACK_W) is rebuilt safely at
+        // the NEXT launch via the re-armed _didFirstLaunchRefresh one-shot (clean frame, no mass body move).
+        // If still paused (resize fired from inside the Settings modal) we DEFER the re-pin to the resume
+        // hook (_exitSettingsPause), keeping the snapshot.
+        if (PhysicsSystem2D.instance.enable) {
+            this._restoreWarriorLocalPos();
+            this._warriorFreezePos = null;
+        }
         this._resizeLog(`UNFREEZE done  blocked=${blocked} state=${this.state} TRACK_W=${TRACK_W}`);
     };
 
@@ -524,27 +524,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             w.setDragMode(true);
             w.node.setPosition(x, y, 0);
             w.setDragMode(false);
-        }
-    }
-
-    /** Re-centre the warriors + track layers so they match the physics world: reset any screen-shake
-     *  anchor offset, re-align World, then snap the layers' world X to the Track's (the walls). */
-    private _recentreGameLayers(): void {
-        const wt = this.worldNode?.getComponent(UITransform);
-        if (wt) wt.anchorPoint = new Vec2(0.5, 0.5);  // screen shake offsets the anchor — reset it
-        this.worldNode?.getComponent(Widget)?.updateAlignment();
-        const trackNode = this.track?.node;
-        if (!trackNode?.isValid) return;
-        // The funnel centre (mid-point of the wall inner edges) in Track-local, mapped to world.
-        const funnelCxLocal = (WALL_LB.x + WALL_RB.x) / 2;
-        const targetX = trackNode.worldPosition.x + funnelCxLocal * (trackNode.worldScale.x || 1);
-        this._resizeLog(`trackX=${trackNode.worldPosition.x.toFixed(1)} funnelCx=${funnelCxLocal.toFixed(1)} target=${targetX.toFixed(1)}`);
-        for (const layer of [this.box2dLayer, this.warriorsLayer, this.vfxLayer]) {
-            if (!layer?.isValid) continue;
-            const wp = layer.worldPosition;
-            const dx = targetX - wp.x;
-            this._resizeLog(`${layer.name} X=${wp.x.toFixed(1)} dx=${dx.toFixed(1)}`);
-            if (Math.abs(dx) > 0.5) layer.setWorldPosition(targetX, wp.y, wp.z);
         }
     }
 
@@ -2910,6 +2889,17 @@ export class GameManager extends Component implements IGameManagerDebug {
         PhysicsSystem2D.instance.enable = true;
         AudioManager.instance.unmuteForPause();
         this.inputCtrl.blocked = false;
+        // A resize that fired while the dialog was up (e.g. the Fullscreen toggle) froze us and/or left a
+        // pending re-pin we deferred because physics was off. Now that physics is back on, re-pin the
+        // warriors to the (Widget-)re-centred funnel before simulation resumes — no visible jump. We do NOT
+        // rebuild walls here (it would free broadphase proxies and crash UpdatePairs while we move bodies);
+        // the wall geometry is rebuilt safely at the next launch via the re-armed one-shot.
+        if (this._resizeFrozen) {
+            this._doUnfreeze();
+        } else if (this._warriorFreezePos) {
+            this._restoreWarriorLocalPos();
+            this._warriorFreezePos = null;
+        }
         if (this.state !== GameState.GameOver) PortalProvider.get().gameplayStart();
     }
 

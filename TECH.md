@@ -31,7 +31,7 @@
 
 **Audio (`AudioManager`)**: ora **persistente** tra scene (`addPersistRootNode`) → musica continua e clip cacheati una volta. API `playMusic(track)` per-traccia: menu/tutorial = `MUSIC_MENU` (loop taverna), Game = `MUSIC_MAIN`. Entrambe **lazy** (mai nel preload, che salta `audio/music/`); il guard usa il **clip in play** e stoppa la traccia corrente al cambio (il loop menu si interrompe entrando nel Game). Perché lazy: la musica è il singolo asset più pesante e non è essenziale all'avvio.
 
-**Resize/fullscreen** (decisione finale): NON si rimappano le posizioni relative né si traccia un delta in unità-mondo (artefatto col rescale FIXED_HEIGHT). Si **freeza** fisica+input durante il resize e si **ripristina la posizione LOCALE** (frame box2dLayer, design-unit) di ogni warrior allo unfreeze, via Static↔Dynamic. Dettagli e storia dei tentativi in MEMO §Resize/fullscreen.
+**Resize/fullscreen** (decisione finale): centraggio **dichiarativo via Widget** (`World`/`Track` HORIZONTAL_CENTER) — i corpi Box2D dinamici vivono nel b2World globale e non seguono il layout, quindi durante il resize si **freeza** fisica+input e allo unfreeze si **ri-pinna la posizione LOCALE** (frame box2dLayer) di ogni warrior via Static↔Dynamic. Rebuild muri e re-pin avvengono **solo a fisica accesa** (toccare collider/corpi a `enable=false` → crash broadphase); se l'unfreeze cade mentre Settings è in pausa, tutto è rinviato al resume. `_recentreGameLayers` (vecchio snap manuale dei layer) RIMOSSO. Dettagli e storia in MEMO §Resize/fullscreen.
 
 **Loading**: loading screen HTML a sola **%** (ibrida); musica/Firebase/bg-menu lazy; immagini ridotte; `nativeCodeBundleMode=wasm`; splash off. Vedi MEMO §Loading/§Pacchetto CrazyGames.
 

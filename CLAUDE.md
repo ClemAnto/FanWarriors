@@ -40,7 +40,11 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 5 — Pubblicazione (v0.10.17). Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti.
+Fase 5 — Pubblicazione (v0.10.18).
+
+**Rework resize/fullscreen (v0.10.18):** centraggio del mondo fisico ora **dichiarativo via Widget** (`World`/`Track` HORIZONTAL_CENTER in `Game.scene`) — rimosso lo snap manuale `_recentreGameLayers` (era esso stesso fonte di offset). Al resize: freeze + **re-pin posizione LOCALE** dei warrior (i corpi b2World non seguono i Widget). Rebuild muri **NON** più nel percorso di resize (distruggere collider mentre si muovono i corpi → crash broadphase `UpdatePairs`): i muri statici seguono il Track ri-centrato via sync, e la geometria si rifà al lancio successivo (`_didFirstLaunchRefresh` ri-armato a ogni resize). Re-pin rinviato al resume se il resize cade in pausa-Settings. Dettagli in MEMO/TECH §Resize.
+
+Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti.
 
 **CrazyGames — PRIMA VERSIONE RIGETTATA (2026-06-17)** con mail generica (nessun motivo specifico). Diagnosi: non un fail tecnico (eravamo conformi) ma **first-impression/qualità**. Sorgente di verità: **`CRAZYGAMES.md`** (requisiti completi dalle 7 pagine doc + checklist risottomissione + esito ricerca). Email di richiesta motivo **inviata**.
 
