@@ -1,4 +1,5 @@
 import { BACKEND, ENABLED } from '../config/LeaderboardConfig';
+import { LEADERBOARD_ALLOWED } from '../config/PortalConfig';
 import { LeaderboardService } from './LeaderboardService';
 import { NullLeaderboard } from './NullLeaderboard';
 import { MockLeaderboard } from './MockLeaderboard';
@@ -27,6 +28,10 @@ export class LeaderboardProvider {
 
     private static _create(): LeaderboardService {
         if (!ENABLED) return new NullLeaderboard();
+        // GameDistribution §7: external data collection/storage (Firestore) is prohibited.
+        // LEADERBOARD_ALLOWED is false on GD → force the no-op backend. CrazyGames / Poki /
+        // standalone are untouched.
+        if (!LEADERBOARD_ALLOWED) return new NullLeaderboard();
         switch (BACKEND) {
             case 'firestore': return new FirestoreLeaderboard();
             case 'mock':      return new MockLeaderboard();

@@ -3,6 +3,8 @@ import { AudioManager, SFX } from './AudioManager';
 import { VERSION } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
+import { LEADERBOARD_ALLOWED } from '../config/PortalConfig';
+import { ENABLED as LEADERBOARD_CONFIG_ENABLED } from '../config/LeaderboardConfig';
 import { BgFill } from '../entities/BgFill';
 
 const { ccclass, property } = _decorator;
@@ -53,9 +55,15 @@ export class MainMenu extends Component {
 
         this.playButton?.on(Button.EventType.CLICK, this.onPlay, this);
         if (this.leaderboardButton) {
-            // Ensure a Button exists so CLICK is emitted even if the node lacks one.
-            this.leaderboardButton.getComponent(Button) ?? this.leaderboardButton.addComponent(Button);
-            this.leaderboardButton.on(Button.EventType.CLICK, this.onLeaderboard, this);
+            // Hide the LEADERBOARD button when the online leaderboard is off for this build
+            // (GameDistribution §7) — the Ranking scene would otherwise be empty/dead.
+            if (!(LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED)) {
+                this.leaderboardButton.active = false;
+            } else {
+                // Ensure a Button exists so CLICK is emitted even if the node lacks one.
+                this.leaderboardButton.getComponent(Button) ?? this.leaderboardButton.addComponent(Button);
+                this.leaderboardButton.on(Button.EventType.CLICK, this.onLeaderboard, this);
+            }
         }
     }
 

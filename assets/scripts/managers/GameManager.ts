@@ -25,10 +25,14 @@ import { EndPanel } from './EndPanel';
 import { PausePanel } from './PausePanel';
 import { LeaderboardPanel } from './LeaderboardPanel';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
-import { ENABLED as LEADERBOARD_ENABLED, TOP_N } from '../config/LeaderboardConfig';
+import { ENABLED as LEADERBOARD_CONFIG_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 import { PortalProvider } from '../services/PortalProvider';
-import { PORTAL } from '../config/PortalConfig';
+import { PORTAL, LEADERBOARD_ALLOWED } from '../config/PortalConfig';
 const { ccclass, property } = _decorator;
+
+/** Effective online-leaderboard switch: configured ON *and* allowed on this portal build
+ *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
+const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
 export const VERSION     = '0.10.18';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
@@ -687,7 +691,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             // Portal SDK: active play starts here (init is idempotent — covers the
             // dev-preview case where the Game scene loads without passing by MainMenu)
             const portal = PortalProvider.get();
-            void portal.init().then(() => { portal.gameLoadingFinished(); portal.gameplayStart(); });
+            void portal.init().then(async () => {
+                portal.gameLoadingFinished();
+                // GameDistribution §2.1.1 mandates a PREROLL ad before gameplay begins.
+                // PLAY enters the Game scene directly, so onLoad is the "after Play click"
+                // moment. Gated to GD only — CrazyGames/Poki forbid an ad before the first
+                // gameplay, so their flow is unchanged. Mute only while the ad actually plays.
+                if (PORTAL === 'gamedistribution') {
+                    await portal.commercialBreak(() => AudioManager.instance.muteForPause());
+                    AudioManager.instance.unmuteForPause();
+                }
+                portal.gameplayStart();
+            });
         });
     }
 
@@ -2681,9 +2696,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     // --- HUD ---
 
     /** Double-tap on the ROUND HUD section toggles the debug panel (kept for standalone/playtest
-     *  builds). Disabled on the CrazyGames submission build. */
+     *  builds). Disabled on any portal submission build (CrazyGames / GameDistribution / Poki). */
     private _wireDebugPanelGesture(roundSec: Node): void {
-        if (PORTAL === 'crazygames') return;
+        if (PORTAL !== 'none') return;
         roundSec.on(Node.EventType.TOUCH_END, () => {
             const now = Date.now();
             if (now - this._lastRoundTapAt < 350) {
@@ -2816,9 +2831,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _lastScoreTap = 0;
 
     /** Double-tap the SCORE value to replay the onboarding hints (QA + "replay tutorial" gesture).
-     *  Disabled on the CrazyGames submission build. */
+     *  Disabled on any portal submission build (CrazyGames / GameDistribution / Poki). */
     private _wireOnboardingReplayTap(): void {
-        if (PORTAL === 'crazygames') return;
+        if (PORTAL !== 'none') return;
         const node = this.scoreLabel?.node;
         if (!node) return;
         node.on(Node.EventType.TOUCH_END, () => {

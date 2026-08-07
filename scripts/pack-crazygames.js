@@ -78,7 +78,15 @@ if (fs.existsSync(ZIP)) fs.rmSync(ZIP);
 
 console.log('Zipping build output...');
 // Zip the CONTENTS of web-mobile (index.html at the zip root — CrazyGames expects this).
-const zipResult = spawnSync('powershell', [
+// Use pwsh (PowerShell 7), NOT legacy `powershell` (5.1): 5.1's Compress-Archive writes
+// backslash entry paths that violate the ZIP spec and break extraction on Linux servers.
+const PWSH = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe';
+const zipExe = fs.existsSync(PWSH) ? PWSH : 'powershell';
+if (zipExe === 'powershell') {
+    console.warn('WARNING: pwsh (PowerShell 7) not found — falling back to powershell 5.1, whose');
+    console.warn('         Compress-Archive writes backslash paths that portals may reject. Install PowerShell 7.');
+}
+const zipResult = spawnSync(zipExe, [
     '-NoProfile', '-Command',
     `Compress-Archive -Path '${BUILD}\\*' -DestinationPath '${ZIP}' -Force`,
 ], { stdio: 'inherit' });

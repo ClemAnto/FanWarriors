@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node scripts/build.js",
     "pack:crazygames": "node scripts/pack-crazygames.js",
+    "pack:gamedistribution": "node scripts/pack-gamedistribution.js",
     "serve": "node scripts/serve-remote.js",
     "deploy": "node scripts/deploy.js",
     "gen:placeholders": "node scripts/gen-warrior-placeholders.js",
