@@ -89,7 +89,7 @@
 - [ ] Distribuzione: lasciare attivi i partner (opt-out di MSN/Facebook se proposti, tanto non qualificano)
 - [x] Account + scheda creata (2026-11-08): titolo, engine cocos-creator, agent Claude Code, categoria Merge, ZIP v0.10.19, device tutti, portrait, EN, 3 cover — salvata in bozza
 - [x] **Sandbox LIVE (2026-11-08)** con build v0.10.20 → https://playgama.ai/play/ivo67cyadktzzf. Orientamento dichiarato **portrait + landscape** (il gioco supporta entrambi → niente rotate overlay nella build Playgama). Link "published elsewhere" = GitHub Pages.
-- [ ] **Target Sandbox per accedere alla Review** (categoria Merge): **100 qualifying plays**, **avg play time 9:00**, **0.30 ad shows per play**. Leve: 3 boost gratuiti (Claim / Share / Invite) nel portale.
+- [ ] **Target Sandbox per accedere alla Review** (categoria Merge): **100 qualifying plays**, **avg play time 9:00**, **0.30 ad shows per play**. Leve: boost gratuiti nel portale. **Usati (2026-11-08):** Starter (~50 plays, fino al 9/11) + Share #1 = post Facebook pubblico dell'utente (link incollato in "Share your game" → Claim). Resta Share #2 (post diverso, es. Instagram) + Invite. Il post deve essere PUBBLICO (su FB: audience "Tutti" solo per quel post, togliere "Imposta come pubblico predefinito").
 - [ ] Send for Review quando i target sono raggiunti
 - ⚠️ Il portale tiene le build **per nome file**: ricaricare lo stesso nome NON sostituisce la build → `pack:playgama` ora produce `funwarriors-playgama-v<versione>.zip`; poi "Update in Sandbox" scegliendo la build nuova.
 - ✅ Interstitial verificato nel QA tool: loading → opened → pausa+mute+flush storage → closed → resume → menu.

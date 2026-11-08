@@ -40,7 +40,9 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 5 — Pubblicazione (v0.10.18).
+Fase 5 — Pubblicazione (v0.10.20, branch **`feature/playgama`** — NON ancora mergiato su main).
+
+**Prossimo passo (sessione 2026-11-09+):** leggere le prime statistiche sandbox Playgama (portale → FunWarriors → Game performance). Target per la Review: 100 qualifying plays, **avg play time 9:00** (il più duro: una partita tipica dura meno), 0.30 ad/play (interstitial solo tra sessioni). Boost attivi: Starter (~50, fino al 9/11) + Share #1 (post Facebook pubblico). Resta 1 Share (es. Instagram). MCP Playgama registrato (`playgama-developer-console`) ma serve login `/mcp` dell'utente.
 
 **Rework resize/fullscreen (v0.10.18):** centraggio del mondo fisico ora **dichiarativo via Widget** (`World`/`Track` HORIZONTAL_CENTER in `Game.scene`) — rimosso lo snap manuale `_recentreGameLayers` (era esso stesso fonte di offset). Al resize: freeze + **re-pin posizione LOCALE** dei warrior (i corpi b2World non seguono i Widget). Rebuild muri **NON** più nel percorso di resize (distruggere collider mentre si muovono i corpi → crash broadphase `UpdatePairs`): i muri statici seguono il Track ri-centrato via sync, e la geometria si rifà al lancio successivo (`_didFirstLaunchRefresh` ri-armato a ogni resize). Re-pin rinviato al resume se il resize cade in pausa-Settings. Dettagli in MEMO/TECH §Resize.
 
@@ -60,6 +62,6 @@ Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp
 - **Trick QA disabilitati su build CrazyGames** (`PORTAL==='crazygames'`): replay onboarding + gesto DebugPanel. Fullscreen toggle già nascosto su CG.
 - Conformità tecnica verificata: 168 file (<1500), `-webkit-user-select`/no-zoom, audio iOS su gesto, no bottone fullscreen custom, sfondi truecolor (no banding).
 
-Tester link **ripubblicato** (v0.10.18): https://clemanto.github.io/FanWarriors/ (= tinyurl.com/funwarriors).
+Tester link **ripubblicato** (v0.10.20, variante standalone con leaderboard Firebase): https://clemanto.github.io/FanWarriors/ (= tinyurl.com/funwarriors).
 **Pacchetto CrazyGames v0.10.18 generato**: `dist/funwarriors-crazygames.zip` (8,6 MB) — pronto per il developer QA tool. NB: `npm run pack:crazygames` **sovrascrive `build/web-mobile`** con la variante CrazyGames → prima di un nuovo `npm run deploy` su GitHub Pages rifare `npm run build` (variante default).
-**Restano per risottomettere**: asset marketing (3 cover + preview video 15-20s), smoke test AdBlock+Safari, **dichiarare orientamento portrait** alla submission (su schermi larghi il gameplay è uno spicchio centrale — ammesso ma debole), upload dello ZIP. Poki: solo richiesta account.
+*(Storico CrazyGames: la risottomissione è sospesa dopo il rigetto per concept del 2026-11-08.)* **Orientamento: il gioco supporta portrait E landscape** (landscape = pista centrata + sfondo full-bleed) — dichiarare entrambi nei form portale. Poki: solo richiesta account.

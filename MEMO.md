@@ -874,6 +874,21 @@ npm run pack:crazygames   # scripts/pack-crazygames.js
 
 ---
 
+## Pacchetto Playgama + QA (2026-11-08)
+
+```powershell
+npm run pack:playgama   # scripts/pack-playgama.js → dist/funwarriors-playgama-v<versione>.zip
+```
+Stesso schema di pack-crazygames (flag `PORTAL='playgama'` temporaneo, restore in `finally`) + inject Bridge/boot shim in `index.html` + copia `scripts/playgama/playgama-bridge-config.json`. Sovrascrive `build/web-mobile` → `npm run build` prima di `npm run deploy`.
+
+- **Gotcha portale:** le build sono identificate **per nome file** — ricaricare `funwarriors-playgama.zip` NON sostituisce la build precedente (in sandbox girava ancora la vecchia). Per questo lo ZIP ha la versione nel nome; poi "Update Game" → Continue → **Update in Sandbox** scegliendo la build nuova. Verifica: versione nel loading screen della pagina `playgama.ai/play/...`.
+- **QA tool ufficiale** (`developer.playgama.com/qa-tool`): accetta un URL locale → estrarre lo ZIP in una cartella e servirla (`npx http-server <dir> -p 8100 -c-1`), poi incollare `http://localhost:8100/index.html`. Pannello Logs mostra init Bridge, storage get/set, `game_ready`, stati interstitial, pausa/audio; i bottoni ⏸/🔊 del tool simulano gli eventi di piattaforma. Il primo "Total loading time" a cache fredda può dire ~18 s; a cache calda ~1,3 s.
+- Fuori piattaforma il Bridge gira in modalità `mock` (`bridge.platform.id === 'mock'`, interstitial non supportati, storage su localStorage del browser).
+- **Quit in-game ha la conferma a due click** ("Sure?"): in un test automatico un solo click sembra "bloccato".
+- Cover Playgama (800×800, 1080×1920, 1920×1080): `node scripts/gen-playgama-covers.js` → `submission/playgama/` (compone title_bg + logo + sprite warrior; la 16:9 è l'upscale della cover marketing 1280×720).
+
+---
+
 ## Forze framerate-independent (FORCE_FPS_REF, 2026-06-15)
 
 CrazyGames richiede fisica consistente su monitor 144/165 Hz. Le forze continue sono applicate **una volta per frame di render**, ma Box2D fa step a rate fisso → su 144 Hz la stessa forza si accumula ~2,4× per step fisico. Fix: ogni forza per-frame moltiplicata per `dt × FORCE_FPS_REF` (=`dt × 60`). A 60 fps il valore è 1 → **bilanciamento invariato**; ad alto refresh le applicazioni più frequenti si compensano. Toccati TUTTI i metodi che applicano forze in `GameManager`: `applyMagnetism`, `applyUpwardDrift`, `applyCohesion` (ricevono `dtScale` da `update`), `_applyAuraRepel`, `applyVortexImplosion` (già ricevevano `dt`, ora lo usano anche per la forza, non solo per i timer).

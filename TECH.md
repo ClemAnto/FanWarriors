@@ -25,6 +25,21 @@
 
 ---
 
+## Playgama Bridge — boot shim + storage a blob unico (2026-11-08, v0.10.19+)
+
+Playgama impone vincoli che i nostri adapter "lazy dal CDN" non rispettano: Bridge come **primo script in `<head>`, non iniettato da codice**, il gioco **non deve iniziare a caricare prima del Bridge**, e **niente localStorage** (solo `bridge.storage`, che è async). Decisioni:
+
+- **Il build template NON si tocca** (servirebbe anche alla build standalone). Tutto avviene in `scripts/pack-playgama.js` sull'`index.html` della build: script Bridge subito dopo `<meta charset>` + **boot shim** inline che fa `bridge.initialize()` → `bridge.storage.get(['fw_save'])` → `window.__fwStore`, ed espone la promise `window.__fwBridgeBoot`; `System.import('./index.js')` viene **gated** su quella promise. Timeout 10 s init / 5 s storage, mai reject (il gioco parte comunque).
+- **Storage = UN solo blob JSON** (`PLAYGAMA_SAVE_KEY='fw_save'`) invece di N chiavi: niente lista chiavi da tenere allineata tra TS e shim, un'unica `get` al boot, scritture batch. `SafeStorage` resta l'unica API: legge/scrive sincrono su `__fwStore`, flush debounced (1,5 s) + flush immediato su `PAUSE_STATE_CHANGED`. Se lo shim non ha girato → fallback localStorage. `fw_last_error` non va nel blob su Playgama (artefatto debug).
+- **`PortalSdk.onPlatformState?`** (opzionale): eventi audio/pausa di piattaforma. AudioManager tiene il **mute di piattaforma separato dal mute utente** (`_platformAudioOff`/`_platformPaused`, mai persistiti) → un resume del Bridge non riaccende ciò che l'utente ha spento.
+- **`game_ready`** inviato da `gameLoadingFinished()` solo quando `#loading-screen` è sparito (moderazione rifiuta `game_ready` sotto il loading screen), max 6 s di attesa.
+- **Interstitial**: `showInterstitial()` senza timer nostri (cadenza = Bridge, min 60 s); `onAdStart` su stato `opened`, resolve su `closed`/`failed`; **grace 1,5 s** se non arriva alcuno stato (Bridge ha saltato l'ad) + safety 35 s.
+- Leaderboard Firebase e toggle fullscreen **OFF** su Playgama; nessun rotate overlay (portrait+landscape supportati).
+
+Guida generica riusabile: `PLAYGAMA_PLAYBOOK.md`; istanza progetto: `PLAYGAMA.md`.
+
+---
+
 ## Tutorial, audio e transizioni (2026-06-17)
 
 **Tutorial come loading-cover** (`scenes/Tutorial.scene` + `managers/Tutorial.ts`): il 1° PLAY (flag `fw_tutorial_seen` ≠ `VERSION`, in localStorage) entra nel Tutorial, che **precarica il Game** (`director.preloadScene` con progress → % su `LoadingLabel`) mentre il giocatore legge la storia; **START** avvia il Game appena pronto. PLAY successivi → Game diretto. Flag legato alla `VERSION` (riappare a ogni aggiornamento). I nodi UI (StartButton, StoryPanel/ScrollView, LoadingLabel) sono iniettati da `scripts/add-tutorial-*.js` (formato `.scene` autorato a mano come per i bottoni). `MainMenu.onPlay` fa fade-al-nero (`FadeOverlay`) + spinner → `loadScene`.
