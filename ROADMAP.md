@@ -457,6 +457,8 @@
 
 ## Prossime azioni concrete
 
+> **2026-11-08 — Pivot portali:** CrazyGames ("concept too close to existing titles") e GameDistribution ("not matching partners' audiences") hanno rigettato. Prossimo canale: **Playgama** → roadmap dettagliata (fasi P1 integrazione Bridge, P2 QA, P3 asset/submission, P4 misura) in **`PLAYGAMA.md`**.
+
 > Aggiornato al 2026-06-10 — v0.8.57: **Fase 3 chiusa** (HUD completato, posizione NextPreview sistemata, migrazione DebugPanel cassata). Rules Firestore v1 applicate. Follow-up chiusi (bug 2 non ripresentato, auto-attivazione AURA risolta). Pass di robustezza codice (rb cache, SafeStorage, cleanup tween su destroy, guard doppio-submit) + riallineamento completo dei .md.
 >
 > Storico 2026-06-07 — v0.8.23: fix bug 1 (anti-tunneling muri, `rb.bullet=true`) + bug 2 (game over/victory robusti: schermata schedulata prima dei side-effect in `try/catch`); messaggio "HAI SUPERATO IL TUO MIGLIOR PUNTEGGIO!" (score > 10000); tasto "Ricomincia" nel dialog Settings (solo scena Game, via host hook `onRestart`).

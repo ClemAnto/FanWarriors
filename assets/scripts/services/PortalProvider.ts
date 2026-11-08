@@ -3,6 +3,7 @@ import { NullPortal } from './NullPortal';
 import { PokiPortal } from './PokiPortal';
 import { CrazyGamesPortal } from './CrazyGamesPortal';
 import { GameDistributionPortal } from './GameDistributionPortal';
+import { PlaygamaPortal } from './PlaygamaPortal';
 import { PORTAL } from '../config/PortalConfig';
 
 /** Singleton factory — picks the portal implementation from the PORTAL flag. */
@@ -15,6 +16,7 @@ export class PortalProvider {
                 case 'poki':             PortalProvider._instance = new PokiPortal();             break;
                 case 'crazygames':       PortalProvider._instance = new CrazyGamesPortal();       break;
                 case 'gamedistribution': PortalProvider._instance = new GameDistributionPortal(); break;
+                case 'playgama':         PortalProvider._instance = new PlaygamaPortal();         break;
                 default:                 PortalProvider._instance = new NullPortal();              break;
             }
         }

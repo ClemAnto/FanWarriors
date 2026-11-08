@@ -1,5 +1,6 @@
 import { _decorator, Component, AudioSource, AudioClip, resources, director, Node, sys } from 'cc';
 import { SafeStorage } from '../utils/SafeStorage';
+import { PortalProvider } from '../services/PortalProvider';
 const { ccclass } = _decorator;
 
 /**
@@ -59,6 +60,10 @@ export class AudioManager extends Component {
     sfxMuted     = false;
     musicMuted   = false;
     private _pauseMuted         = false;
+    /** Platform-level mute (Playgama Bridge: platform audio off, or platform pause/ad). Never persisted —
+     *  kept separate from the user's sfx/music mute so a platform resume never re-enables what the user muted. */
+    private _platformAudioOff   = false;
+    private _platformPaused     = false;
     private _currentMusic: SFX  = SFX.MUSIC_MAIN;  // track currently requested/playing
     private _musicLoadingTrack: SFX | null = null;
     private _musicStarted       = false;
@@ -73,6 +78,24 @@ export class AudioManager extends Component {
         this.sfxMuted   = SafeStorage.get(LS_SFX_MUTED)   === '1';
         this.musicMuted = SafeStorage.get(LS_MUSIC_MUTED) === '1';
         this._preloadAll();
+        // Platform audio/pause signals (only Playgama implements this; no-op elsewhere).
+        PortalProvider.get().onPlatformState?.({
+            audio: (enabled) => { this._platformAudioOff = !enabled; this._applyMusicVolume(); },
+            pause: (paused)  => { this._platformPaused = paused;    this._applyMusicVolume(); },
+        });
+    }
+
+    private get _platformSilenced(): boolean {
+        return this._platformAudioOff || this._platformPaused;
+    }
+
+    /** Music volume honouring user mute, pause mute and platform mute. */
+    private _effectiveMusicVolume(): number {
+        return (this.musicMuted || this._pauseMuted || this._platformSilenced) ? 0 : this.musicVolume;
+    }
+
+    private _applyMusicVolume(): void {
+        if (this._musicSource) this._musicSource.volume = this._effectiveMusicVolume();
     }
 
     private _preloadAll(): void {
@@ -107,11 +130,11 @@ export class AudioManager extends Component {
 
     unmuteForPause(): void {
         this._pauseMuted = false;
-        if (!this.musicMuted) this._musicSource.volume = this.musicVolume;
+        this._applyMusicVolume();
     }
 
     play(sfx: SFX, relVolume = 1): void {
-        if (this.sfxMuted || this._pauseMuted) return;
+        if (this.sfxMuted || this._pauseMuted || this._platformSilenced) return;
         const clip = this._clips.get(sfx);
         if (!clip) { console.warn(`[Audio] NO CLIP — ${sfx}`); return; }
         this._sfxSource.playOneShot(clip, relVolume * this.sfxVolume);
@@ -127,7 +150,7 @@ export class AudioManager extends Component {
         this._musicSource.stop();  // interrupt whatever is playing (menu loop) before switching
         if (!clip) { this._loadMusic(track); return; }  // not loaded yet → play in the load callback
         this._musicSource.clip   = clip;
-        this._musicSource.volume = this.musicMuted ? 0 : this.musicVolume;
+        this._musicSource.volume = this._effectiveMusicVolume();
         this._musicSource.play();
         this._musicStarted = true;
     }
@@ -155,13 +178,13 @@ export class AudioManager extends Component {
     toggleMusic(): boolean {
         this.musicMuted = !this.musicMuted;
         SafeStorage.set(LS_MUSIC_MUTED, this.musicMuted ? '1' : '0');
-        this._musicSource.volume = this.musicMuted ? 0 : this.musicVolume;
+        this._applyMusicVolume();
         return this.musicMuted;
     }
 
     setMusicVolume(v: number): void {
         this.musicVolume = Math.max(0, Math.min(1, v));
-        if (!this.musicMuted) this._musicSource.volume = this.musicVolume;
+        this._applyMusicVolume();
     }
 
     duckMusicTo(volume: number): void {

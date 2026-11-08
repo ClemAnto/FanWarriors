@@ -6,8 +6,10 @@
  *   'poki'             → PokiPortal (Poki submission build: SDK loaded at runtime from their CDN)
  *   'crazygames'       → CrazyGamesPortal (CrazyGames build: SDK v3 loaded at runtime from their CDN)
  *   'gamedistribution' → GameDistributionPortal (GD submission build: SDK loaded at runtime from their CDN)
+ *   'playgama'         → PlaygamaPortal (Playgama Bridge: the SDK script is injected as the FIRST <head> tag
+ *                        by scripts/pack-playgama.js and initialised there BEFORE the engine boots)
  */
-export type PortalKind = 'none' | 'poki' | 'crazygames' | 'gamedistribution';
+export type PortalKind = 'none' | 'poki' | 'crazygames' | 'gamedistribution' | 'playgama';
 
 export const PORTAL: PortalKind = 'none';
 
@@ -15,10 +17,15 @@ export const PORTAL: PortalKind = 'none';
  * Whether an external online leaderboard may run on this build. GameDistribution §7
  * prohibits collecting/storing data on third-party services (e.g. Firestore), so the
  * online leaderboard — including its UI (Ranking scene, MainMenu button, end-game routing) —
- * is OFF on GD. Consumers combine this with LeaderboardConfig.ENABLED. Keeping the GD-specific
- * rule here leaves LeaderboardConfig project-agnostic/reusable.
+ * is OFF on GD. Playgama (tech req. 1.2.5) forbids any external resource/request and offers no
+ * Bridge leaderboard on its catalog → OFF there too. Consumers combine this with
+ * LeaderboardConfig.ENABLED. Keeping the portal-specific rules here leaves LeaderboardConfig
+ * project-agnostic/reusable.
  */
-export const LEADERBOARD_ALLOWED: boolean = PORTAL !== 'gamedistribution';
+export const LEADERBOARD_ALLOWED: boolean = PORTAL !== 'gamedistribution' && PORTAL !== 'playgama';
+
+/** Single Bridge storage key holding ALL persisted fw_* values as one JSON blob (Playgama build). */
+export const PLAYGAMA_SAVE_KEY = 'fw_save';
 
 /** Poki SDK v2 script — loaded lazily at runtime when PORTAL = 'poki'. */
 export const POKI_SDK_URL = 'https://game-cdn.poki.com/scripts/v2/poki-sdk.js';

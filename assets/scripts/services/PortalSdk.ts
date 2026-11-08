@@ -23,4 +23,17 @@ export interface PortalSdk {
     gameplayStart(): void;
     gameplayStop(): void;
     commercialBreak(onAdStart?: () => void): Promise<void>;
+    /**
+     * Optional: platform-driven audio/pause state (Playgama Bridge). The handler is invoked
+     * once with the initial state after init, then on every change. Portals without such
+     * signals don't implement it.
+     */
+    onPlatformState?(handler: PlatformStateHandler): void;
+}
+
+export interface PlatformStateHandler {
+    /** Platform allows audio (false = platform-level mute, independent of the user's mute). */
+    audio(enabled: boolean): void;
+    /** Platform paused the game (ad showing, tab hidden…) — silence everything while true. */
+    pause(paused: boolean): void;
 }

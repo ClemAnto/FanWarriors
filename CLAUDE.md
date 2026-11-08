@@ -46,6 +46,10 @@ Fase 5 — Pubblicazione (v0.10.18).
 
 Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti.
 
+**CrazyGames — RIGETTATO, motivo reale (2026-11-08): "concept too close to existing titles"** (percepito come clone Suika) → problema di differenziazione, non tecnico. Risottomettere senza rework del concept è inutile; dirottare su altri portali (Poki/Playgama).
+**GameDistribution — RIGETTATO (2026-11-08):** "does not match the criteria / fit with top partners' target audiences" (template B2B, nessun motivo tecnico). Adapter GD resta nel codice ma il canale è chiuso per questa build.
+**Playgama — SANDBOX LIVE (2026-11-08, v0.10.20):** https://playgama.ai/play/ivo67cyadktzzf (branch `feature/playgama`). Per la Review servono i target sandbox (100 plays, 9:00 avg, 0.30 ad/play). `npm run pack:playgama` → `dist/funwarriors-playgama-v<ver>.zip`.
+**Canale Playgama** — requisiti, gap analysis e roadmap P1–P4 in **`PLAYGAMA.md`** (Bridge SDK in head, no chiamate esterne → leaderboard OFF, storage via `bridge.storage`, eventi pausa/audio, `game_ready`).
 **CrazyGames — PRIMA VERSIONE RIGETTATA (2026-06-17)** con mail generica (nessun motivo specifico). Diagnosi: non un fail tecnico (eravamo conformi) ma **first-impression/qualità**. Sorgente di verità: **`CRAZYGAMES.md`** (requisiti completi dalle 7 pagine doc + checklist risottomissione + esito ricerca). Email di richiesta motivo **inviata**.
 
 **Pass di risottomissione fatto in v0.10.17:**

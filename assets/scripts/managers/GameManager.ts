@@ -34,7 +34,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.18';
+export const VERSION     = '0.10.20';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -2973,14 +2973,14 @@ export class GameManager extends Component implements IGameManagerDebug {
                         return s;
                     }),
             };
-            sys.localStorage.setItem(STATE_KEY, JSON.stringify(snap));
+            SafeStorage.set(STATE_KEY, JSON.stringify(snap));
         } catch (e) {
             console.warn('[GameManager] snapshot save failed (ignored):', e);
         }
     }
 
     private _clearSnapshot(): void {
-        try { sys.localStorage.removeItem(STATE_KEY); } catch { /* ignore */ }
+        SafeStorage.remove(STATE_KEY);
     }
 
     private _reattachAura(w: Warrior): void {
@@ -3069,11 +3069,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._errorDialogShown || this._errorSuppressed || this.state === GameState.GameOver) return;
         const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err ?? 'unknown');
         this._lastErrorText = `[${source}] ${msg}`;
-        // Persist the full stack so it can be retrieved later via localStorage.getItem('fw_last_error').
-        try {
+        // Persist the full stack so it can be retrieved later via SafeStorage.get('fw_last_error').
+        // Not on Playgama: a debug artifact must not bloat the Bridge save blob.
+        if (PORTAL !== 'playgama') {
             const full = `[${source}] ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
-            sys.localStorage.setItem('fw_last_error', full);
-        } catch { /* ignore */ }
+            SafeStorage.set('fw_last_error', full);
+        }
         try { this._showErrorDialog(); }
         catch (e) { console.error('[GameManager] failed to show error dialog:', e); }
     }

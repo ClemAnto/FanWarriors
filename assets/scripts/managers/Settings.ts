@@ -92,7 +92,7 @@ export class Settings extends Component {
         // Hide the fullscreen row when unsupported (no requestFullscreen) OR on CrazyGames:
         // custom in-game fullscreen buttons are prohibited there (the platform owns fullscreen).
         const fsUnsupported = !sys.isBrowser || !(document.documentElement as any).requestFullscreen;
-        if (this.fsToggle && (fsUnsupported || PORTAL === 'crazygames')) {
+        if (this.fsToggle && (fsUnsupported || PORTAL === 'crazygames' || PORTAL === 'playgama')) {
             this.fsToggle.node.active = false;
         }
     }

@@ -4,6 +4,8 @@
 > Fonti: docs.crazygames.com/requirements/ (intro, technical, gameplay, quality, ads, account-integration, game-covers).
 >
 > **Diagnosi del rigetto:** la mail era il template generico ("low gameplay quality, broken builds, copyright, integration"). Tecnicamente eravamo conformi (size, SDK, privacy). Il problema quasi certo è **qualità della prima esperienza**: non si "atterra nel gameplay" e l'onboarding è una **storia testuale in ScrollView** prima del gioco — contro due regole esplicite.
+>
+> **⚠️ AGGIORNAMENTO 2026-11-08 — motivo reale ricevuto:** *"The concept is quite close to existing titles, and we're currently prioritizing more differentiated experiences."* → il rigetto è di **concept/differenziazione** (percepito come clone Suika), NON tecnico né di onboarding. La diagnosi sopra era sbagliata. Le fix di v0.10.17 restano utili ma **da sole non bastano**: risottomettere la stessa build senza cambiare l'identità del gameplay è inutile.
 
 ---
 

@@ -1,11 +1,11 @@
-import { sys } from 'cc';
+import { SafeStorage } from '../utils/SafeStorage';
 import { LeaderboardEntry, LeaderboardService, SubmitResult } from './LeaderboardService';
 import { SCORE_CAP, TOP_N } from '../config/LeaderboardConfig';
 
 const LS_KEY = 'fw_leaderboard_mock';
 
 /**
- * Local, network-free leaderboard. Persists to localStorage so it survives reloads.
+ * Local, network-free leaderboard. Persists via SafeStorage so it survives reloads.
  * Use it to develop and test the full UI flow (qualify → name entry → submit →
  * board) before the real Firestore backend exists or while offline.
  *
@@ -57,7 +57,7 @@ export class MockLeaderboard implements LeaderboardService {
         if (this._loaded) return;
         this._loaded = true;
         try {
-            const raw = sys.localStorage.getItem(LS_KEY);
+            const raw = SafeStorage.get(LS_KEY);
             if (raw) {
                 this._entries = JSON.parse(raw);
                 return;
@@ -69,7 +69,7 @@ export class MockLeaderboard implements LeaderboardService {
 
     private _save(): void {
         try {
-            sys.localStorage.setItem(LS_KEY, JSON.stringify(this._sorted().slice(0, TOP_N)));
+            SafeStorage.set(LS_KEY, JSON.stringify(this._sorted().slice(0, TOP_N)));
         } catch { /* ignore quota errors */ }
     }
 
