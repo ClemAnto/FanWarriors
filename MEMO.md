@@ -874,6 +874,17 @@ npm run pack:crazygames   # scripts/pack-crazygames.js
 
 ---
 
+## MCP Playgama + gotcha sessione 2026-11-09
+
+- **MCP `playgama-developer-console`** registrato a **scope user** (`claude mcp add -s user --transport http playgama-developer-console https://developer.playgama.com/api/mcp`), login via `/mcp`. La registrazione a scope *local* NON compariva: VS Code apre il progetto come `d:/Projects/FunWarriors`, la CLI da PowerShell lo registra come `D:/...` → in `~/.claude.json` sono due progetti distinti (case-sensitive). Strumenti utili: `get_launch_steps`, `get_sandbox_state`, `get_sandbox_traffic`, telemetry (`get_game_telemetry_*`). Richiedono il sì esplicito dell'utente: `publish_sandbox`, `start_sandbox_traffic`, `send_playgama_catalog_update`, `replace_in_app_products`. Submit in moderazione/screenshot/rollback: solo a mano nel portale.
+- **Classifica nel QA tool:** i dati del QA tool (`qa_tool`) sono separati da quelli della sandbox live (`playgama`).
+- **Nomi piattaforma lunghi** nella riga classifica (Label "Name" centrata senza clamp) coprivano il numero di posizione → troncati a 8 char in `PlaygamaLeaderboard`.
+- **Server locali di test:** porte rimaste occupate da sessioni precedenti (`EADDRINUSE`, `Get-NetTCPConnection` non mostra il PID senza admin) → usare una porta nuova (8102…).
+- **Screenshot Chrome in timeout (CDP `captureScreenshot`)**: succede se la finestra di Chrome non è in primo piano/visibile → chiedere all'utente di portarla davanti.
+- **Game over rapido per test:** un lancio debole che colpisce warrior fermi appena sopra la linea rossa senza superarla → game over immediato (GDD §10).
+
+---
+
 ## Pacchetto Playgama + QA (2026-11-08)
 
 ```powershell
