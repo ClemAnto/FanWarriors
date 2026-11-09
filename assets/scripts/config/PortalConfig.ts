@@ -17,12 +17,16 @@ export const PORTAL: PortalKind = 'none';
  * Whether an external online leaderboard may run on this build. GameDistribution §7
  * prohibits collecting/storing data on third-party services (e.g. Firestore), so the
  * online leaderboard — including its UI (Ranking scene, MainMenu button, end-game routing) —
- * is OFF on GD. Playgama (tech req. 1.2.5) forbids any external resource/request and offers no
- * Bridge leaderboard on its catalog → OFF there too. Consumers combine this with
- * LeaderboardConfig.ENABLED. Keeping the portal-specific rules here leaves LeaderboardConfig
- * project-agnostic/reusable.
+ * is OFF on GD. Playgama (tech req. 1.2.5) forbids external requests → Firebase is never used
+ * there; LeaderboardProvider swaps in PlaygamaLeaderboard (Bridge SaaS leaderboard, served by
+ * Playgama itself). Consumers combine this with LeaderboardConfig.ENABLED. Keeping the
+ * portal-specific rules here leaves LeaderboardConfig project-agnostic/reusable.
  */
-export const LEADERBOARD_ALLOWED: boolean = PORTAL !== 'gamedistribution' && PORTAL !== 'playgama';
+export const LEADERBOARD_ALLOWED: boolean = PORTAL !== 'gamedistribution';
+
+/** Game-facing leaderboard id — must match `leaderboards[].id` in playgama-bridge-config.json
+ *  and the leaderboard created in the dev portal (Bridge SaaS → Leaderboards). */
+export const PLAYGAMA_LEADERBOARD_ID = 'top_score';
 
 /** Single Bridge storage key holding ALL persisted fw_* values as one JSON blob (Playgama build). */
 export const PLAYGAMA_SAVE_KEY = 'fw_save';

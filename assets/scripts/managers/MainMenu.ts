@@ -3,7 +3,8 @@ import { AudioManager, SFX } from './AudioManager';
 import { VERSION } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
-import { LEADERBOARD_ALLOWED } from '../config/PortalConfig';
+import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
+import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_CONFIG_ENABLED } from '../config/LeaderboardConfig';
 import { BgFill } from '../entities/BgFill';
 
@@ -63,6 +64,15 @@ export class MainMenu extends Component {
                 // Ensure a Button exists so CLICK is emitted even if the node lacks one.
                 this.leaderboardButton.getComponent(Button) ?? this.leaderboardButton.addComponent(Button);
                 this.leaderboardButton.on(Button.EventType.CLICK, this.onLeaderboard, this);
+                if (PORTAL === 'playgama') {
+                    // Platform board: show the button only where the Bridge exposes an in-game
+                    // leaderboard (moderation rejects leaderboard UI where it's unsupported).
+                    // Not done for Firestore: its init lazy-loads the Firebase SDK, kept off boot.
+                    const btn = this.leaderboardButton;
+                    btn.active = false;
+                    const svc = LeaderboardProvider.get();
+                    void svc.init().then(() => { if (btn.isValid) btn.active = svc.isAvailable; });
+                }
             }
         }
     }

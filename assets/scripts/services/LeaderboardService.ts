@@ -34,8 +34,17 @@ export interface SubmitResult {
 }
 
 export interface LeaderboardService {
-    /** True if this backend can actually talk to a store (false for Null). */
+    /**
+     * True if this backend can show an in-game board (false for Null). For platform
+     * backends it is only meaningful after init() resolved.
+     */
     readonly isAvailable: boolean;
+
+    /**
+     * True when the platform supplies the player name itself (e.g. Playgama Bridge):
+     * the UI must skip the arcade name entry and submit with name ''. Absent = false.
+     */
+    readonly providesNames?: boolean;
 
     /** Prepare the backend (SDK init, connection). Idempotent; resolves false on failure. */
     init(): Promise<boolean>;

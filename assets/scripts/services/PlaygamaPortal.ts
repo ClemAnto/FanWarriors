@@ -36,8 +36,6 @@ interface PlaygamaWindow {
 /** If no interstitial state arrives within this window after showInterstitial(), assume the Bridge
  *  skipped it (e.g. its own minimum delay between interstitials) and let the game continue. */
 const NO_AD_GRACE_MS = 1500;
-/** Max wait for the HTML loading screen to disappear before sending game_ready anyway. */
-const LOADING_SCREEN_MAX_WAIT_MS = 6000;
 
 /**
  * Playgama Bridge adapter.
@@ -49,8 +47,8 @@ const LOADING_SCREEN_MAX_WAIT_MS = 6000;
  * Here we just await that shim and map our lifecycle onto the Bridge API. No-throw everywhere.
  *
  *  - init()                → await window.__fwBridgeBoot (already resolved by the time we run)
- *  - gameLoadingFinished() → platform.sendMessage('game_ready'), deferred until the HTML loading
- *                            screen is gone (moderation rejects game_ready sent under it)
+ *  - gameLoadingFinished() → hides the HTML loading screen synchronously, then
+ *                            platform.sendMessage('game_ready') (moderation rejects it under the screen)
  *  - gameplayStart/Stop()  → deduped bookkeeping only (Bridge has no gameplay signal we need)
  *  - commercialBreak(cb)   → advertisement.showInterstitial(); `cb` on 'opened', resolve on
  *                            'closed'/'failed', grace period if the Bridge skips it, safety timeout.
@@ -87,16 +85,15 @@ export class PlaygamaPortal implements PortalSdk {
     gameLoadingFinished(): void {
         if (this._loadingFinishedSent) return;
         this._loadingFinishedSent = true;
-        const t0 = Date.now();
-        const trySend = (): void => {
-            if (!this._isLoadingScreenGone() && Date.now() - t0 < LOADING_SCREEN_MAX_WAIT_MS) {
-                setTimeout(trySend, 100);
-                return;
-            }
-            try { this._bridge?.platform.sendMessage('game_ready'); } catch { /* ignore */ }
-            console.log('[Portal] Playgama game_ready sent');
-        };
-        trySend();
+        // Called from the entry scene's start() → the menu is already launched and interactive.
+        // Remove the HTML loading screen NOW instead of waiting for its rAF-driven 100% + fade:
+        // that animation adds ~1 s to every load and stalls entirely when the browser throttles
+        // rAF (background tab / occluded or off-screen iframe), which left the screen stuck at 95%
+        // and game_ready sent under it after the 6 s fallback. Moderation requires game_ready to be
+        // sent only once the loading screen is gone → hide synchronously, then send.
+        this._hideLoadingScreen();
+        try { this._bridge?.platform.sendMessage('game_ready'); } catch { /* ignore */ }
+        console.log(`[Portal] Playgama game_ready sent (t=${Math.round(performance.now())} ms)`);
     }
 
     gameplayStart(): void { this._gameplayActive = true; }
@@ -169,9 +166,9 @@ export class PlaygamaPortal implements PortalSdk {
         this._breakListener = null;
     }
 
-    private _isLoadingScreenGone(): boolean {
-        if (typeof document === 'undefined') return true;
+    private _hideLoadingScreen(): void {
+        if (typeof document === 'undefined') return;
         const el = document.getElementById('loading-screen');
-        return !el || el.style.display === 'none';
+        if (el) el.style.display = 'none';
     }
 }

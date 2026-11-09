@@ -9,5 +9,17 @@
         "banner": {
             "disable": true
         }
+    },
+    "leaderboards": [
+        {
+            "id": "top_score",
+            "isMain": true
+        }
+    ],
+    "saas": {
+        "publicToken": "cmw8bdhco1y6jno0hrt0d78av",
+        "leaderboards": {
+            "platforms": ["playgama", "qa_tool"]
+        }
     }
 }

@@ -34,7 +34,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.20';
+export const VERSION     = '0.10.22';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -1695,6 +1695,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         } catch {
             return;
         }
+        if (!svc.isAvailable) {
+            // Platform renders its own board (e.g. Playgama Bridge 'native' type): just report
+            // the score — the in-game Ranking scene is not used there.
+            void svc.submit({ name: '', score, round: this.currentRound, version: VERSION, createdAt: Date.now() });
+            return;
+        }
         LeaderboardPanel.pendingScore = score;
         LeaderboardPanel.pendingRound = this.currentRound;
         LeaderboardPanel.pendingVersion = VERSION;
@@ -2869,7 +2875,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (this._lbReady) {
                 await Promise.race([this._lbReady, new Promise<void>(res => this.scheduleOnce(res, 3.0))]);
             }
-            await this._withCommercialBreak(() => director.loadScene(LEADERBOARD_ENABLED ? RANKING_SCENE : MAIN_MENU_SCENE));
+            const showRanking = LEADERBOARD_ENABLED && LeaderboardProvider.get().isAvailable;
+            await this._withCommercialBreak(() => director.loadScene(showRanking ? RANKING_SCENE : MAIN_MENU_SCENE));
         };
         for (const ep of [this.gameOverPanel, this.victoryPanel]) {
             if (!ep) continue;

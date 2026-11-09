@@ -96,8 +96,18 @@ export class LeaderboardPanel extends Component {
      * to the selector. Falls back to just showing the board if NameEntry is unbound.
      */
     private _runNameEntry(score: number, round: number, version: string): void {
-        if (!ENABLED || !this.nameEntry) { this._showBoard(); return; }
         const svc = LeaderboardProvider.get();
+        if (ENABLED && svc.providesNames) {
+            // Platform board (Playgama): the player's identity comes from the platform → no
+            // arcade name entry, submit straight away and highlight by score.
+            void (async () => {
+                await svc.init();
+                await svc.submit({ name: '', score, round, version, createdAt: Date.now() });
+                if (this.node?.isValid) this._showBoard('', score);
+            })();
+            return;
+        }
+        if (!ENABLED || !this.nameEntry) { this._showBoard(); return; }
         if (this._hasBoardChild) this.boardNode!.active = false; // board hidden during entry
         // Activate the NameEntry node first so its onLoad (binds buttons + self-hides) runs
         // BEFORE open(); otherwise open()'s own activation would trigger onLoad and re-hide it.
@@ -145,7 +155,9 @@ export class LeaderboardPanel extends Component {
             const e = entries[i];
             if (!e) { row.active = false; continue; }
             row.active = true;
-            const isMine = !highlighted && e.name === this._highlightName && e.score === this._highlightScore;
+            // Empty highlight name = platform-named board → match on score only.
+            const isMine = !highlighted && e.score === this._highlightScore
+                && (this._highlightName === '' || e.name === this._highlightName);
             if (isMine) highlighted = true;
             const tint = isMine ? this.highlightColor : this.normalColor;
             this._setRowLabel(row, 'Rank', String(i + 1), tint);
@@ -153,7 +165,8 @@ export class LeaderboardPanel extends Component {
             this._setRowLabel(row, 'Score', String(e.score), tint);
             // Round is shown if the prefab row has a "Round" Label (optional).
             // Date and Version are stored (Firestore) but intentionally NOT shown in the UI.
-            this._setRowLabel(row, 'Round', String(e.round ?? 1), tint);
+            // Platform boards don't store the round (round 0) → dash.
+            this._setRowLabel(row, 'Round', e.round > 0 ? String(e.round) : '–', tint);
         }
     }
 

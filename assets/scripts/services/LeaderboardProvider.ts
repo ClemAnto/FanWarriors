@@ -1,5 +1,6 @@
 import { BACKEND, ENABLED } from '../config/LeaderboardConfig';
-import { LEADERBOARD_ALLOWED } from '../config/PortalConfig';
+import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
+import { PlaygamaLeaderboard } from './PlaygamaLeaderboard';
 import { LeaderboardService } from './LeaderboardService';
 import { NullLeaderboard } from './NullLeaderboard';
 import { MockLeaderboard } from './MockLeaderboard';
@@ -32,6 +33,8 @@ export class LeaderboardProvider {
         // LEADERBOARD_ALLOWED is false on GD → force the no-op backend. CrazyGames / Poki /
         // standalone are untouched.
         if (!LEADERBOARD_ALLOWED) return new NullLeaderboard();
+        // Playgama: platform leaderboard via the Bridge (no external backend allowed there).
+        if (PORTAL === 'playgama') return new PlaygamaLeaderboard();
         switch (BACKEND) {
             case 'firestore': return new FirestoreLeaderboard();
             case 'mock':      return new MockLeaderboard();
