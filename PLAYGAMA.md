@@ -103,6 +103,12 @@
 
 ---
 
+## 2b. Classifica Playgama (2026-11-09, v0.10.23)
+- Bridge leaderboards **non** esistono nativamente su `playgama` → si usano le **SaaS leaderboards**: classifica `top_score` creata nel portale (Bridge SaaS → Leaderboards, Numeric, Higher is better) + blocco `saas` in `scripts/playgama/playgama-bridge-config.json` (`publicToken` = token del gioco, `platforms: ["playgama","qa_tool"]`) → `bridge.leaderboards.type === 'in_game'`.
+- `services/PlaygamaLeaderboard.ts`: `setScore`/`getEntries`; il **nome viene dalla piattaforma** (`providesNames` → niente NameEntry), round/versione non salvati (UI mostra "–"), si inviano solo i nuovi record personali (`fw_lb_submitted_best`), nomi troncati a 8 caratteri (oltre coprivano il numero di posizione).
+- Bottone Ranking e routing fine partita solo se `type === 'in_game'`; su piattaforme `native` si invia solo il punteggio.
+- Verificato: QA tool (game over 340 → submit → riga evidenziata) e sandbox live (bottone visibile, board vuota). Form portale: Game Features → **Leaderboards** spuntato.
+
 ## 3. Self-check moderazione (motivi di rimando più comuni, da wiki)
 - [ ] Progressi persi dopo reload / salvati fuori da `bridge.storage` / storage letto-scritto troppo spesso
 - [ ] Interstitial assenti o temporizzati da noi invece che dal Bridge

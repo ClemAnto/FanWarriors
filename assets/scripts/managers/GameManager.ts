@@ -34,7 +34,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.22';
+export const VERSION     = '0.10.23';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */

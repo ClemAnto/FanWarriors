@@ -40,7 +40,7 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
-Fase 5 — Pubblicazione (v0.10.22, branch **`feature/playgama`** — NON ancora mergiato su main).
+Fase 5 — Pubblicazione (v0.10.23 LIVE in sandbox Playgama dal 2026-11-09, branch **`feature/playgama`** — NON ancora mergiato su main).
 
 **Statistiche sandbox Playgama al 2026-11-09 (v0.10.20 live):** 8/100 qualifying plays, avg play time **8:27**/9:00, 0.25/0.30 ad/play, 3 target rimanenti. Metrics: 23 launch, **Game ready rate 65%**, bounce 65%, load 3,9 s, time-to-first-ad 2:17. Il vero collo di bottiglia sono le plays: ~35% dei launch non arriva a `game_ready`.
 **Fix v0.10.22 (pacchetto `dist/funwarriors-playgama-v0.10.22.zip` pronto, NON ancora caricato):** `game_ready` + hide sincrono del loading screen HTML (prima dipendeva dal loader rAF → bloccato al 95% con rAF throttled). Include anche la leaderboard Playgama via Bridge (`PlaygamaLeaderboard.ts`, v0.10.21). **Prossimo passo:** caricare v0.10.22 (Update Game), poi confrontare Game ready rate/bounce; usare la 2ª Share; poi linee guida retention (memoria: in gioco <30s, novità ogni 5 min, incentivo al ritorno). MCP Playgama registrato (`playgama-developer-console`) ma serve login `/mcp` dell'utente.
@@ -52,7 +52,7 @@ Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp
 **CrazyGames — RIGETTATO, motivo reale (2026-11-08): "concept too close to existing titles"** (percepito come clone Suika) → problema di differenziazione, non tecnico. Risottomettere senza rework del concept è inutile; dirottare su altri portali (Poki/Playgama).
 **GameDistribution — RIGETTATO (2026-11-08):** "does not match the criteria / fit with top partners' target audiences" (template B2B, nessun motivo tecnico). Adapter GD resta nel codice ma il canale è chiuso per questa build.
 **Playgama — SANDBOX LIVE (2026-11-08, v0.10.20):** https://playgama.ai/play/ivo67cyadktzzf (branch `feature/playgama`). Per la Review servono i target sandbox (100 plays, 9:00 avg, 0.30 ad/play). `npm run pack:playgama` → `dist/funwarriors-playgama-v<ver>.zip`.
-**Canale Playgama** — requisiti, gap analysis e roadmap P1–P4 in **`PLAYGAMA.md`** (Bridge SDK in head, no chiamate esterne → leaderboard OFF, storage via `bridge.storage`, eventi pausa/audio, `game_ready`).
+**Canale Playgama** — requisiti, gap analysis e roadmap P1–P4 in **`PLAYGAMA.md`** (Bridge SDK in head, no chiamate esterne → classifica via **Bridge SaaS** (`PlaygamaLeaderboard`, id `top_score`, nome dalla piattaforma, niente Firebase), storage via `bridge.storage`, eventi pausa/audio, `game_ready`).
 **CrazyGames — PRIMA VERSIONE RIGETTATA (2026-06-17)** con mail generica (nessun motivo specifico). Diagnosi: non un fail tecnico (eravamo conformi) ma **first-impression/qualità**. Sorgente di verità: **`CRAZYGAMES.md`** (requisiti completi dalle 7 pagine doc + checklist risottomissione + esito ricerca). Email di richiesta motivo **inviata**.
 
 **Pass di risottomissione fatto in v0.10.17:**
