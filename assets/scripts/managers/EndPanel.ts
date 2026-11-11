@@ -52,7 +52,11 @@ export class EndPanel extends Component {
         if (this._illustrationRequested || !this.illustrationPath || !this.illustration) return;
         this._illustrationRequested = true;
         resources.load(`${this.illustrationPath}/spriteFrame`, SpriteFrame, (err, frame) => {
-            if (err || !frame) { console.warn(`[EndPanel] illustration '${this.illustrationPath}' failed to load:`, err); return; }
+            if (err || !frame) {
+                console.warn(`[EndPanel] illustration '${this.illustrationPath}' failed to load:`, err);
+                this._illustrationRequested = false;  // let show() retry (e.g. a network blip during the 5 s preload)
+                return;
+            }
             if (this.illustration?.isValid) this.illustration.spriteFrame = frame;
         });
     }

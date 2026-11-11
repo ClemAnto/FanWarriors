@@ -20,6 +20,7 @@ Progetto Cocos Creator 3.8.8, TypeScript, gioco puzzle-arcade ibrido tra Suika G
 
 ## Nodi della scena
 - **Non modificare via codice** la posizione né la scala di nodi già impostati nell'editor, salvo eccezioni esplicitamente indicate. I valori dell'editor sono autoritativi per layout e proporzioni.
+  - Eccezione: il tasto **BOOST** (`BoostOffer`) parte dalla posizione dell'editor (centro, sotto il banner del round) e viene spostato da codice sopra la rotella opzioni (`parkAnchor`) prima di sparire — comportamento voluto (2026-11-11).
 - Le conversioni world → local devono usare la trasformata reale del nodo (`worldPosition` / `worldScale`), non costanti hardcoded.
 
 ## Convenzioni di codice

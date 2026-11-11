@@ -30,6 +30,9 @@ export class MainMenu extends Component {
     @property({ type: Node, tooltip: 'LEADERBOARD button — opens the Ranking scene.' })
     leaderboardButton: Node | null = null;
 
+    /** True once the MainMenu has run in this page session (first-visit skip applies only at boot). */
+    private static _entered = false;
+
     start(): void {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
@@ -38,7 +41,12 @@ export class MainMenu extends Component {
         // within 30 s"; Playgama telemetry showed ~half of the players who reached the menu never
         // got to 30 s of play). game_ready is NOT sent here: GameManager sends it once the Game
         // scene is playable, so the HTML loading screen covers the whole hand-off.
-        if (!SafeStorage.get(LS_PLAYED_ONCE)) {
+        // Only on the boot entry: if storage is unavailable (private mode / blocked localStorage)
+        // the flag never persists, and later menu visits (Menu button, back from Ranking) must not
+        // bounce straight back into the Game.
+        const bootEntry = !MainMenu._entered;
+        MainMenu._entered = true;
+        if (bootEntry && !SafeStorage.get(LS_PLAYED_ONCE)) {
             director.loadScene(GAME_SCENE);
             return;
         }

@@ -37,7 +37,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.28';
+export const VERSION     = '0.10.29';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
@@ -79,7 +79,7 @@ const WRS_PROX_INTERVAL      = 0.08; // seconds between WRS proximity spread che
 const AURA_REPEL_RANGE       = 160;  // design-px — max distance at which repelling force is applied
 const AURA_REPEL_FORCE       = 500;  // base force magnitude (design-px units, scaled by LAYOUT_SCALE)
 const AURA_ZAPP_HOLD         = 0.2;  // seconds a warrior must stay in range before being zapped
-const AURA_ZAP_MIN_TYPE      = 0;    // species below this index only repel — 0 = every species zaps (Aura now comes only from the rewarded BOOST: it must always pay off)
+const AURA_ZAP_MIN_TYPE      = 0;    // species below this index only repel — 0 = every species zaps (the rewarded BOOST can put Aura on any species, even a Frog: it must always pay off)
 const AURA_MIN_RANGE         = 80;   // design-px floor for the per-species range: the quadratic curve gives Frog ~3 px (= no zap ever), the floor keeps the neighbours in reach
 const INTERSTITIAL_EVERY_ROUNDS = 5; // interstitial during the round-up pause of rounds 6, 11, 16… (Bridge still enforces its own min delay)
 const ROUND_UP_PAUSE_SEC     = 2.16; // round-up freeze length (banner on screen, physics off)
@@ -670,10 +670,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         const loadingSpinner = this._showLoadingSpinner();
 
         // Fresh game: await only the round-1 species (the rest streams in during play). A restored
-        // mid-game board may contain any species → await all of them.
+        // mid-game board → await every species of the saved round (see _snapshotSpecies).
         const willRestore = !GameManager._forceNewGame && (GameManager._pendingRestore || !!SafeStorage.get(STATE_KEY));
         const firstSpecies = willRestore
-            ? GameManager._snapshotSpecies()  // only the species on the saved board (undefined → all)
+            ? GameManager._snapshotSpecies()  // board + saved-round species (undefined → all)
             : WARRIORS.filter(w => w.introRound <= 1).map(w => w.type);
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
@@ -1611,14 +1611,19 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (nw.mapper) nw.mapper.animScale = 0;
         if (nw.viewNode?.isValid) nw.viewNode.setScale(0, 0, 1);
         this.nextLaunchWarrior = nw;
-        if (nw.mapper) {
-            tween(nw.mapper)
-                .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
-                .to(0.08, { animScale: 0.9 })
-                .to(0.06, { animScale: 1.0 })
-                .call(() => { if (this.nextLaunchWarrior === nw) this.nextLaunchWarrior = null; })
-                .start();
-        }
+        this._popInLauncher(nw);
+    }
+
+    /** Spawn bounce of a launcher warrior (animScale 0 → 1.2 → 0.9 → 1); clears the
+     *  nextLaunchWarrior marker once settled. */
+    private _popInLauncher(w: Warrior): void {
+        if (!w.mapper) return;
+        tween(w.mapper)
+            .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
+            .to(0.08, { animScale: 0.9 })
+            .to(0.06, { animScale: 1.0 })
+            .call(() => { if (this.nextLaunchWarrior === w) this.nextLaunchWarrior = null; })
+            .start();
     }
 
     private swapNextWithLauncher(): void {
@@ -3003,6 +3008,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._warriorFreezePos = null;
         }
         if (this.state !== GameState.GameOver) PortalProvider.get().gameplayStart();
+        this._finishDeferredRoundUp();  // round-up that expired while the panel was open
     }
 
     // ── Resumable state: save / restore / reset ──────────────────────────────
@@ -3079,14 +3085,19 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._auraWarrior = w;
     }
 
-    /** Species present in the saved snapshot (board + launcher + next), so a restore awaits only
-     *  their sheets. undefined (→ await all) when the snapshot is missing or unreadable. */
+    /** Species a restore needs before play resumes: those on the saved board (launcher + next
+     *  included) PLUS every species spawnable in the saved round (the very next spawn may be one
+     *  not on the board; a warrior built before its sheet loads stays a placeholder) and the
+     *  round-1 species (fresh-game fallback if the restore fails). undefined (→ await all) when
+     *  the snapshot is missing or unreadable. */
     private static _snapshotSpecies(): string[] | undefined {
         try {
             const snap = JSON.parse(SafeStorage.get(STATE_KEY) ?? '') as GameSnapshot;
+            const round = typeof snap.round === 'number' ? Math.max(1, snap.round) : Number.MAX_SAFE_INTEGER;
             const indices = new Set<number>([
                 ...(snap.warriors ?? []).map(w => w.type),
                 snap.launcher?.type, snap.next?.type,
+                ...WARRIORS.map((w, i) => (w.introRound <= round ? i : undefined)),
             ].filter((t): t is number => typeof t === 'number'));
             // Array.from, not [...set]: the build's downlevel spread of a Set yields [Set] (no iteration).
             const types = Array.from(indices).map(i => WARRIORS[i]?.type).filter((t): t is string => !!t);
@@ -3146,14 +3157,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.warriors.push(launcher);
             this.nextLaunchWarrior = launcher;
             // Pop it in (same bounce as a regular spawn) — otherwise it stays at scale 0, invisible.
-            if (launcher.mapper) {
-                tween(launcher.mapper)
-                    .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
-                    .to(0.08, { animScale: 0.9 })
-                    .to(0.06, { animScale: 1.0 })
-                    .call(() => { if (this.nextLaunchWarrior === launcher) this.nextLaunchWarrior = null; })
-                    .start();
-            }
+            this._popInLauncher(launcher);
 
             this._nextPowerup        = launcherPU;
             this._nextPowerupPending = launcherPU != null;
@@ -3248,6 +3252,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Brief grace period so a recurring error doesn't instantly re-pop the dialog.
         this._errorSuppressed = true;
         this.scheduleOnce(() => { this._errorSuppressed = false; }, 1.5);
+        this._finishDeferredRoundUp();
     }
 
     private _makeDialogButton(parent: Node, text: string, x: number, y: number, color: Color): Node {
@@ -3506,7 +3511,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
             this.showRoundUpBanner();
-            const interstitialRound = (this.currentRound - 1) % INTERSTITIAL_EVERY_ROUNDS === 0;
+            // Mid-session interstitial: Playgama only (Poki / CrazyGames / GD allow ads only between sessions).
+            const interstitialRound = PORTAL === 'playgama' && (this.currentRound - 1) % INTERSTITIAL_EVERY_ROUNDS === 0;
             if (!interstitialRound) this._offerBoost(ROUND_UP_PAUSE_SEC, QA_E2E_HOOKS ? 30 : BOOST_OFFER_EXTRA_SEC);
             // New species unlocked → game-over line steps down as part of the reward.
             // Runs inside the physics freeze: warriors are static while the line moves,
@@ -3519,10 +3525,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     /** End of the round-up freeze. On interstitial rounds the ad runs first, game still frozen.
-     *  If the BOOST modal / rewarded ad is holding the game, defer until it closes. */
+     *  If the BOOST modal / rewarded ad — or the Settings / auto-pause / error dialog (state Paused) —
+     *  is holding the game, defer until it closes: never run an ad or restart physics under a pause. */
     private async _finishRoundUp(withInterstitial: boolean): Promise<void> {
         if (!this.node?.isValid || this.state === GameState.GameOver) return;
-        if (this._adPaused) { this._roundUpResumeDeferred = true; return; }
+        if (this._adPaused || this.state === GameState.Paused) { this._roundUpResumeDeferred = true; return; }
         if (withInterstitial) {
             this._enterAdPause();
             try { await PortalProvider.get().commercialBreak(() => AudioManager.instance.muteForPause()); }
@@ -3535,6 +3542,22 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.unfreezeInput();
         this.roundUpPause = false;
         AudioManager.instance.unduckMusic();
+        this._repinAfterDeferredResize();
+    }
+
+    /** Finish a round-up that expired while the game was paused (Settings / auto-pause / error dialog). */
+    private _finishDeferredRoundUp(): void {
+        if (!this._roundUpResumeDeferred || this._adPaused || this.state === GameState.Paused) return;
+        this._roundUpResumeDeferred = false;
+        void this._finishRoundUp(false);
+    }
+
+    /** A resize that settled while physics was off (ad pause / round-up freeze) left its re-pin
+     *  pending (see _doUnfreeze): apply it as soon as physics runs again. */
+    private _repinAfterDeferredResize(): void {
+        if (this._resizeFrozen || !this._warriorFreezePos || !PhysicsSystem2D.instance.enable) return;
+        this._restoreWarriorLocalPos();
+        this._warriorFreezePos = null;
     }
 
     // --- BOOST (rewarded ad → Aura on the launcher) ---
@@ -3567,14 +3590,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (rewarded) this._grantBoostAura();
     }
 
-    /** Aura on the warrior waiting on the launcher; if none is there yet, on the next one. */
     /** Open the BOOST modal only when it is safe to freeze the game: launcher ready (Aiming) or
      *  during the round-up freeze. Freezing physics while a shot is in flight (tap right after the
      *  release) left the warrior stuck below the line — the launch never resolved. Otherwise the
      *  request waits for the next launcher (activateWarrior). */
     private _requestBoostPanel(): void {
         if (this.state === GameState.GameOver) return;
-        if (this.state === GameState.Aiming || this.roundUpPause) {
+        if (this.state === GameState.Aiming || (this.roundUpPause && this.state !== GameState.Paused)) {
             this._boostPanelRequested = false;
             this._enterAdPause();
             this.boostOffer?.openPanel();
@@ -3583,6 +3605,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
+    /** Aura on the warrior waiting on the launcher; if none is there yet, on the next one. */
     private _grantBoostAura(): void {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid || w.launched || this.state === GameState.GameOver) return;  // stays pending
@@ -3613,12 +3636,16 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._stateBeforeAdPause = null;
         this.inputCtrl.blocked = false;
         PortalProvider.get().gameplayStart();
+        // A resize during the modal / ad (e.g. rotating the phone) settled while state was Paused:
+        // finish it now that the game state is back (same as _exitSettingsPause).
+        if (this._resizeFrozen) this._doUnfreeze();
         if (finishDeferredRoundUp && this._roundUpResumeDeferred) {
             this._roundUpResumeDeferred = false;
             void this._finishRoundUp(false);
         } else if (!this.roundUpPause) {
             PhysicsSystem2D.instance.enable = true;
         }
+        this._repinAfterDeferredResize();
     }
 
 
@@ -3782,12 +3809,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (!w?.node?.isValid || !w.mapper) return;
             w.mapper.animScale = 0;
             AudioManager.instance.play(SFX.SPAWN, 0.8);
-            tween(w.mapper)
-                .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
-                .to(0.08, { animScale: 0.9 })
-                .to(0.06, { animScale: 1.0 })
-                .call(() => { if (this.nextLaunchWarrior === w) this.nextLaunchWarrior = null; })
-                .start();
+            this._popInLauncher(w);
         }, 0);
 
         if (this.nextNextWarriorNode?.isValid) {

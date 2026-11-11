@@ -45,6 +45,8 @@ interface PlaygamaWindow {
 const NO_AD_GRACE_MS = 1500;
 /** Upper bound for a rewarded ad (videos are typically 15–30 s, plus load time). */
 const REWARDED_TIMEOUT_MS = 90_000;
+/** No rewarded state at all within this window → the Bridge isn't showing anything: give up. */
+const REWARDED_NO_STATE_GRACE_MS = 5_000;
 /** Game-level rewarded placement id (playgama-bridge-config.json → advertisement.rewarded). */
 const REWARDED_PLACEMENT = 'boost';
 
@@ -168,8 +170,10 @@ export class PlaygamaPortal implements PortalSdk {
         return new Promise<boolean>(resolve => {
             let done = false;
             let rewarded = false;
+            let gotState = false;
             const ev = bridge.EVENT_NAME.REWARDED_STATE_CHANGED;
             const listener = (state: string): void => {
+                gotState = true;
                 if (state === 'opened') { try { onAdStart?.(); } catch { /* ignore */ } }
                 // Reward ONLY on 'rewarded' (Bridge docs): 'closed' alone = skipped / closed early.
                 else if (state === 'rewarded') rewarded = true;
@@ -178,10 +182,13 @@ export class PlaygamaPortal implements PortalSdk {
             const finish = (): void => {
                 if (done) return;
                 done = true;
+                clearTimeout(graceTimer);
                 clearTimeout(safetyTimer);
                 try { bridge.advertisement.off?.(ev, listener); } catch { /* ignore */ }
                 resolve(rewarded);
             };
+            // Bridge silent (no 'loading'/'opened' at all) → don't keep the game frozen for the full cap.
+            const graceTimer  = setTimeout(() => { if (!gotState) finish(); }, REWARDED_NO_STATE_GRACE_MS);
             // Rewarded videos run longer than interstitials: generous cap, never block forever.
             const safetyTimer = setTimeout(finish, REWARDED_TIMEOUT_MS);
             try {
