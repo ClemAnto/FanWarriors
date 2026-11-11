@@ -121,6 +121,9 @@ Decisioni 2026-11-11: interstitial a fine partita **e ogni 5 round** (pausa roun
 
 Lettura: `get_game_telemetry_event_analytics` (eventKind `custom`) su `game_ended` → distribuzione round/durata; `game_started`/game_ready = quanti premono PLAY.
 
+### REVIVE (v0.10.31, 2026-11-11)
+Al **primo game over** di ogni partita il GameOverPanel mostra "WATCH AN AD TO KEEP PLAYING" + **REVIVE** (gruppo `Revive` nel prefab, `EndPanel.reviveGroup`). REVIVE → rewarded (stesso `showRewarded` del BOOST): `rewarded` → `_revive()`: pannello nascosto, handoff classifica annullato, zap (come l'Aura) del colpevole + dei warrior che toccano la linea + del 35% più basso della pista, poi il warrior in rampa (o uno nuovo) riceve **Brotherhood**; `skipped` → l'offerta resta; `unavailable` → il tasto dice "NO AD YET". Con l'offerta attiva il tasto "Continue" diventa **"End game"** ("Continue" accanto a REVIVE era fuorviante). Una sola volta per partita (Playgama 2.2.4). Test e2e: `?fwqa=gameover` (con `QA_E2E_HOOKS=true`) forza un game over a 4 s e a 20 s. `game_ended` viene inviato su Continue se c'era l'offerta; nuovi eventi `revive_ad` {outcome} e `game_revived` {cleared}.
+
 ## 2d. Peso del primo avvio (v0.10.25, 2026-11-11)
 
 Ottimizzato il percorso di caricamento (`scripts/optimize-boot-images.js`, UUID invariati):

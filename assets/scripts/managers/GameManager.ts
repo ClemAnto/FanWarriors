@@ -37,7 +37,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.30';
+export const VERSION     = '0.10.31';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
@@ -216,6 +216,14 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _roundUpResumeDeferred = false;
     /** Rewarded BOOST granted while no warrior was on the launcher → Aura on the next one. */
     private _pendingBoostAura = false;
+    /** REVIVE (rewarded ad at the first game over) already used in this game. */
+    private _reviveUsed = false;
+    /** Warrior that caused the game over (sunk below the line / failed shot) — cleared on revive. */
+    private _gameOverCulprit: Warrior | null = null;
+    /** Warrior waiting on the launcher when the game ended — put back in play on revive. */
+    private _launcherAtGameOver: Warrior | null = null;
+    /** game_ended already sent for this game (with a revive offer it is deferred to Continue). */
+    private _gameEndedTracked = false;
     /** BOOST tapped while a shot was in flight → open the modal on the next launcher. */
     private _boostPanelRequested = false;
     private timerRemaining = LAUNCH_TIMER;
@@ -709,6 +717,12 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (QA_E2E_HOOKS && sys.isBrowser) {
                 const match = /fwqa=advance(\d+)/.exec(window.location.search);
                 if (match) this.scheduleOnce(() => { this.setDebugRound(Number(match[1])); this.advanceRound(); }, 4);
+                // ?fwqa=gameover → game over at 4 s and again at 20 s (first offers REVIVE, second must not).
+                if (/fwqa=gameover/.test(window.location.search)) {
+                    const lose = (): void => { if (this.state !== GameState.GameOver) this.triggerGameOver(this.warriors.find(w => w.crossedLine)); };
+                    this.scheduleOnce(lose, 4);
+                    this.scheduleOnce(lose, 20);
+                }
             }
             if (PortalProvider.get().trackEvent) {
                 this._perfSampler = new PerformanceSampler(data => this._trackEvent('performance_sample', data), VERSION);
@@ -1482,7 +1496,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (w.velocity.length() < SETTLE_VELOCITY) {
             if (w.hitOtherWarrior) {
                 w.playGameOverEffect();
-                this.triggerGameOver();
+                this.triggerGameOver(w);
             } else {
                 this.penaliseAndReturn(w);
             }
@@ -1598,7 +1612,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private penaltyExplode(w: Warrior): void {
         if (this.timerPaused) return;
         w.playGameOverEffect();
-        this.triggerGameOver();
+        this.triggerGameOver(w);
     }
 
     private cycleLauncherLevel(w: Warrior): void {
@@ -1713,9 +1727,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         AudioManager.instance.play(SFX.SPAWN, 0.6);
     }
 
-    private triggerGameOver(): void {
+    private triggerGameOver(culprit?: Warrior): void {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
+        this._gameOverCulprit = culprit ?? null;
+        this._launcherAtGameOver = this._activeLauncherWarrior;  // reused if the game is revived
         this._slowmoTimer = 0;
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
@@ -1870,9 +1886,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private showGameOverScreen(): void {
-        this._trackGameEnded('lose');
+        const canRevive = this._canOfferRevive();
+        // With a revive on offer the game may go on: game_ended is sent on Continue instead.
+        if (!canRevive) this._trackGameEnded('lose');
         if (this.gameOverPanel) {
-            this.gameOverPanel.show(this.score, this.currentRound, this.bestScore, this._newBest);
+            this.gameOverPanel.show(this.score, this.currentRound, this.bestScore, this._newBest, canRevive);
         } else {
             console.warn('[GameManager] GameOverPanel not found — no end screen shown');
         }
@@ -1882,6 +1900,8 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     /** Sent when the end panel appears, so `score` is final (victory bonus / odometer settled). */
     private _trackGameEnded(result: 'win' | 'lose'): void {
+        if (this._gameEndedTracked) return;
+        this._gameEndedTracked = true;
         this._trackEvent('game_ended', {
             result,
             round: this.currentRound,
@@ -2967,9 +2987,13 @@ export class GameManager extends Component implements IGameManagerDebug {
             const showRanking = LEADERBOARD_ENABLED && LeaderboardProvider.get().isAvailable;
             await this._withCommercialBreak(() => director.loadScene(showRanking ? RANKING_SCENE : MAIN_MENU_SCENE));
         };
+        if (this.gameOverPanel) this.gameOverPanel.onRevive = () => { void this._onReviveRequested(); };
         for (const ep of [this.gameOverPanel, this.victoryPanel]) {
             if (!ep) continue;
-            ep.onContinue = () => { void advance(); };
+            ep.onContinue = () => {
+                if (ep === this.gameOverPanel) this._trackGameEnded('lose');  // deferred when a revive was offered
+                void advance();
+            };
         }
     }
 
@@ -3582,6 +3606,74 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._resizeFrozen || !this._warriorFreezePos || !PhysicsSystem2D.instance.enable) return;
         this._restoreWarriorLocalPos();
         this._warriorFreezePos = null;
+    }
+
+    // --- REVIVE (rewarded ad at the first game over → continue + strongest powerup) ---
+
+    /** Fraction of the on-track warriors (the lowest ones, nearest the line) cleared on revive. */
+    private static readonly REVIVE_CLEAR_FRACTION = 0.35;
+
+    /** Once per game (Playgama 2.2.4: a revive at most once per attempt), only where rewarded ads exist. */
+    private _canOfferRevive(): boolean {
+        const portal = PortalProvider.get();
+        return !this._reviveUsed && !!this.gameOverPanel && !!portal.showRewarded && !!portal.isRewardedSupported?.();
+    }
+
+    private async _onReviveRequested(): Promise<void> {
+        if (this.state !== GameState.GameOver || this._reviveUsed) return;
+        const portal = PortalProvider.get();
+        let outcome: RewardedOutcome = 'unavailable';
+        try { outcome = (await portal.showRewarded?.(() => AudioManager.instance.muteForPause())) ?? 'unavailable'; }
+        finally { AudioManager.instance.unmuteForPause(); }
+        if (!this.node?.isValid || this.state !== GameState.GameOver) return;
+        this._trackEvent('revive_ad', { outcome, round: this.currentRound, score: this.score });
+        if (outcome === 'rewarded') { this._revive(); return; }
+        // Not watched: the offer stays. No ad at all → say so on the button (no "!" — font).
+        this.gameOverPanel?.setReviveAvailable(true, outcome === 'unavailable' ? 'NO AD YET' : 'REVIVE');
+    }
+
+    /**
+     * Continue the lost game: clear the danger zone (the culprit + every warrior touching the line
+     * + the lowest REVIVE_CLEAR_FRACTION of the board, zapped into sparks like the Aura does), then
+     * hand a fresh launcher the strongest powerup (Brotherhood: implodes a whole species).
+     */
+    private _revive(): void {
+        this._reviveUsed = true;
+        this.gameOverPanel?.hide();
+        // The game goes on: drop the end-of-game leaderboard hand-off armed at game over.
+        LeaderboardPanel.pendingScore = null;
+        this._lbReady = null;
+
+        const gol = this.gameOverLineLocal;
+        const onTrack = this.warriors
+            .filter(w => w.node?.isValid && w.crossedLine && !w.merging)
+            .sort((a, b) => a.node.position.y - b.node.position.y);
+        const toClear = new Set<Warrior>(onTrack.slice(0, Math.ceil(onTrack.length * GameManager.REVIVE_CLEAR_FRACTION)));
+        for (const w of onTrack) if (w.node.position.y - w.radius <= gol) toClear.add(w);
+        const culprit = this._gameOverCulprit;
+        if (culprit?.node?.isValid && !culprit.merging) toClear.add(culprit);
+        this._gameOverCulprit = null;
+        this.inflightWarrior = null;
+        this.framesBelowLine.clear();
+        this.framesAboveLine.clear();
+        toClear.forEach(w => this._zappWarrior(w));
+
+        // Idle (not Settling: checkSettled would spawn a launcher of its own) until activation below.
+        this.state = GameState.Idle;
+        this.inputCtrl.blocked = false;
+        AudioManager.instance.playMusic();
+        PortalProvider.get().gameplayStart();
+        this._trackEvent('game_revived', { round: this.currentRound, score: this.score, cleared: toClear.size });
+        this.scheduleOnce(() => {
+            if (!this.node?.isValid || this.state === GameState.GameOver) return;
+            // Reuse the warrior that was waiting on the launcher; spawn one only if there was none
+            // (the culprit was the shot in flight, now zapped).
+            const waiting = this._launcherAtGameOver;
+            this._launcherAtGameOver = null;
+            const launcher = waiting?.node?.isValid && !waiting.launched && !toClear.has(waiting) ? waiting : this.createWarrior();
+            this.activateWarrior(launcher);
+            this.activateBrotherhood();
+        }, 0.6);
     }
 
     // --- BOOST (rewarded ad → Aura on the launcher) ---
