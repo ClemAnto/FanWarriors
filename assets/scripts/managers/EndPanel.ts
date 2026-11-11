@@ -23,7 +23,7 @@ export class EndPanel extends Component {
     roundLabel: Label | null = null;
     @property({ type: Label, tooltip: 'Stored best line — hidden automatically when this run set a new best.' })
     bestLabel: Label | null = null;
-    @property({ type: Node, tooltip: 'Animated "NEW BEST SCORE!" node — shown only on a new record.' })
+    @property({ type: Node, tooltip: 'Animated "NEW BEST SCORE" node — shown only on a new record.' })
     newBestNode: Node | null = null;
     @property({ type: Button, tooltip: 'The single forward button (Continue).' })
     continueButton: Button | null = null;

@@ -28,13 +28,18 @@ import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_CONFIG_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 import { PortalProvider } from '../services/PortalProvider';
 import { PORTAL, LEADERBOARD_ALLOWED } from '../config/PortalConfig';
+import { AnalyticsData } from '../services/PortalSdk';
+import { PerformanceSampler } from '../utils/PerformanceSampler';
+import { BoostOffer } from './BoostOffer';
 const { ccclass, property } = _decorator;
 
 /** Effective online-leaderboard switch: configured ON *and* allowed on this portal build
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.23';
+export const VERSION     = '0.10.24';
+/** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
+export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -45,6 +50,10 @@ const DEBUG              = false;
 const DEBUG_ENGINE       = false;
 const SHOW_ENDLINE_DEBUG = false;  // set true to draw the purple dashed game-over threshold line (debug)
 const LIVE_RESIZE        = true;   // real-time relayout on browser resize — kept on in production too (negligible cost, fires only on resize)
+/** TEST (e2e in the Playgama QA tool, where the cross-origin iframe can't be scripted): when true,
+ *  a `?fwqa=advanceN` query on the game URL jumps to round N and forces the next round-up ~4 s
+ *  after the game starts (N=1 → round 2 BOOST, N=5 → round 6 interstitial). Keep false in uploads. */
+const QA_E2E_HOOKS = false;
 const TEST_FIRST_LAUNCH_GAMEOVER = false; // TEST: first launch forces game-over @15k to exercise the leaderboard flow
 // Continuous forces are applied once per render frame, but Box2D steps at a fixed rate, so on a
 // 144/165 Hz monitor the same force accumulates ~2.4× per physics step. Multiply every per-frame
@@ -70,7 +79,11 @@ const WRS_PROX_INTERVAL      = 0.08; // seconds between WRS proximity spread che
 const AURA_REPEL_RANGE       = 160;  // design-px — max distance at which repelling force is applied
 const AURA_REPEL_FORCE       = 500;  // base force magnitude (design-px units, scaled by LAYOUT_SCALE)
 const AURA_ZAPP_HOLD         = 0.2;  // seconds a warrior must stay in range before being zapped
-const AURA_ZAP_MIN_TYPE      = 2;    // species below this index only repel — no zap/auto-merge
+const AURA_ZAP_MIN_TYPE      = 0;    // species below this index only repel — 0 = every species zaps (Aura now comes only from the rewarded BOOST: it must always pay off)
+const AURA_MIN_RANGE         = 80;   // design-px floor for the per-species range: the quadratic curve gives Frog ~3 px (= no zap ever), the floor keeps the neighbours in reach
+const INTERSTITIAL_EVERY_ROUNDS = 5; // interstitial during the round-up pause of rounds 6, 11, 16… (Bridge still enforces its own min delay)
+const ROUND_UP_PAUSE_SEC     = 2.16; // round-up freeze length (banner on screen, physics off)
+const BOOST_OFFER_EXTRA_SEC  = 4;    // BOOST button stays parked above the settings gear this long after the round-up pause ends
 const WRS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
 const WRS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before WRS spreads
 const PF_PROX_INTERVAL       = 0.08;
@@ -158,6 +171,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     victoryPanel: EndPanel | null = null;
     @property({ type: OnboardingHints, tooltip: 'In-gameplay onboarding hints (optional). Drives editor-authored hint nodes.' })
     onboarding: OnboardingHints | null = null;
+    @property({ type: BoostOffer, tooltip: 'Round-up BOOST offer (rewarded ad → Aura). Optional; shown only where rewarded ads are supported.' })
+    boostOffer: BoostOffer | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -184,6 +199,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     private totalMerges = 0;
     private mergesThisLaunch = 0;
     private roundUpPause = false;
+    /** performance.now() when this game started (fresh or restored) — game_ended duration. */
+    private _gameStartedAt = 0;
+    /** Playgama performance_sample emitter; null on portals without analytics. */
+    private _perfSampler: PerformanceSampler | null = null;
+    /** True while the BOOST confirm modal / rewarded ad (or a round-up interstitial) holds the game. */
+    private _adPaused = false;
+    private _stateBeforeAdPause: GameState | null = null;
+    /** Round-up pause expired while the game was ad-paused → finish it when the ad pause ends. */
+    private _roundUpResumeDeferred = false;
+    /** Rewarded BOOST granted while no warrior was on the launcher → Aura on the next one. */
+    private _pendingBoostAura = false;
     private timerRemaining = LAUNCH_TIMER;
     private timerPaused = false;
     private waitForSettling = false;
@@ -642,6 +668,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.initHud();
             this._wireOnboardingReplayTap();
             this._wirePanels();
+            this._wireBoostOffer();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(SafeStorage.get('fw_best_score') ?? '0', 10) || 0;
 
@@ -656,6 +683,16 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const firstWarrior = this.createWarrior();
                 this.activateWarrior(firstWarrior);
                 this.onboarding?.maybeShowAimHint();  // first-turn "drag & release" gesture hint
+            }
+            this._gameStartedAt = performance.now();
+            SafeStorage.set(LS_PLAYED_ONCE, '1');  // later visits open on the MainMenu
+            this._trackEvent('game_started', { restored: restoring, round: this.currentRound });
+            if (QA_E2E_HOOKS && sys.isBrowser) {
+                const match = /fwqa=advance(\d+)/.exec(window.location.search);
+                if (match) this.scheduleOnce(() => { this.setDebugRound(Number(match[1])); this.advanceRound(); }, 4);
+            }
+            if (PortalProvider.get().trackEvent) {
+                this._perfSampler = new PerformanceSampler(data => this._trackEvent('performance_sample', data), VERSION);
             }
 
             if (DEBUG) this._debugPanelNode = this._spawnDebugPanel();
@@ -1131,6 +1168,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.vfx.tick(dt);
         this.tickSlowmo(dt);
         this._sortWarriorLayerByY();
+        this._perfSampler?.tick(this.state !== GameState.GameOver && this.state !== GameState.Paused && !this.roundUpPause);
         if (SHOW_ENDLINE_DEBUG) this._drawEndlineDebug();
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
         if (!this.roundUpPause) this._checkProximityMerge(dt);
@@ -1271,6 +1309,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private activateWarrior(w: Warrior): void {
         this._activeLauncherWarrior = w;
+        if (this._pendingBoostAura) this.scheduleOnce(() => this._grantBoostAura(), 0);  // after the launcher setup below
         this.inputCtrl.setWarrior(w);
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.mergesThisLaunch = 0;
@@ -1663,6 +1702,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // The panel appears only once pending merges and the score odometer have settled.
         this._revealEndPanelWhenSettled(() => this.showGameOverScreen(), END_PANEL_DELAY);
         PortalProvider.get().gameplayStop();
+        this.boostOffer?.hideOffer();
         try {
             this.vfx.screenShake(12, 0.35);
             this.inputCtrl.clearWarrior();
@@ -1713,6 +1753,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
         PortalProvider.get().gameplayStop();
+        this.boostOffer?.hideOffer();
         this.inputCtrl.clearWarrior();
         this.inputCtrl.blocked = true;  // inhibit all controls until the panel is shown
         this.vfx.screenShake(18, 0.6);
@@ -1793,6 +1834,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private showVictoryScreen(): void {
+        this._trackGameEnded('win');
         if (this.victoryPanel) {
             this.victoryPanel.show(this.score, this.currentRound, this.bestScore, this._newBest);
         } else {
@@ -1801,11 +1843,28 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private showGameOverScreen(): void {
+        this._trackGameEnded('lose');
         if (this.gameOverPanel) {
             this.gameOverPanel.show(this.score, this.currentRound, this.bestScore, this._newBest);
         } else {
             console.warn('[GameManager] GameOverPanel not found — no end screen shown');
         }
+    }
+
+    // --- analytics (Playgama telemetry; no-op on portals without trackEvent) ---
+
+    /** Sent when the end panel appears, so `score` is final (victory bonus / odometer settled). */
+    private _trackGameEnded(result: 'win' | 'lose'): void {
+        this._trackEvent('game_ended', {
+            result,
+            round: this.currentRound,
+            score: this.score,
+            duration_sec: this._gameStartedAt > 0 ? Math.round((performance.now() - this._gameStartedAt) / 1000) : 0,
+        });
+    }
+
+    private _trackEvent(name: string, data?: AnalyticsData): void {
+        try { PortalProvider.get().trackEvent?.(name, data); } catch { /* analytics must never break the game */ }
     }
 
     // --- merge ---
@@ -2284,7 +2343,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // so lower species are sharply weaker:
         //   Frog≈2% Cat≈8% Chicken≈18% Wolf≈33% Eagle≈51% Lion≈73% Dragon=100%.
         const k = (type + 1) / WARRIORS.length;
-        return AURA_REPEL_RANGE * k * k;
+        return Math.max(AURA_MIN_RANGE, AURA_REPEL_RANGE * k * k);
     }
 
     private _restoreAuraScales(): void {
@@ -2684,7 +2743,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._trackClearedBonusUsed = true;
         const bonus = 1000 * this.currentRound;
         this.score += bonus;
-        this._trackBestSingle(bonus, `Track Cleared! ×${this.currentRound}`);
+        this._trackBestSingle(bonus, `Track Cleared ×${this.currentRound}`);
         this.updateScoreLabel();
         this.vfx.spawnTrackClearedBanner(x, yC, bonus);
         this._maybeScoreSlowmo(bonus);
@@ -3382,6 +3441,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private advanceRound(): void {
         this.currentRound++;
+        this._trackEvent('round_reached', { round: this.currentRound });
         this._trackClearedBonusUsed = false;
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
@@ -3399,19 +3459,104 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
             this.showRoundUpBanner();
+            const interstitialRound = (this.currentRound - 1) % INTERSTITIAL_EVERY_ROUNDS === 0;
+            if (!interstitialRound) this._offerBoost(ROUND_UP_PAUSE_SEC, QA_E2E_HOOKS ? 30 : BOOST_OFFER_EXTRA_SEC);
             // New species unlocked → game-over line steps down as part of the reward.
             // Runs inside the physics freeze: warriors are static while the line moves,
             // and a descending line can only GRANT crossings, never cause game over/malus.
             if (WARRIORS.some(w => w.introRound === this.currentRound)) {
                 this._syncGoLineToRound(this.currentRound, true);
             }
-            this.scheduleOnce(() => {
-                PhysicsSystem2D.instance.enable = true;
-                this.inputCtrl.unfreezeInput();
-                this.roundUpPause = false;
-                AudioManager.instance.unduckMusic();
-            }, 2.16);
+            this.scheduleOnce(() => { void this._finishRoundUp(interstitialRound); }, ROUND_UP_PAUSE_SEC);
         }, 0.17);
+    }
+
+    /** End of the round-up freeze. On interstitial rounds the ad runs first, game still frozen.
+     *  If the BOOST modal / rewarded ad is holding the game, defer until it closes. */
+    private async _finishRoundUp(withInterstitial: boolean): Promise<void> {
+        if (!this.node?.isValid || this.state === GameState.GameOver) return;
+        if (this._adPaused) { this._roundUpResumeDeferred = true; return; }
+        if (withInterstitial) {
+            this._enterAdPause();
+            try { await PortalProvider.get().commercialBreak(() => AudioManager.instance.muteForPause()); }
+            finally { AudioManager.instance.unmuteForPause(); }
+            if (!this.node?.isValid) return;
+            this._roundUpResumeDeferred = false;
+            this._exitAdPause(false);
+        }
+        PhysicsSystem2D.instance.enable = true;
+        this.inputCtrl.unfreezeInput();
+        this.roundUpPause = false;
+        AudioManager.instance.unduckMusic();
+    }
+
+    // --- BOOST (rewarded ad → Aura on the launcher) ---
+
+    /** BOOST at the centre while the banner is up, then parked above the settings gear. */
+    private _offerBoost(centerSeconds: number, parkSeconds: number): void {
+        const portal = PortalProvider.get();
+        if (!this.boostOffer || !portal.showRewarded || !portal.isRewardedSupported?.()) return;
+        this.boostOffer.offer(centerSeconds, parkSeconds);
+    }
+
+    private _wireBoostOffer(): void {
+        const offer = this.boostOffer;
+        if (!offer) return;
+        this.inputCtrl.ignorePressAt = (screenLocation) => offer.hitsButton(screenLocation);
+        offer.onOpen    = () => this._enterAdPause();
+        offer.onDecline = () => this._exitAdPause();
+        offer.onWatch   = () => { void this._watchBoostAd(); };
+    }
+
+    private async _watchBoostAd(): Promise<void> {
+        const portal = PortalProvider.get();
+        let rewarded = false;
+        try { rewarded = (await portal.showRewarded?.(() => AudioManager.instance.muteForPause())) ?? false; }
+        finally { AudioManager.instance.unmuteForPause(); }
+        if (!this.node?.isValid) return;
+        this._trackEvent('boost_ad', { rewarded, round: this.currentRound });
+        if (rewarded) this._pendingBoostAura = true;
+        this._exitAdPause();
+        if (rewarded) this._grantBoostAura();
+    }
+
+    /** Aura on the warrior waiting on the launcher; if none is there yet, on the next one. */
+    private _grantBoostAura(): void {
+        const w = this._activeLauncherWarrior;
+        if (!w?.node?.isValid || w.launched || this.state === GameState.GameOver) return;  // stays pending
+        this._pendingBoostAura = false;
+        this.activateAura();
+        console.log(`[Boost] Aura granted on launcher (type ${w.type})`);
+        AudioManager.instance.play(SFX.ROUND_UP, 0.6);
+    }
+
+    /** Hold the game while the BOOST modal / an ad is up: state=Paused (also keeps the blur/visibility
+     *  auto-pause from opening the PausePanel over the ad), physics off, input blocked. */
+    private _enterAdPause(): void {
+        if (this._adPaused) return;
+        this._adPaused = true;
+        this._stateBeforeAdPause = this.state;
+        this.state = GameState.Paused;
+        PhysicsSystem2D.instance.enable = false;
+        this.inputCtrl.blocked = true;
+        PortalProvider.get().gameplayStop();
+    }
+
+    /** Release the ad pause. Physics stays off while the round-up freeze is still running; a
+     *  round-up that expired meanwhile is finished now (no interstitial right after an ad). */
+    private _exitAdPause(finishDeferredRoundUp = true): void {
+        if (!this._adPaused) return;
+        this._adPaused = false;
+        this.state = this._stateBeforeAdPause ?? GameState.Aiming;
+        this._stateBeforeAdPause = null;
+        this.inputCtrl.blocked = false;
+        PortalProvider.get().gameplayStart();
+        if (finishDeferredRoundUp && this._roundUpResumeDeferred) {
+            this._roundUpResumeDeferred = false;
+            void this._finishRoundUp(false);
+        } else if (!this.roundUpPause) {
+            PhysicsSystem2D.instance.enable = true;
+        }
     }
 
 

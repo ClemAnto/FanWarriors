@@ -785,7 +785,7 @@ export class VFXManager {
         subNode.setParent(root);
         subNode.setPosition(0, -22);
         const subLbl = subNode.addComponent(Label);
-        subLbl.string        = 'Track Cleared!';
+        subLbl.string        = 'Track Cleared';
         subLbl.fontSize      = 22;
         subLbl.isBold        = true;
         subLbl.color         = new Color(255, 255, 255, 255);

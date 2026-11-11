@@ -153,7 +153,15 @@ export class LeaderboardPanel extends Component {
             const row = this.rowNodes[i];
             if (!row) continue;
             const e = entries[i];
-            if (!e) { row.active = false; continue; }
+            if (!e) {
+                // Sparse board (e.g. a fresh platform board with 2 scores): keep the remaining
+                // rows active but blank, so the layout doesn't spread the few entries across
+                // the whole panel — they stay packed at the top. No scores at all → hide rows
+                // so the "No scores yet." status stands alone.
+                row.active = entries.length > 0;
+                if (row.active) this._clearRowLabels(row);
+                continue;
+            }
             row.active = true;
             // Empty highlight name = platform-named board → match on score only.
             const isMine = !highlighted && e.score === this._highlightScore
@@ -172,6 +180,12 @@ export class LeaderboardPanel extends Component {
 
     private _clearRows(): void {
         for (const row of this.rowNodes) if (row) row.active = false;
+    }
+
+    private _clearRowLabels(row: Node): void {
+        for (const childName of ['Rank', 'Name', 'Round', 'Score']) {
+            this._setRowLabel(row, childName, '', this.normalColor);
+        }
     }
 
     private _setRowLabel(row: Node, childName: string, value: string, color: Color): void {

@@ -393,7 +393,7 @@ Tutti gli sprite sono già presenti in `assets/warriors/`.
 
 ## 15. AURA Powerup *(ex LevelBoost — riscritto v0.8.19)*
 
-Powerup attivabile via debug (futuro: condizione automatica). Ha precedenza su WildRiver e PsychoForce — li disattiva se attivi.
+Powerup ottenibile dal giocatore **solo tramite il BOOST rewarded** al cambio round (guarda uno spot → Aura sul warrior in rampa; anche via debug). Ha precedenza su WildRiver e PsychoForce — li disattiva se attivi. Dal 2026-11-11 lo zap vale per **tutte** le specie (`AURA_ZAP_MIN_TYPE = 0`) e il raggio ha un minimo di 80 px (`AURA_MIN_RANGE`), così il premio rende anche con Rana/Gatto.
 
 ### Attivazione e durata
 

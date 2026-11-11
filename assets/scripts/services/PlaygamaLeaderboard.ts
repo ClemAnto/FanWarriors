@@ -21,9 +21,9 @@ interface BridgeLeaderboardsLike {
 
 /** Best score already accepted by the platform board — never re-submit a lower one. */
 const LS_SUBMITTED_BEST = 'fw_lb_submitted_best';
-/** Platform names can be long ("Okay Catshark…"); the LeaderboardRow "Name" Label is centred with
- *  no overflow clamp and sits between Rank and Round → ~150 px free. Seen in the QA tool
- *  (2026-11-09): 12 chars covered the rank number, 9 still touched it → 8 (7 + "…"). */
+/** Platform names can be long ("Okay Catshark…"); the LeaderboardRow "Name" Label is
+ *  left-anchored at x=-190 (grows rightward, never over Rank) with no overflow clamp, so the
+ *  only limit is the Round column → ~190 px free. 8 chars (7 + "…") fits comfortably. */
 const NAME_MAX_CHARS = 8;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

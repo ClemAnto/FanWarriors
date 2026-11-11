@@ -25,9 +25,9 @@ export const LEVEL_CONFIG: readonly (LevelData | null)[] = [
     { name: 'Apprentice', radius: 22 },
     { name: 'Soldier',    radius: 26 },
     { name: 'Warrior',    radius: 31 },
-    { name: 'Champion',   radius: 37, explosion: true, bonus:  500, label: 'CHAMPION!', vfxColor: new Color(255, 200,  50, 255) },
-    { name: 'Hero',       radius: 45, explosion: true, bonus: 1000, label: 'HERO!',     vfxColor: new Color(180, 100, 255, 255) },
-    { name: 'Legend',     radius: 54, explosion: true, bonus: 2000, label: 'LEGEND!',   vfxColor: new Color(255,  80,  60, 255) },
+    { name: 'Champion',   radius: 37, explosion: true, bonus:  500, label: 'CHAMPION', vfxColor: new Color(255, 200,  50, 255) },
+    { name: 'Hero',       radius: 45, explosion: true, bonus: 1000, label: 'HERO',      vfxColor: new Color(180, 100, 255, 255) },
+    { name: 'Legend',     radius: 54, explosion: true, bonus: 2000, label: 'LEGEND',    vfxColor: new Color(255,  80,  60, 255) },
 ];
 
 // index = type (0–6)

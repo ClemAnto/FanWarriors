@@ -109,6 +109,18 @@
 - Bottone Ranking e routing fine partita solo se `type === 'in_game'`; su piattaforme `native` si invia solo il punteggio.
 - Verificato: QA tool (game over 340 → submit → riga evidenziata) e sandbox live (bottone visibile, board vuota). Form portale: Game Features → **Leaderboards** spuntato.
 
+## 2c. Telemetria (analisi 2026-11-11, dati 08–11/11, v0.10.20→v0.10.23)
+
+Funnel (sessioni, MCP `get_game_telemetry_analytics`): **init 386 → game_ready 258 (67%) → 30 s di gioco 140 (36%) → 60 s 89 (23%)**. Game ready rate per giorno: 65% / 65% / 70% / 70% (piccolo miglioramento dopo v0.10.23, non risolutivo). 30s/ready in calo (73% → 46%) con il traffico boost Facebook. Interstitial: 12 opened, 9 failed, 7 closed → ad mostrate quasi solo al game over (unico punto `commercialBreak`).
+
+Eventi custom aggiunti (v0.10.24, `bridge.analytics.send` via `PortalSdk.trackEvent`, no-op sugli altri portali):
+- `game_started` {restored, round} · `round_reached` {round} · `game_ended` {result win/lose, round, score, duration_sec} — inviato all'apparire dell'EndPanel (score finale).
+- `performance_sample` (contratto guida telemetria Playgama) da `utils/PerformanceSampler.ts`: frame time reali (`performance.now()`, non il dt scalato dallo slowmo), solo gameplay attivo e visibile (esclusi pausa, game over, freeze round-up), un campione ogni 30 s attivi.
+
+Decisioni 2026-11-11: interstitial a fine partita **e ogni 5 round** (pausa round-up dei round 6, 11, 16…, `INTERSTITIAL_EVERY_ROUNDS`); **BOOST rewarded** al cambio round (stile tasto PLAY; al centro sotto il banner del round, poi si sposta sopra la rotella opzioni per 4 s e sfuma; conferma "WATCH AN AD TO GET YOUR BOOST" — niente "!" nei testi, MedievalSharp lo rende male, premio = Aura sul launcher SOLO su stato `rewarded`; nei round con interstitial il BOOST non viene offerto; nodi in Game.scene via `scripts/add-boost-offer.js`, componente `BoostOffer`; rewarded riattivato in `playgama-bridge-config.json`, placement `boost`; evento `boost_ad` {rewarded, round}). Test e2e nel QA tool locale (`get_local_game_qa_tool_link` + `python -m http.server` su build/web-mobile) con `QA_E2E_HOOKS=true` e `?fwqa=advanceN` (il QA tool simula interstitial/rewarded con Reward & Close / Close (No Reward)); tenere `QA_E2E_HOOKS=false` negli upload; **prima visita → dritto in gioco** (MainMenu salta a Game se manca `fw_played_once`, impostata all'avvio partita; `game_ready` lo manda il Game quando è giocabile); secondo boost gratuito **rimandato** (dopo il caricamento della build con la telemetria).
+
+Lettura: `get_game_telemetry_event_analytics` (eventKind `custom`) su `game_ended` → distribuzione round/durata; `game_started`/game_ready = quanti premono PLAY.
+
 ## 3. Self-check moderazione (motivi di rimando più comuni, da wiki)
 - [ ] Progressi persi dopo reload / salvati fuori da `bridge.storage` / storage letto-scritto troppo spesso
 - [ ] Interstitial assenti o temporizzati da noi invece che dal Bridge

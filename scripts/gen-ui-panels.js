@@ -264,7 +264,7 @@ function buildEndPanel(name, opts) {
     // NEW BEST SCORE! — toggled + pulsed by EndPanel.show() on a record.
     const newBestNode = addChild(card, node('NewBest', { pos: [0, 165, 0], active: false }));
     uiTransform(newBestNode, 540, 40);
-    label(newBestNode, 'NEW BEST SCORE!', 26, color(255, 215, 60), { bold: true, outline: true });
+    label(newBestNode, 'NEW BEST SCORE', 26, color(255, 215, 60), { bold: true, outline: true });
 
     const scoreLbl = textLine(card, 'Score', 'Score 0', 95, 36, color(255, 220, 50), { bold: true });
     const roundLbl = textLine(card, 'Round', 'ROUND 1', 45, 28, color(120, 210, 255), { bold: true });
@@ -299,5 +299,5 @@ function buildPausePanel() {
 
 buildPausePanel();
 buildEndPanel('GameOverPanel', { title: 'GAME OVER', titleColor: color(220, 40, 40) });
-buildEndPanel('VictoryPanel',  { title: 'YOU WIN!',  titleColor: color(255, 220, 50) });
+buildEndPanel('VictoryPanel',  { title: 'YOU WIN',  titleColor: color(255, 220, 50) });
 console.log('done');

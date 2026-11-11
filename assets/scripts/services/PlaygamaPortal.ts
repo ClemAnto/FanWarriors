@@ -1,4 +1,4 @@
-import { PortalSdk, PlatformStateHandler } from './PortalSdk';
+import { PortalSdk, PlatformStateHandler, AnalyticsData } from './PortalSdk';
 import { BREAK_TIMEOUT_MS } from '../config/PortalConfig';
 import { SafeStorage } from '../utils/SafeStorage';
 
@@ -9,6 +9,7 @@ interface PlaygamaBridgeLike {
         AUDIO_STATE_CHANGED: string;
         PAUSE_STATE_CHANGED: string;
         INTERSTITIAL_STATE_CHANGED: string;
+        REWARDED_STATE_CHANGED: string;
     };
     platform: {
         id: string;
@@ -20,8 +21,14 @@ interface PlaygamaBridgeLike {
         isInterstitialSupported: boolean;
         interstitialState: string;
         showInterstitial(placement?: string): void;
+        isRewardedSupported: boolean;
+        showRewarded(placement?: string): void;
         on(event: string, cb: (state: string) => void): void;
         off?(event: string, cb: (state: string) => void): void;
+    };
+    /** Bridge analytics module (custom game events). Optional: older Bridge builds lack it. */
+    analytics?: {
+        send(eventName: string, data?: AnalyticsData): void;
     };
 }
 
@@ -36,6 +43,10 @@ interface PlaygamaWindow {
 /** If no interstitial state arrives within this window after showInterstitial(), assume the Bridge
  *  skipped it (e.g. its own minimum delay between interstitials) and let the game continue. */
 const NO_AD_GRACE_MS = 1500;
+/** Upper bound for a rewarded ad (videos are typically 15–30 s, plus load time). */
+const REWARDED_TIMEOUT_MS = 90_000;
+/** Game-level rewarded placement id (playgama-bridge-config.json → advertisement.rewarded). */
+const REWARDED_PLACEMENT = 'boost';
 
 /**
  * Playgama Bridge adapter.
@@ -98,6 +109,13 @@ export class PlaygamaPortal implements PortalSdk {
 
     gameplayStart(): void { this._gameplayActive = true; }
 
+    trackEvent(name: string, data?: AnalyticsData): void {
+        void this.init().then(() => {
+            try { this._bridge?.analytics?.send(name, data); }
+            catch (e) { console.warn(`[Portal] Playgama analytics.send('${name}') failed (ignored):`, e); }
+        });
+    }
+
     gameplayStop(): void { this._gameplayActive = false; }
 
     commercialBreak(onAdStart?: () => void): Promise<void> {
@@ -133,6 +151,44 @@ export class PlaygamaPortal implements PortalSdk {
                 bridge.advertisement.showInterstitial();
             } catch (e) {
                 console.warn('[Portal] Playgama showInterstitial threw (ignored):', e);
+                finish();
+            }
+        });
+    }
+
+    isRewardedSupported(): boolean {
+        try { return !!this._bridge?.advertisement.isRewardedSupported; } catch { return false; }
+    }
+
+    showRewarded(onAdStart?: () => void): Promise<boolean> {
+        const bridge = this._bridge;
+        if (!bridge || !this.isRewardedSupported()) return Promise.resolve(false);
+        this.gameplayStop();
+
+        return new Promise<boolean>(resolve => {
+            let done = false;
+            let rewarded = false;
+            const ev = bridge.EVENT_NAME.REWARDED_STATE_CHANGED;
+            const listener = (state: string): void => {
+                if (state === 'opened') { try { onAdStart?.(); } catch { /* ignore */ } }
+                // Reward ONLY on 'rewarded' (Bridge docs): 'closed' alone = skipped / closed early.
+                else if (state === 'rewarded') rewarded = true;
+                else if (state === 'closed' || state === 'failed') finish();
+            };
+            const finish = (): void => {
+                if (done) return;
+                done = true;
+                clearTimeout(safetyTimer);
+                try { bridge.advertisement.off?.(ev, listener); } catch { /* ignore */ }
+                resolve(rewarded);
+            };
+            // Rewarded videos run longer than interstitials: generous cap, never block forever.
+            const safetyTimer = setTimeout(finish, REWARDED_TIMEOUT_MS);
+            try {
+                bridge.advertisement.on(ev, listener);
+                bridge.advertisement.showRewarded(REWARDED_PLACEMENT);
+            } catch (e) {
+                console.warn('[Portal] Playgama showRewarded threw (ignored):', e);
                 finish();
             }
         });

@@ -29,7 +29,25 @@ export interface PortalSdk {
      * signals don't implement it.
      */
     onPlatformState?(handler: PlatformStateHandler): void;
+    /**
+     * Optional: game-specific analytics event (Playgama `bridge.analytics.send`). Stable
+     * snake_case name; variable values go in the flat `data` object, never in the name.
+     * Portals without an analytics channel don't implement it.
+     */
+    trackEvent?(name: string, data?: AnalyticsData): void;
+    /** Optional: whether an opt-in rewarded ad can be offered right now (show the BOOST UI only if true). */
+    isRewardedSupported?(): boolean;
+    /**
+     * Optional: show an opt-in rewarded ad (from a direct player action only). Resolves `true`
+     * ONLY when the platform confirms the reward (Playgama state `rewarded`) — closing early,
+     * failing or timing out resolve `false`. `onAdStart` fires when the ad actually opens
+     * (mute there); callers unmute unconditionally once the promise resolves. Never rejects.
+     */
+    showRewarded?(onAdStart?: () => void): Promise<boolean>;
 }
+
+/** Flat analytics payload: string / number / boolean values only (Bridge contract). */
+export type AnalyticsData = Record<string, string | number | boolean>;
 
 export interface PlatformStateHandler {
     /** Platform allows audio (false = platform-level mute, independent of the user's mute). */

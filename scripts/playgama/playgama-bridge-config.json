@@ -4,7 +4,7 @@
             "preloadOnStart": true
         },
         "rewarded": {
-            "disable": true
+            "preloadOnStart": true
         },
         "banner": {
             "disable": true

@@ -26,6 +26,10 @@ export class InputController extends Component {
     ropeParent: Node | null = null;
     launchEnabled = true;
     blocked = false;       // set true by DebugPanel while it owns a drag gesture
+    /** Optional: return true for a press (screen location) that belongs to an in-game UI button
+     *  (e.g. BOOST) — that press then never starts an aim drag. Input is global (`input.on`), so
+     *  UI buttons over the track would otherwise also trigger aiming. */
+    ignorePressAt: ((screenLocation: Vec2) => boolean) | null = null;
     showBounds = false;
     showRope   = false;
     initialScale = 1;
@@ -185,11 +189,17 @@ export class InputController extends Component {
         input.off(Input.EventType.MOUSE_UP,     this.onMouseUp,     this);
     }
 
-    private onTouchStart(e: EventTouch): void { this.handleDragStart(this.toWorld(e.getUILocation())); }
+    private onTouchStart(e: EventTouch): void {
+        if (this.ignorePressAt?.(e.getLocation())) return;
+        this.handleDragStart(this.toWorld(e.getUILocation()));
+    }
     private onTouchMove(e: EventTouch):  void { this.handleDragMove(this.toWorld(e.getUILocation())); }
     private onTouchEnd(e: EventTouch):   void { this.handleDragEnd(this.toWorld(e.getUILocation())); }
 
-    private onMouseDown(e: EventMouse):  void { this.handleDragStart(this.toWorld(e.getUILocation())); }
+    private onMouseDown(e: EventMouse):  void {
+        if (this.ignorePressAt?.(e.getLocation())) return;
+        this.handleDragStart(this.toWorld(e.getUILocation()));
+    }
     private onMouseMove(e: EventMouse):  void { this.handleDragMove(this.toWorld(e.getUILocation())); }
     private onMouseUp(e: EventMouse):    void { this.handleDragEnd(this.toWorld(e.getUILocation())); }
 

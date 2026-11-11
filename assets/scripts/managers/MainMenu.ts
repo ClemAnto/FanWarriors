@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, Graphics, Color } from 'cc';
 import { AudioManager, SFX } from './AudioManager';
-import { VERSION } from './GameManager';
+import { VERSION, LS_PLAYED_ONCE } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
 import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
@@ -33,6 +33,15 @@ export class MainMenu extends Component {
     start(): void {
         view.setDesignResolutionSize(720, 1280, ResolutionPolicy.FIXED_HEIGHT);
         view.resizeWithBrowserSize(true);
+
+        // First visit: skip the menu and land straight in gameplay (portal guideline "in game
+        // within 30 s"; Playgama telemetry showed ~half of the players who reached the menu never
+        // got to 30 s of play). game_ready is NOT sent here: GameManager sends it once the Game
+        // scene is playable, so the HTML loading screen covers the whole hand-off.
+        if (!SafeStorage.get(LS_PLAYED_ONCE)) {
+            director.loadScene(GAME_SCENE);
+            return;
+        }
 
         // Audio: shared singleton, mute state persisted in localStorage. Menu uses the tavern loop.
         AudioManager.instance.playMusic(SFX.MUSIC_MENU);
