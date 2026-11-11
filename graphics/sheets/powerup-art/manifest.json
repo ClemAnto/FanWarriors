@@ -1,0 +1,85 @@
+{
+ "title": "Powerup art",
+ "use": "illustrazioni della modale powerup (SIMPLE, caricate da resources/powerups)",
+ "scale": 2,
+ "outDir": "assets/resources/powerups",
+ "note": "ChatGPT 2026-11-11, stile appunti a matita; crop 1536x768 da graphics/powerups/<id>.png (y 150-917).",
+ "pieces": [
+  {
+   "name": "aura",
+   "src": [
+    0,
+    0,
+    1535,
+    767
+   ],
+   "size": [
+    520,
+    260
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "wildriver",
+   "src": [
+    0,
+    768,
+    1535,
+    1535
+   ],
+   "size": [
+    520,
+    260
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "brotherhood",
+   "src": [
+    0,
+    1536,
+    1535,
+    2303
+   ],
+   "size": [
+    520,
+    260
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "psychoforce",
+   "src": [
+    0,
+    2304,
+    1535,
+    3071
+   ],
+   "size": [
+    520,
+    260
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ]
+}

@@ -5,6 +5,7 @@ const { ccclass } = _decorator;
 
 const AURA_MIN_TYPE = 3; // Wolf
 export const AURA_DURATION = 1.5; // seconds the repelling aura lasts after launch
+export const GOLDEN_AURA_DURATION = 2.5; // the BOOST's Golden Aura lasts longer
 
 @ccclass('AuraEffect')
 export class AuraEffect extends Component {
@@ -18,18 +19,23 @@ export class AuraEffect extends Component {
     private _pulseTween:  Tween<Node> | null = null;
     private _sparkleFrame: SpriteFrame | null = null;
     private _radius       = 30;
+    private _golden       = false;
+
+    get golden(): boolean { return this._golden; }
 
     onExpired: (() => void) | null = null;
     private _expireCb = () => { this.onExpired?.(); };
 
     static isEligible(type: number): boolean { return type >= AURA_MIN_TYPE; }
 
-    static attach(warrior: Warrior, auraFrame: SpriteFrame | null, sparkleFrame: SpriteFrame | null, repelRange = 0): AuraEffect {
+    /** `golden`: the BOOST's Golden Aura — longer, larger and brighter (range set by the caller). */
+    static attach(warrior: Warrior, auraFrame: SpriteFrame | null, sparkleFrame: SpriteFrame | null, repelRange = 0, golden = false): AuraEffect {
         const n  = new Node('AuraEffect');
         n.setParent(warrior.viewNode);
         const ae = n.addComponent(AuraEffect);
         ae._radius = warrior.radius;
         ae._sparkleFrame = sparkleFrame;
+        ae._golden = golden;
         ae._build(warrior.radius, auraFrame, repelRange);
         return ae;
     }
@@ -37,7 +43,7 @@ export class AuraEffect extends Component {
     // Call when the warrior is launched to begin the countdown.
     startTimer(): void {
         this.unschedule(this._expireCb);
-        this.scheduleOnce(this._expireCb, AURA_DURATION);
+        this.scheduleOnce(this._expireCb, this._golden ? GOLDEN_AURA_DURATION : AURA_DURATION);
     }
 
     detach(): void {
@@ -85,15 +91,16 @@ export class AuraEffect extends Component {
         };
 
         // Outer ring — warm orange halo
-        const { op: outerOp } = makeRing('AuraOuter', radius * 3.8, new Color(255, 130, 20, 255), 75, 0.7);
+        const g = this._golden;
+        const { op: outerOp } = makeRing('AuraOuter', radius * (g ? 4.6 : 3.8), g ? new Color(255, 190, 40, 255) : new Color(255, 130, 20, 255), g ? 110 : 75, 0.7);
         this._outerOp = outerOp;
 
         // Inner ring — bright yellow core
-        const { node: innerNode, op: innerOp } = makeRing('AuraInner', radius * 2.4, new Color(255, 220, 55, 255), 140, 0.5);
+        const { node: innerNode, op: innerOp } = makeRing('AuraInner', radius * (g ? 2.8 : 2.4), g ? new Color(255, 245, 150, 255) : new Color(255, 220, 55, 255), g ? 170 : 140, 0.5);
         this._innerOp = innerOp;
 
         // Pulse on inner ring after fade-in
-        tween(innerOp).to(0.5, { opacity: 140 }).call(() => {
+        tween(innerOp).to(0.5, { opacity: g ? 170 : 140 }).call(() => {
             if (this._detaching || !innerNode.isValid) return;
             this._pulseTween = tween(innerNode)
                 .repeatForever(tween<Node>()
@@ -104,7 +111,7 @@ export class AuraEffect extends Component {
 
         // Range-of-influence ring (squished 50% vertically to match perspective)
         if (repelRange > 0 && auraFrame) {
-            const { node: rn, op: rangeOp } = makeRing('AuraRange', repelRange * 2, new Color(255, 200, 60, 255), 12, 1.0);
+            const { node: rn, op: rangeOp } = makeRing('AuraRange', repelRange * 2, new Color(255, 200, 60, 255), g ? 28 : 12, 1.0);
             rn.getComponent(UITransform)!.height = repelRange; // 50% vertical squish
             this._rangeOp = rangeOp;
             tween(rn)
@@ -114,7 +121,7 @@ export class AuraEffect extends Component {
                 .start();
         }
 
-        if (this._sparkleFrame) this.schedule(this._spawnSparkle, 0.12);
+        if (this._sparkleFrame) this.schedule(this._spawnSparkle, g ? 0.06 : 0.12);
     }
 
     private _spawnSparkle(): void {

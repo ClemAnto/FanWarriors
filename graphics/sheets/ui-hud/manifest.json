@@ -1,0 +1,118 @@
+{
+ "title": "HUD",
+ "use": "barra in alto del gioco e best score del menu",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-11. progress bars at scale 1 (thin, used directly by cc.ProgressBar without a skin).",
+ "groups": {
+  "plaque-score": "SCORE in alto a sinistra",
+  "plaque-round": "ROUND in alto a destra",
+  "progress": "avanzamento verso il round successivo",
+  "scroll-best": "best score nel menu"
+ },
+ "pieces": [
+  {
+   "name": "plaque-score",
+   "src": [
+    78,
+    62,
+    728,
+    294
+   ],
+   "size": [
+    325,
+    116
+   ],
+   "slice": [
+    120,
+    0,
+    30,
+    0
+   ],
+   "group": "plaque-score"
+  },
+  {
+   "name": "plaque-round",
+   "src": [
+    812,
+    62,
+    1463,
+    294
+   ],
+   "size": [
+    325,
+    116
+   ],
+   "slice": [
+    120,
+    0,
+    30,
+    0
+   ],
+   "group": "plaque-round"
+  },
+  {
+   "name": "progress-frame",
+   "src": [
+    64,
+    357,
+    1471,
+    474
+   ],
+   "size": [
+    264,
+    22
+   ],
+   "slice": [
+    11,
+    10,
+    11,
+    10
+   ],
+   "group": "progress",
+   "state": "frame",
+   "scale": 1
+  },
+  {
+   "name": "progress-fill",
+   "src": [
+    72,
+    526,
+    1463,
+    610
+   ],
+   "size": [
+    260,
+    16
+   ],
+   "slice": [
+    8,
+    7,
+    8,
+    7
+   ],
+   "group": "progress",
+   "state": "fill",
+   "scale": 1
+  },
+  {
+   "name": "scroll-best",
+   "src": [
+    362,
+    660,
+    1171,
+    974
+   ],
+   "size": [
+    405,
+    158
+   ],
+   "slice": [
+    72,
+    0,
+    72,
+    0
+   ],
+   "group": "scroll-best"
+  }
+ ]
+}

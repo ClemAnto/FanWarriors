@@ -4,14 +4,15 @@ import { PerspectiveMapper } from './PerspectiveMapper';
 
 const { ccclass } = _decorator;
 
-const TINT_COLOR    = new Color(200,  80, 255, 255);
-const TINT_DARK     = new Color(160,  40, 220, 255);
-const TINT_LIGHT    = new Color(225, 115, 255, 255);
+// Default tint = violet (Brotherhood). Each powerup has its own color: subclasses override.
+const VIOLET_TINT       = new Color(200,  80, 255, 255);
+const VIOLET_TINT_DARK  = new Color(160,  40, 220, 255);
+const VIOLET_TINT_LIGHT = new Color(225, 115, 255, 255);
 const TINT_RESTORE  = new Color(255, 255, 255, 255);
 
 /**
  * Internal base for the "infected warrior" effects (WildRiverSparkleEffect /
- * BrotherhoodSparkleEffect): violet tint pulse on the warrior sprite + bounce hop
+ * BrotherhoodSparkleEffect): colored tint pulse on the warrior sprite + bounce hop
  * on its PerspectiveMapper, both restored on detach. Implementation sharing only —
  * each public effect keeps its own dedicated class (project rule: one class per
  * effect). Subclasses tune the protected fields and keep their own static attach().
@@ -33,6 +34,9 @@ export abstract class TintSparkleEffect extends Component {
     protected readonly pulseSec:         number = 0.35;
     protected readonly mapperRestoreSec: number = 0.12;
     protected readonly spriteRestoreSec: number = 0.25;
+    protected readonly tintColor:        Color  = VIOLET_TINT;
+    protected readonly tintDark:         Color  = VIOLET_TINT_DARK;
+    protected readonly tintLight:        Color  = VIOLET_TINT_LIGHT;
 
     detach(): void {
         if (this._detaching) return;
@@ -71,13 +75,13 @@ export abstract class TintSparkleEffect extends Component {
         const sp = this._warrior.viewNode?.getComponent(Sprite);
         if (sp) {
             this._sprite = sp;
-            tween(sp).to(this.tintInSec, { color: TINT_COLOR }).call(() => {
+            tween(sp).to(this.tintInSec, { color: this.tintColor }).call(() => {
                 if (!this._detaching && sp.node?.isValid) {
                     tween(sp)
                         .repeatForever(
                             tween<Sprite>()
-                                .to(this.pulseSec, { color: TINT_DARK  })
-                                .to(this.pulseSec, { color: TINT_LIGHT })
+                                .to(this.pulseSec, { color: this.tintDark  })
+                                .to(this.pulseSec, { color: this.tintLight })
                         )
                         .start();
                 }

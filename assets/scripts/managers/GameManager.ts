@@ -19,6 +19,7 @@ import { WildRiverSparkleEffect } from '../entities/WildRiverSparkleEffect';
 import { BrotherhoodEffect } from '../entities/BrotherhoodEffect';
 import { BrotherhoodSparkleEffect } from '../entities/BrotherhoodSparkleEffect';
 import { TrailEffect } from '../entities/TrailEffect';
+import { PowerupBadgeEffect } from '../entities/PowerupBadgeEffect';
 import { LineDescentEffect } from '../entities/LineDescentEffect';
 import { Settings } from './Settings';
 import { EndPanel } from './EndPanel';
@@ -31,13 +32,15 @@ import { PORTAL, LEADERBOARD_ALLOWED } from '../config/PortalConfig';
 import { AnalyticsData, RewardedOutcome } from '../services/PortalSdk';
 import { PerformanceSampler } from '../utils/PerformanceSampler';
 import { BoostOffer } from './BoostOffer';
+import { PowerupInfoPanel } from './PowerupInfoPanel';
+import { PowerupTutorialStore, PowerupId } from '../data/PowerupInfo';
 const { ccclass, property } = _decorator;
 
 /** Effective online-leaderboard switch: configured ON *and* allowed on this portal build
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.31';
+export const VERSION     = '0.10.32';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
@@ -83,6 +86,14 @@ const AURA_ZAP_MIN_TYPE      = 0;    // species below this index only repel — 
 const AURA_MIN_RANGE         = 80;   // design-px floor for the per-species range: the quadratic curve gives Frog ~3 px (= no zap ever), the floor keeps the neighbours in reach
 const INTERSTITIAL_EVERY_ROUNDS = 5; // interstitial during the round-up pause of rounds 6, 11, 16… (Bridge still enforces its own min delay)
 const ROUND_UP_PAUSE_SEC     = 2.16; // round-up freeze length (banner on screen, physics off)
+// Rescue powerups (GDD §16-17): one slot, same trigger and cooldown for every form.
+const RESCUE_MIN_ON_TRACK       = 25;
+const RESCUE_COOLDOWN_LAUNCHES  = 10;
+const RESCUE_COOLDOWN_MERGES    = 10;
+const WILDRIVER_FROM_ROUND      = 5;
+const WILDRIVER_MIN_KIND        = 8;   // launcher's kind on track
+const PSYCHO_FROM_ROUND         = 8;
+const PSYCHO_FRAGMENTED_BELOW   = 6;   // no kind with this many on track
 const BOOST_OFFER_EXTRA_SEC  = 4;    // BOOST button stays parked above the settings gear this long after the round-up pause ends
 const WRS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
 const WRS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before WRS spreads
@@ -122,7 +133,7 @@ const STATE_KEY = 'fw_game_state';
 /** A saved game older than this (since its last turn) is discarded: the next visit starts fresh. */
 const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
-type PowerupKind = 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood';
+type PowerupKind = PowerupId;
 
 interface WarriorSnap {
     type: number;
@@ -130,6 +141,7 @@ interface WarriorSnap {
     x: number;
     y: number;
     pu?: PowerupKind;   // residual powerup carried by an on-track warrior (only aura persists)
+    golden?: boolean;   // that aura is the BOOST's Golden Aura
 }
 
 export interface GameSnapshot {
@@ -144,6 +156,8 @@ export interface GameSnapshot {
     spawnLog: [number, [number, number][]][];
     launcher: { type: number; level: number; powerup: PowerupKind | null };
     nextPowerup: PowerupKind | null;
+    auraGolden?: boolean;       // launcher's Aura is the BOOST's Golden Aura
+    nextAuraGolden?: boolean;   // the pending Aura (swapped into the next slot) is golden
     next: { type: number; level: number };
     warriors: WarriorSnap[];
     /** Date.now() of the save. Missing (builds ≤ v0.10.29) = unknown age → treated as expired. */
@@ -179,6 +193,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     onboarding: OnboardingHints | null = null;
     @property({ type: BoostOffer, tooltip: 'Round-up BOOST offer (rewarded ad → Aura). Optional; shown only where rewarded ads are supported.' })
     boostOffer: BoostOffer | null = null;
+    @property({ type: PowerupInfoPanel, tooltip: 'Powerup tutorial modal (UILayer/PowerupPanel, inactive in editor): shown the first time a powerup appears in a game.' })
+    powerupPanel: PowerupInfoPanel | null = null;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -205,6 +221,12 @@ export class GameManager extends Component implements IGameManagerDebug {
     private totalMerges = 0;
     private mergesThisLaunch = 0;
     private roundUpPause = false;
+    private _puInfoShown = new Set<PowerupKind>();  // powerup tutorials already shown in THIS game
+    private _puInfoHold  = 0;                       // s the launcher's powerup has been visible
+    private _puInfoOpen  = false;
+    private _auraGolden     = false;   // the active Aura is the BOOST's Golden Aura (full range, longer)
+    private _nextAuraGolden = false;   // same for the Aura pending on the next launcher (swap)
+    private _puBadges    = new Map<Warrior, { kind: PowerupKind; fx: PowerupBadgeEffect }>();
     /** performance.now() when this game started (fresh or restored) — game_ended duration. */
     private _gameStartedAt = 0;
     /** Playgama performance_sample emitter; null on portals without analytics. */
@@ -273,12 +295,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _pfProxTimer    = 0;
     private _pfProxTimers   = new Map<Warrior, number>();
     private _pfImploding    = false;
-    private _pfImplodeK     = 1;
     private _pfLaunchWarrior: Warrior | null = null;
     private _pfCooldownLaunches = 0;
     psychoForceEnabled      = false;
     private _wrsImploding = false;
-    private _wrsImplodeK = 1;
     wildRiverEnabled = false;
     private _wrCooldownLaunches = 0;
     private _brCooldownLaunches = 0;
@@ -966,9 +986,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
     isWildRiverEnabled(): boolean { return this.wildRiverEnabled; }
 
-    activateAura(): void {
+    /** `golden`: the BOOST's Golden Aura — Dragon range on any species, longer, brighter. */
+    activateAura(golden = false): void {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid) return;
+        this._auraGolden = golden;
         // Disattiva qualsiasi altro powerup attivo sul launcher
         if (this.wildRiverEnabled) {
             this._launcherWildRiverEffect?.detach();
@@ -982,8 +1004,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
         if (this._brotherhoodCarrier === w) this._expireBrotherhood();
         this._auraEffect?.detach();
-        this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
-        this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+        this._auraEffect = this._attachAura(w);
         this._auraWarrior = w;
     }
 
@@ -1001,6 +1022,15 @@ export class GameManager extends Component implements IGameManagerDebug {
     activateBrotherhood(): void {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid) return;
+        // One rescue form per launcher: REVIVE's Brotherhood replaces a Wild River / Psycho Force
+        // that activateWarrior may have just picked for the same launcher.
+        if (this.wildRiverEnabled) {
+            this._launcherWildRiverEffect?.detach();
+            this._launcherWildRiverEffect = null;
+            this.wildRiverEnabled = false;
+        }
+        if (w.psychoForce) { w.psychoForce.detach(); w.psychoForce = null; }
+        this.psychoForceEnabled = false;
         this._expireBrotherhood();
         const ge = BrotherhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
         ge.onExpired = () => this._expireBrotherhood();
@@ -1013,7 +1043,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (DEBUG) console.log('[Brotherhood] effect activated on launcher');
     }
 
-    private _applyPendingPowerup(w: Warrior, powerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood'): void {
+    private _applyPendingPowerup(w: Warrior, powerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood', golden = false): void {
         this._launcherWildRiverEffect?.detach();
         this._launcherWildRiverEffect = null;
         this.wildRiverEnabled = false;
@@ -1028,8 +1058,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
         if (this._brotherhoodCarrier === w) this._expireBrotherhood();
         if (powerup === 'aura') {
-            this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
-            this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+            this._auraGolden = golden;
+            this._auraEffect = this._attachAura(w);
             this._auraWarrior = w;
         } else if (powerup === 'psychoForce') {
             this.psychoForceEnabled = true;
@@ -1203,7 +1233,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._sortWarriorLayerByY();
         this._perfSampler?.tick(this.state !== GameState.GameOver && this.state !== GameState.Paused && !this.roundUpPause);
         if (SHOW_ENDLINE_DEBUG) this._drawEndlineDebug();
+        this._tickPowerupBadges();
         if (this.state === GameState.GameOver || this.state === GameState.Paused) return;
+        this._tickPowerupInfo(dt);
         if (!this.roundUpPause) this._checkProximityMerge(dt);
         if (this.debugOverlay) {
             const g = this.debugOverlay;
@@ -1362,9 +1394,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._launcherWildRiverEffect?.detach();
         this._launcherWildRiverEffect = null;
 
-        // Brotherhood auto: ≥25 warrior sul track, cooldown 10 tiri + 10 merge
-        const onTrack = this.warriors.filter(ww => ww.crossedLine && ww.node?.isValid).length;
-        if (onTrack >= 25 && this._brCooldownLaunches === 0 && this._brCooldownMerges === 0 && !this._brotherhoodCarrier && this._nextPowerup === null) {
+        // Rescue powerup (≥25 warriors on track, shared cooldown 10 launches + 10 merges): the form
+        // fits the board — Wild River / Psycho Force once unlocked by round, else Brotherhood.
+        const rescue = this._nextPowerup === null ? this._pickRescue(w.type) : null;
+        if (rescue) this._trackEvent('rescue_powerup', { powerup: rescue, round: this.currentRound, onTrack: this._onTrackCount() });
+        if (rescue === 'wildRiver') this.wildRiverEnabled = true;   // attached just below
+        if (rescue === 'brotherhood') {
             this._expireBrotherhood();
             const ge = BrotherhoodEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
             ge.onExpired = () => this._expireBrotherhood();
@@ -1376,22 +1411,20 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._brTimerStarted    = false;
         }
 
-        // WildRiver (debug toggle only)
+        // WildRiver (rescue pick above, or debug toggle)
         if (this.wildRiverEnabled) {
             this._launcherWildRiverEffect = WildRiverEffect.attach(w, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
 
-        // PsychoForce auto-activation disabled
+        // PsychoForce: one launcher only (rescue pick above, or debug button)
         this.psychoForceEnabled = false;
-        if (this.psychoForceEnabled) {
-            const pfe = PsychoForceEffect.attach(w, this.vfx.auraFrame, true);
-            w.psychoForce = pfe;
-        }
+        if (rescue === 'psychoForce') this.activatePsychoForce();
 
         if (this._nextPowerupPending && this._nextPowerup) {
             this._nextPowerupPending = false;
-            this._applyPendingPowerup(w, this._nextPowerup);
+            this._applyPendingPowerup(w, this._nextPowerup, this._nextAuraGolden);
             this._nextPowerup = null;
+            this._nextAuraGolden = false;
         }
 
         this._updateNextPreviewPowerupGlow();
@@ -1428,7 +1461,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._wrCooldownLaunches = 10;
             this._wrsOrder = [];
             this._wrsImploding = false;
-            this._wrsImplodeK = 1;
             w.isWRLauncher = true;
             w.onWildRiverContact = (s, t) => this._onWildRiverContact(s, t);
             this._wrLaunchWarrior = w;
@@ -1436,9 +1468,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         } else if (this._wrCooldownLaunches > 0) {
             this._wrCooldownLaunches--;
         }
-        if (this._brotherhoodCarrier === w) {
-            this._brCooldownLaunches = 10;
-            this._brCooldownMerges   = 10;
+        // Shared rescue cooldown: whichever rescue form was launched, the next one waits 10 + 10.
+        if (this._brotherhoodCarrier === w || this.wildRiverEnabled || this.psychoForceEnabled) {
+            this._brCooldownLaunches = RESCUE_COOLDOWN_LAUNCHES;
+            this._brCooldownMerges   = RESCUE_COOLDOWN_MERGES;
         } else if (this._brCooldownLaunches > 0) {
             this._brCooldownLaunches--;
         }
@@ -1446,7 +1479,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._pfCooldownLaunches = 10;
             this._pfOrder      = [];
             this._pfImploding  = false;
-            this._pfImplodeK   = 1;
             w.onPsychoContact  = (s, t) => this._onPFContact(s, t);
             this._pfLaunchWarrior = w;
         } else if (this._pfCooldownLaunches > 0) {
@@ -1664,6 +1696,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             (this._brotherhoodCarrier === cur)  ? 'brotherhood' : null;
         const pendingForNw = this._nextPowerup;
         this._nextPowerup  = curPowerup;
+        const pendingGolden = this._nextAuraGolden;   // the Golden Aura follows its warrior too
+        this._nextAuraGolden = curPowerup === 'aura' && this._auraGolden;
 
         if (this._auraWarrior === cur) {
             this._restoreAuraScales();
@@ -1704,7 +1738,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._launcherWildRiverEffect?.detach();
         this._launcherWildRiverEffect = null;
         if (pendingForNw) {
-            this._applyPendingPowerup(nw, pendingForNw);
+            this._applyPendingPowerup(nw, pendingForNw, pendingGolden);
         } else if (isFirstSpeciesNw) {
             this._applyPendingPowerup(nw, 'aura');
         } else if (this.wildRiverEnabled) {
@@ -2054,8 +2088,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (parentWasPsycho) this._applyPF(merged);
             if (auraInvolved) {
                 this._restoreAuraScales();
-                this._auraEffect = AuraEffect.attach(merged, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(merged.type) * LAYOUT_SCALE);
-                this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+                this._auraEffect = this._attachAura(merged);
                 this._auraEffect.startTimer();
                 this._auraWarrior = merged;
             }
@@ -2217,14 +2250,13 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _implodePFWarrior(w: Warrior): void {
         if (!w.node?.isValid || !this._pfActive.has(w)) return;
         this._cleanupPF(w);
-        const pts = Math.round(8 * this.currentRound * this._pfImplodeK);
+        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));  // = Brotherhood
         this.score += pts;
         this.updateScoreLabel();
         this.updateRoundProgress();
         const wx  = w.node.position.x;
         const wyC = this.coords.physToVisual(w.node.position.y);
         this.vfx.spawnFloatingScore(wx, wyC, pts);
-        this._pfImplodeK += 1.5;
         const mapper = w.mapper;
         const finish = () => {
             this.warriors = this.warriors.filter(x => x !== w);
@@ -2355,13 +2387,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._cleanupWRS(w);
         this._wrsOrder = this._wrsOrder.filter(x => x !== w);
         this._wrsProxTimers.delete(w);
-        const pts = Math.round(10 * this.currentRound * this._wrsImplodeK);
+        // Same points as a Brotherhood implosion (rescue forms stay equivalent for the leaderboard).
+        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));
         this.score += pts;
         this.updateScoreLabel();
         const wx  = w.node.position.x;
         const wyC = this.coords.physToVisual(w.node.position.y);
         this.vfx.spawnFloatingScore(wx, wyC, pts);
-        this._wrsImplodeK += 1.5;
         const mapper = w.mapper;
         const finish = () => {
             this.warriors = this.warriors.filter(x => x !== w);
@@ -2384,6 +2416,23 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     // --- aura powerup ---
+
+    /** Range of the active Aura: the Golden Aura (BOOST) always has the Dragon's full range. */
+    private _auraRange(type: number): number {
+        return this._auraGolden ? AURA_REPEL_RANGE : this._auraRangeForType(type);
+    }
+
+    /** Attach the Aura (normal or Golden, per _auraGolden) to `w`. The expiry is bound to THIS effect:
+     *  an older Aura still ticking on a launched warrior must not tear down a newer one on the launcher. */
+    private _attachAura(w: Warrior): AuraEffect {
+        const ae = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRange(w.type) * LAYOUT_SCALE, this._auraGolden);
+        ae.onExpired = () => {
+            ae.detach();
+            if (this._auraEffect !== ae) return;
+            this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear();
+        };
+        return ae;
+    }
 
     private _auraRangeForType(type: number): number {
         // Dragon (type 6, top of 7 species) = 160 px baseline; range scales quadratically
@@ -2410,7 +2459,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const sp    = src.node.position;
         const sx    = this.box2dLayer.scale.x;
         const sy    = this.box2dLayer.scale.y;
-        const range = this._auraRangeForType(src.type) * LAYOUT_SCALE;
+        const range = this._auraRange(src.type) * LAYOUT_SCALE;
         const baseF = AURA_REPEL_FORCE * LAYOUT_SCALE * dt * FORCE_FPS_REF;  // normalize to 60 fps
         const canZap = src.type >= AURA_ZAP_MIN_TYPE;
         const toZap: Warrior[] = [];
@@ -3086,12 +3135,14 @@ export class GameManager extends Component implements IGameManagerDebug {
                     ? { type: launcher.type, level: launcher.level, powerup: this._powerupOf(launcher) }
                     : { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level, powerup: null },
                 nextPowerup: this._nextPowerup,
+                auraGolden:     this._auraGolden && this._auraWarrior === launcher,
+                nextAuraGolden: this._nextAuraGolden,
                 next:        { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level },
                 warriors:    this.warriors
                     .filter(w => w.crossedLine && w !== launcher && w.node?.isValid)
                     .map(w => {
                         const s: WarriorSnap = { type: w.type, level: w.level, x: w.node.position.x, y: w.node.position.y };
-                        if (this._auraWarrior === w) s.pu = 'aura';
+                        if (this._auraWarrior === w) { s.pu = 'aura'; if (this._auraGolden) s.golden = true; }
                         return s;
                     }),
             };
@@ -3108,8 +3159,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _reattachAura(w: Warrior): void {
         if (!w?.node?.isValid) return;
         this._auraEffect?.detach();
-        this._auraEffect = AuraEffect.attach(w, this.vfx.auraFrame, this.vfx.sparkleFrame, this._auraRangeForType(w.type) * LAYOUT_SCALE);
-        this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
+        this._auraEffect = this._attachAura(w);
         this._auraEffect.startTimer();
         this._auraWarrior = w;
     }
@@ -3192,7 +3242,10 @@ export class GameManager extends Component implements IGameManagerDebug {
             // Re-attach residual aura to its on-track carrier (skip if the launcher also takes aura).
             if (launcherPU !== 'aura') {
                 const auraIdx = (snap.warriors ?? []).findIndex(s => s.pu === 'aura');
-                if (auraIdx >= 0 && created[auraIdx]?.node?.isValid) this._reattachAura(created[auraIdx]);
+                if (auraIdx >= 0 && created[auraIdx]?.node?.isValid) {
+                    this._auraGolden = !!snap.warriors[auraIdx].golden;
+                    this._reattachAura(created[auraIdx]);
+                }
             }
 
             // Next-preview queue
@@ -3209,10 +3262,12 @@ export class GameManager extends Component implements IGameManagerDebug {
 
             this._nextPowerup        = launcherPU;
             this._nextPowerupPending = launcherPU != null;
+            this._nextAuraGolden     = launcherPU === 'aura' && !!snap.auraGolden;
             this.activateWarrior(launcher); // applies launcherPU and re-saves the snapshot
 
             // _nextPowerup is consumed for the launcher above — restore the genuine pending value.
-            this._nextPowerup = snap.nextPowerup ?? null;
+            this._nextPowerup    = snap.nextPowerup ?? null;
+            this._nextAuraGolden = !!snap.nextAuraGolden;
 
             this.updateScoreLabel();
             this.updateRoundLabel();
@@ -3736,9 +3791,91 @@ export class GameManager extends Component implements IGameManagerDebug {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid || w.launched || this.state === GameState.GameOver) return;  // stays pending
         this._pendingBoostAura = false;
-        this.activateAura();
-        console.log(`[Boost] Aura granted on launcher (type ${w.type})`);
+        this.activateAura(true);
+        console.log(`[Boost] Golden Aura granted on launcher (type ${w.type})`);
         AudioManager.instance.play(SFX.ROUND_UP, 0.6);
+    }
+
+    /** Powerup a warrior visibly carries (badge above its head): the launcher's, then the launched
+     *  carrier's until the power is spent. Unlike _powerupOf, WR/PF are checked per warrior. */
+    private _badgeKindOf(w: Warrior): PowerupKind | null {
+        if (!w?.node?.isValid) return null;
+        if (this._auraWarrior === w) return 'aura';
+        if (this._brotherhoodCarrier === w) return 'brotherhood';
+        if (this._wrLaunchWarrior === w) return 'wildRiver';
+        if (this._pfLaunchWarrior === w) return 'psychoForce';
+        if (w === this._activeLauncherWarrior && !w.launched) {
+            if (w.psychoForce) return 'psychoForce';
+            if (this.wildRiverEnabled && this._launcherWildRiverEffect) return 'wildRiver';
+        }
+        return null;
+    }
+
+    /** Keep one medallion badge on every warrior carrying a powerup (pop in / fade out). */
+    private _tickPowerupBadges(): void {
+        const panel = this.powerupPanel;
+        if (!panel) return;
+        for (const [w, b] of this._puBadges) {
+            if (this._badgeKindOf(w) !== b.kind) { b.fx.detach(); this._puBadges.delete(w); }
+        }
+        const w = this._activeLauncherWarrior;
+        const kind = w ? this._badgeKindOf(w) : null;
+        if (w && kind && !this._puBadges.has(w) && w.viewNode?.isValid) {
+            const frame = panel.iconFor(kind);
+            if (frame) this._puBadges.set(w, { kind, fx: PowerupBadgeEffect.attach(w, frame) });
+        }
+    }
+
+    private _onTrackCount(): number {
+        let n = 0;
+        for (const w of this.warriors) if (w.crossedLine && w.node?.isValid) n++;
+        return n;
+    }
+
+    /** Rescue powerup for a launcher of `launcherType`, or null. Same moment and cooldown as the
+     *  old Brotherhood-only rescue (difficulty unchanged); only its form varies with the board:
+     *  one kind dominating → Wild River (from round 5), a fragmented board → Psycho Force (from
+     *  round 8), otherwise Brotherhood. */
+    private _pickRescue(launcherType: number): PowerupKind | null {
+        if (this._brCooldownLaunches > 0 || this._brCooldownMerges > 0) return null;
+        if (this._brotherhoodCarrier || this._wrLaunchWarrior || this._pfLaunchWarrior) return null;
+        const counts = new Map<number, number>();
+        let onTrack = 0;
+        for (const w of this.warriors) {
+            if (!w.crossedLine || !w.node?.isValid) continue;
+            onTrack++;
+            counts.set(w.type, (counts.get(w.type) ?? 0) + 1);
+        }
+        if (onTrack < RESCUE_MIN_ON_TRACK) return null;
+        if (this.currentRound >= WILDRIVER_FROM_ROUND && (counts.get(launcherType) ?? 0) >= WILDRIVER_MIN_KIND) return 'wildRiver';
+        if (this.currentRound >= PSYCHO_FROM_ROUND && Math.max(...counts.values()) < PSYCHO_FRAGMENTED_BELOW) return 'psychoForce';
+        return 'brotherhood';
+    }
+
+    /** First appearance of a powerup in this game (launcher ready, nothing else on screen): after a
+     *  short beat so its glow is seen, freeze the game and explain it — unless the player ticked
+     *  "don't show again" in an earlier game. Polled, so every source (new species, BOOST, REVIVE,
+     *  swap, debug) is covered. */
+    private _tickPowerupInfo(dt: number): void {
+        const panel = this.powerupPanel;
+        if (!panel || this._puInfoOpen || this.state !== GameState.Aiming || this.roundUpPause || this._adPaused) { this._puInfoHold = 0; return; }
+        if (this.inputCtrl.isDragging) return;   // never freeze the game under the player's aim: wait for the release
+        const w = this._activeLauncherWarrior;
+        const kind = w && !w.launched ? this._powerupOf(w) : null;
+        if (!kind || this._puInfoShown.has(kind)) { this._puInfoHold = 0; return; }
+        if (this._puInfoHold === 0) PowerupTutorialStore.markSeen(kind);  // discovered: listed in the menu catalog
+        if (PowerupTutorialStore.isMuted(kind)) { this._puInfoShown.add(kind); return; }
+        this._puInfoHold += Math.max(dt, 1e-4);
+        if (this._puInfoHold < 0.6) return;
+        this._puInfoHold = 0;
+        this._puInfoShown.add(kind);
+        this._puInfoOpen = true;
+        this._enterAdPause();
+        this._trackEvent('powerup_info', { powerup: kind, round: this.currentRound });
+        panel.showSingle(kind, () => {
+            this._puInfoOpen = false;
+            if (this.node?.isValid) this._exitAdPause();
+        });
     }
 
     /** Hold the game while the BOOST modal / an ad is up: state=Paused (also keeps the blur/visibility
@@ -3880,10 +4017,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         let powerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood' | null = this._nextPowerup;
         if (!powerup && this.wildRiverEnabled) powerup = 'wildRiver';
-        if (!powerup && this._brCooldownLaunches === 0 && this._brCooldownMerges === 0 && !this._brotherhoodCarrier) {
-            const onTrack = this.warriors.filter(w => w.crossedLine && w.node?.isValid).length;
-            if (onTrack >= 25) powerup = 'brotherhood';
-        }
+        if (!powerup) powerup = this._pickRescue(this.spawnMgr.next.type);
 
         if (!powerup) {
             if (this._nextPreviewGlowNode?.isValid) {

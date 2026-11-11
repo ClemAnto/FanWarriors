@@ -38,7 +38,7 @@ export class VFXManager {
     private _stardustFrame: SpriteFrame | null = null;
     private _atomFrame:     SpriteFrame | null = null;
     private _auraFrame:     SpriteFrame | null = null;
-    private _medievalFont:  Font | null = null;
+    private _gameFont:  Font | null = null;
     private _useGoldenText  = true;
 
     constructor(vfxLayer: Node, uiLayer: Node, worldNode: Node, warriorsLayer: Node) {
@@ -91,13 +91,15 @@ export class VFXManager {
         });
         // Font already bundled via Game.scene — load by UUID, no copy to resources needed
         assetManager.loadAny({ uuid: '993e10ce-345b-464f-9b7d-bd534dcd6e0b' }, (err, font) => {
-            if (!err && font) { this._medievalFont = font as Font; return; }
-            console.warn('[VFXManager] MedievalSharp font unavailable');
+            if (!err && font) { this._gameFont = font as Font; return; }
+            console.warn('[VFXManager] game font (Lilita One) unavailable — VFX labels fall back to the system font');
         });
     }
 
     private _applyFont(lbl: Label): void {
-        if (this._medievalFont) lbl.font = this._medievalFont;
+        if (!this._gameFont) return;
+        lbl.font = this._gameFont;
+        lbl.isBold = false;   // Lilita One is already heavy: synthetic bold only muddies it
     }
 
     private _applyGoldenShine(lbl: Label): void {
@@ -506,7 +508,7 @@ export class VFXManager {
         const curLbl = curNode.addComponent(Label);
         curLbl.string   = String(prevRound);
         curLbl.fontSize = 88;
-        curLbl.lineHeight = 102;  // MedievalSharp ascenders overflow the default 40px line
+        curLbl.lineHeight = 102;  // tall glyphs overflow the default 40px line
         curLbl.isBold   = true;
         curLbl.overflow = Label.Overflow.NONE;
         curLbl.color    = new Color(255, 220, 50, 255);

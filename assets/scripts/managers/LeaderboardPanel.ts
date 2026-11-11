@@ -3,6 +3,7 @@ import { TOP_N, ENABLED } from '../config/LeaderboardConfig';
 import { LeaderboardEntry } from '../services/LeaderboardService';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { NameEntry } from './NameEntry';
+import { LeaderboardRow } from '../ui/LeaderboardRow';
 
 const { ccclass, property } = _decorator;
 
@@ -167,6 +168,8 @@ export class LeaderboardPanel extends Component {
             const isMine = !highlighted && e.score === this._highlightScore
                 && (this._highlightName === '' || e.name === this._highlightName);
             if (isMine) highlighted = true;
+            const view = row.getComponent(LeaderboardRow);
+            if (view) { view.show(i + 1, e.name, e.round, e.score, isMine); continue; }
             const tint = isMine ? this.highlightColor : this.normalColor;
             this._setRowLabel(row, 'Rank', String(i + 1), tint);
             this._setRowLabel(row, 'Name', e.name, tint);
@@ -185,6 +188,8 @@ export class LeaderboardPanel extends Component {
     }
 
     private _clearRowLabels(row: Node): void {
+        const view = row.getComponent(LeaderboardRow);
+        if (view) { view.clear(); return; }
         for (const childName of ['Rank', 'Name', 'Round', 'Score']) {
             this._setRowLabel(row, childName, '', this.normalColor);
         }

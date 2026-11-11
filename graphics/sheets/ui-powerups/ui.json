@@ -1,0 +1,82 @@
+{
+ "width": 1424,
+ "height": 2001,
+ "scale": 2,
+ "pieces": [
+  {
+   "name": "powerup-aura",
+   "slot": {
+    "x": 24,
+    "y": 137,
+    "w": 288,
+    "h": 296
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-wildriver",
+   "slot": {
+    "x": 24,
+    "y": 515,
+    "w": 288,
+    "h": 296
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-brotherhood",
+   "slot": {
+    "x": 24,
+    "y": 893,
+    "w": 288,
+    "h": 296
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-psychoforce",
+   "slot": {
+    "x": 24,
+    "y": 1271,
+    "w": 288,
+    "h": 296
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-locked",
+   "slot": {
+    "x": 24,
+    "y": 1649,
+    "w": 288,
+    "h": 296
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ]
+}

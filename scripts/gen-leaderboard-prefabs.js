@@ -17,7 +17,7 @@ const path = require('path');
 const PREFAB_DIR = path.resolve(__dirname, '..', 'assets', 'resources');
 
 // ── Asset UUIDs (from .meta files in this project) ─────────────────────────────
-const FONT      = '993e10ce-345b-464f-9b7d-bd534dcd6e0b';            // MedievalSharp TTF
+const FONT      = '993e10ce-345b-464f-9b7d-bd534dcd6e0b';            // game font TTF (Lilita One, uuid kept from MedievalSharp)
 const SF_WOOD   = '57db0246-f3c2-41d8-b6e0-b8cb92486df7@f9941';      // hud/wood.png  (panel)
 const SF_BUTTON = '86b1400e-1472-4464-86e9-be88f5124ab5@f9941';      // hud/button.png
 
@@ -119,7 +119,7 @@ function label(n, str, fontSize, col = color(255, 255, 255), opts = {}) {
         _enableWrapText: false,
         _font: sys ? null : { __uuid__: FONT, __expectedType__: 'cc.TTFFont' },
         _isSystemFontUsed: sys,
-        _spacingX: 0, _isItalic: false, _isBold: !!opts.bold,
+        _spacingX: 0, _isItalic: false, _isBold: false /* Lilita One is already heavy */,
         _isUnderline: false, _underlineHeight: 2, _cacheMode: 0,
         _enableOutline: !!opts.outline,
         _outlineColor: color(0, 0, 0, 220), _outlineWidth: opts.outlineWidth ?? 3,

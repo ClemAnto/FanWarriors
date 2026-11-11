@@ -1,6 +1,6 @@
 {
   "name": "FunWarriors",
-  "version": "0.10.31",
+  "version": "0.10.32",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
@@ -14,9 +14,14 @@
     "deploy": "node scripts/deploy.js",
     "gen:placeholders": "node scripts/gen-warrior-placeholders.js",
     "seed:leaderboard": "node scripts/seed-leaderboard.js",
-    "optimize:images": "node scripts/optimize-images.js"
+    "optimize:images": "node scripts/optimize-images.js",
+    "ui:prep": "node tools/art/ui-sheet.mjs",
+    "ui:export": "node tools/art/ui-sheet.mjs --export",
+    "ui:apply": "node tools/ui/apply-ui.mjs",
+    "test:ui": "node tests/e2e/ui-e2e.mjs"
   },
   "devDependencies": {
+    "ag-psd": "^34.1.0",
     "ffmpeg-static": "^5.3.0",
     "gh-pages": "^6.3.0",
     "sharp": "^0.35.0"

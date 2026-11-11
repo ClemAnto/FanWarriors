@@ -1,0 +1,24 @@
+{
+ "title": "Modal",
+ "use": "fondo, titolo e controlli delle finestre (pausa, game over, victory, settings, boost, privacy)",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-11, style ref graphics/reference/style.png. src = area of the sheet [x0, y0, x1, y1]; size = game size in design units [w, h] (texture = size x 2 ~ source px, so no upscaling); slice = 9-slice borders [left, top, right, bottom] in design px (0 = not sliced on that side).",
+ "groups": {
+   "panel-modal": "fondo di ogni modale (Card / Dialog), si stira in entrambe le direzioni",
+   "ribbon": "titolo delle modali, si stira solo in larghezza",
+   "stat-plate": "righe Score / Best / Round, si stira solo in larghezza",
+   "button-close": "chiusura Settings / Privacy",
+   "checkbox": "toggle Settings",
+   "badge-best": "new best nel Game Over / Victory"
+ },
+ "pieces": [
+  { "name": "panel-modal", "src": [29, 129, 633, 896], "size": [302, 384], "slice": [48, 46, 48, 46], "group": "panel-modal" },
+  { "name": "ribbon", "src": [664, 193, 1494, 389], "size": [415, 98], "slice": [52, 0, 52, 0], "group": "ribbon" },
+  { "name": "stat-plate", "src": [667, 455, 1484, 590], "size": [409, 68], "slice": [40, 0, 40, 0], "group": "stat-plate" },
+  { "name": "button-close", "src": [661, 672, 816, 830], "size": [78, 80], "slice": [0, 0, 0, 0], "group": "button-close", "state": "normal" },
+  { "name": "button-close-pressed", "src": [826, 672, 981, 830], "size": [78, 80], "slice": [0, 0, 0, 0], "group": "button-close", "state": "pressed" },
+  { "name": "checkbox-off", "src": [1020, 678, 1155, 816], "size": [68, 70], "slice": [0, 0, 0, 0], "group": "checkbox", "state": "off" },
+  { "name": "checkbox-on", "src": [1173, 678, 1308, 816], "size": [68, 70], "slice": [0, 0, 0, 0], "group": "checkbox", "state": "on" },
+  { "name": "badge-best", "src": [1342, 655, 1486, 840], "size": [72, 93], "slice": [0, 0, 0, 0], "group": "badge-best" }
+ ]
+}

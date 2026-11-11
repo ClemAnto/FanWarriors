@@ -1,4 +1,4 @@
-import { _decorator, Node } from 'cc';
+import { _decorator, Node, Color } from 'cc';
 import { Warrior } from './Warrior';
 import { TintSparkleEffect } from './TintSparkleEffect';
 
@@ -14,6 +14,10 @@ export class WildRiverSparkleEffect extends TintSparkleEffect {
     protected readonly pulseSec         = 0.35;
     protected readonly mapperRestoreSec = 0.12;
     protected readonly spriteRestoreSec = 0.25;
+    // Ruby red tint (multiplied on the sprite): WildRiver's own color
+    protected readonly tintColor        = new Color(255,  90, 100, 255);
+    protected readonly tintDark         = new Color(225,  50,  70, 255);
+    protected readonly tintLight        = new Color(255, 135, 140, 255);
 
     static attach(warrior: Warrior): WildRiverSparkleEffect {
         const node = new Node('WRSparkle');

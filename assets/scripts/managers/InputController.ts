@@ -45,6 +45,8 @@ export class InputController extends Component {
 
     private warrior: Warrior | null = null;
     private dragging: boolean = false;
+    /** True while the player holds an aim drag (pull-back in progress). */
+    get isDragging(): boolean { return this.dragging; }
     private rope: Graphics | null = null;
     private crossbowNode: Node | null = null;
     private launcherNode: Node | null = null;

@@ -146,6 +146,34 @@ Errore correlato: **"Can not find class 'XXXXXX'"** al reload della scena — si
 
 ---
 
+## UI — workflow fogli @2x (2026-11-11)
+
+Decisione e regole di montaggio in TECH.md §"UI a 2× da fogli PSD".
+1. ChatGPT genera il foglio → `graphics/sheets/<foglio>/source.png` (sfondo trasparente: il prep scarta alpha < 128).
+2. `manifest.json` con i rettangoli `src` misurati sul foglio.
+3. `npm run ui:prep -- graphics/sheets/<foglio>` → `ui.psd` + `ui.json` (slot). L'utente ritocca **solo** `pezzi/`.
+4. `npm run ui:export -- graphics/sheets/<foglio>` → `assets/ui/*.png` + meta. Poi l'editor Cocos deve importarli (focus sull'editor).
+5. Montaggio in prefab/scena (`skin` se SLICED). Non montare pezzi che nessuna funzione usa ancora.
+6. Test e2e nell'anteprima (Chrome) in **portrait e landscape** prima di dire che è fatto.
+
+**Viewport da coprire (FIXED_HEIGHT 1280 → cambia solo la larghezza visibile in unità di design):**
+| Dispositivo | Aspetto | Larghezza visibile |
+|---|---|---|
+| Telefono stretto (caso peggiore) | 9:19.5 – 9:20 | **~576–591** |
+| Telefono classico | 9:16 | 720 |
+| Tablet portrait | 3:4 | 960 |
+| Tablet landscape | 4:3 | ~1707 |
+| Desktop | 16:9 | ~2276 |
+Verifica: `npm run build` + `npm run test:ui` (screenshot e controlli automatici alle tre larghezze, vedi TECH §"Test e2e UI"). Desktop: hover sui bottoni e Invio = azione principale **non ancora fatti** (hover = sprite normale).
+
+Regola per le modali: **un solo layout a colonna**, larghezza `min(620, visibile − 36)` (Widget L/R + `MaxSize`), contenuto che si stira col pannello (9-slice, illustrazione con `AspectRatioFit`). Su desktop la card resta una colonna centrata, coerente con la pista centrata. Desktop: stato hover sui bottoni e Invio = azione principale. Test e2e almeno a 591, 960 e 2276 di larghezza.
+
+Gotcha:
+- Se la scena era aperta prima che un componente nuovo fosse compilato, riaprirla prima di salvarla, altrimenti perde il componente.
+- `TOUCH_CANCEL` (non `TOUCH_END`) quando il tocco finisce fuori dal nodo che l'ha iniziato.
+- Content di ScrollView: Widget ONCE (alignMode 0).
+- Stato pre-rework (2026-11-11): modali incoerenti — `wood.png` 1024² a scala 0.477, CloseButton a scala 2.977, Card GameOver 308×183 vs Pause 560×620. Il rework li sostituisce con i pezzi `ui-modal`.
+
 ## Gotcha Cocos Creator 3.8
 
 ### CRITICO — lo spread di Set/Map/iteratori/stringhe NON funziona nella build
@@ -983,3 +1011,16 @@ Get-Process -Name "node" | Stop-Process -Force
 cmd /c rd /s /q "d:\Projects\FunWarriors\build"
 ```
 
+
+## Tutorial powerup (modale + catalogo, 2026-11-11)
+- **Trigger**: `GameManager._tickPowerupInfo` (polling in `update`): launcher in `Aiming`, niente round-up/ad-pause, powerup visibile da ≥0,6 s (`_powerupOf`) e non ancora mostrato in QUESTA partita → `_enterAdPause` + `PowerupInfoPanel.showSingle`, alla chiusura `_exitAdPause`. Copre tutte le fonti (nuova specie, BOOST, REVIVE, swap, debug). Evento telemetry `powerup_info`.
+- **Storage** (SafeStorage, quindi bridge.storage su Playgama): `fw_pu_seen_<id>` (scoperto → sbloccato nel catalogo, scritto anche se silenziato), `fw_pu_mute_<id>` ("Don't show again" spuntato alla chiusura; nel catalogo la spunta salva subito).
+- **Testi e catalogo**: `data/PowerupInfo.ts` (`POWERUP_INFO`, `inGame`, ordine catalogo Aura → Brotherhood → WildRiver → PsychoForce). Non scoperti = medaglione lucchetto, "???", niente illustrazione, testo "WHEN IT APPEARS" visibile.
+- **Soccorso unico** (GDD §15b): `_pickRescue(launcherType)` in `activateWarrior` — ≥25 in pista + cooldown condiviso (`_brCooldownLaunches/_brCooldownMerges`, 10+10, azzerato dal lancio di QUALUNQUE soccorso); WildRiver se ≥8 della specie del launcher (da round 5), PsychoForce se nessuna specie ≥6 (da round 8), altrimenti Brotherhood. Costanti `RESCUE_*`, `WILDRIVER_*`, `PSYCHO_*` in testa a GameManager. Punti WR/PF = formula Brotherhood. Evento `rescue_powerup`. L'anteprima del "next" usa la stessa scelta.
+- **Badge**: `entities/PowerupBadgeEffect` (medaglione 84 px sopra la testa, pop + bob, fade a potere speso), gestito da `_tickPowerupBadges` (prima del return su Paused, così resta visibile sotto la modale); frame da `powerupPanel.iconFor(id)`; `_badgeKindOf` controlla WR/PF per warrior (`_powerupOf` usa flag globali).
+- **Scene**: `node tools/ui/add-powerup-panel.mjs` (ri-eseguibile) monta `PowerupPanel` (inattivo) in Game (`UILayer`) e MainMenu (`Canvas`, prima di FadeOverlay) + bottone `Center/Powerups` sotto Ranking (bottom −126, h 76).
+- **Asset**: icone `graphics/sheets/ui-powerups` → `assets/ui/powerup-*.png`; illustrazioni `graphics/sheets/powerup-art` (manifest `outDir: assets/resources/powerups`, nuova opzione di `ui-sheet.mjs`) caricate on demand con `resources.load`, PNG8 quantizzati (~410 KB l'una). Prompt in `graphics/sheets/PROMPTS.md`.
+- e2e (`npm run test:ui`): trigger reale via `activateAura()`, pausa, Got it, spunta → mute, catalogo + pagina bloccata.
+
+## Golden Aura del BOOST (2026-11-11)
+- `activateAura(true)` da `_grantBoostAura`: `_auraGolden` → `_auraRange()` = `AURA_REPEL_RANGE` (160) su ogni specie; `AuraEffect.attach(..., golden)` → `GOLDEN_AURA_DURATION` 2,5 s + anelli più grandi/luminosi, scintille ogni 0,06 s. Lo stato segue swap (`_nextAuraGolden`), merge e snapshot. L'Aura gratuita non cambia.

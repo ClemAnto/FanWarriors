@@ -4,6 +4,42 @@
 
 ---
 
+## UI a 2× da fogli PSD — metodo ArredoMaster (2026-11-11)
+
+**Decisione**: la UI (a partire dalle modali) segue il metodo di ArredoMaster/Showroom Star. Nessuna immagine generata entra nel gioco direttamente: **foglio AI → PSD → PNG**.
+- `graphics/sheets/<foglio>/source.png` (uno per cartella, generato con ChatGPT) + `manifest.json` (`src` [x0,y0,x1,y1] nel foglio, `size` in unità di design, `slice` 9-slice in px di design, `group`/`state`, `scale: 2`).
+- `npm run ui:prep -- graphics/sheets/<foglio>` → `ui.psd` (titolo, uso, "NOME (9-SLICE|SIMPLE)", stati affiancati; livelli `pezzi/<gruppo>/<nome>/` ritoccabili, `guide 9-slice`/`leggimi`/`sfondo` bloccati). Mai sovrascrivere un PSD: `--force` solo su richiesta, crea un backup.
+- `npm run ui:export -- graphics/sheets/<foglio>` → `assets/ui/<nome>.png` + `.meta` pronto (sprite-frame, filtro lineare, no trim, bordi 9-slice). `assets/ui` sta **fuori** da `resources/` (referenziato da scene/prefab).
+- Tool: `tools/art/ui-sheet.mjs` (+ `png.mjs`, `lib/psd.mjs`, `lib/pixel-font.mjs`), copiato da ArredoMaster; dipendenza dev `ag-psd`.
+
+**Perché 2×**: design 720×1280 FIXED_HEIGHT, ma su telefoni retina la scala reale arriva a ~2 → una texture 1× è morbida. PNG e bordi doppi, `size`/`slice` restano in unità di design.
+
+**Montaggio**:
+- SIMPLE (icone, checkbox, close): `sizeMode` CUSTOM alla misura di design (vedi gotcha sizeMode in MEMO).
+- SLICED (pannelli, ribbon, bottoni, plate): sprite su un figlio **`skin`** primo fratello (sotto label/icone), scala 0.5, content size doppia, Widget steso sul padre. Il nodo logico (con figli) resta a scala 1.
+- Bottoni: transizione SPRITE con `target` = `skin`, sprite normal + pressed.
+- Barre sottili con bordi più alti della barra: `skin` a scala 0.25, content ×4. Skin che segue un padre ridimensionato a ogni frame: Widget alignMode ALWAYS.
+- Eccezioni 1×: pezzi molto stretti (scrollbar).
+
+**Differenze rispetto ad ArredoMaster (volute)**:
+- **Un solo albero UI** (niente `OrientationLayout`/due alberi): le modali sono centrate via Widget e valgono per portrait e landscape. Test sempre in entrambi gli orientamenti.
+- **Font del gioco: Lilita One** (dal 2026-11-11, al posto di MedievalSharp; non Nunito). 27 KB contro 143, tondo e pesante come i pezzi UI, "!" leggibile. Licenza OFL in `licenses/`. Il file ha **preso l'uuid di MedievalSharp** (`993e10ce-…`): scene, prefab, `VFXManager` e generatori in `scripts/` lo referenziano senza modifiche. Label col font con **`isBold` spento** (il grassetto sintetico lo impasta); `VFXManager._applyFont` lo spegne da sé. Le Label con font di sistema (fallback HUD in `GameManager`, label placeholder di `Warrior`) restano invariate. MedievalSharp archiviato in `unused_assets/fonts/`. Nessuno dei due ha ▲▼ (NameEntry): li disegna il font di sistema finché non arrivano le frecce di `ui-icons`.
+- Regole già in vigore e confermate: niente UI/`Graphics` da codice, nodi authored autoritativi, dipendenze via `@property` con `console.warn` se mancanti, prefab + istanze per elementi ripetuti, componenti UI parlano con `GameManager` via hook/eventi.
+
+**Fogli** (prompt ChatGPT in `graphics/sheets/PROMPTS.md`): `ui-modal`, `ui-buttons` (vettoriale: `source.svg` → `source.png` a 2×, densità 144), `ui-icons`, `ui-hud` (barre di progresso a scala 1, usate direttamente da `cc.ProgressBar`), `ui-ranking`. 47 PNG in `assets/ui/`.
+
+**Montaggio (2026-11-11)**: `tools/ui/apply-ui.mjs` (`npm run ui:apply`) ha rifatto in un colpo tutte le schermate sui nodi esistenti — è **one-shot, non idempotente** (da rilanciare solo su un albero pulito: `git checkout` dei file). Da qui in poi i valori nei file sono quelli "dell'editor". Libreria `tools/ui/cocos-edit.mjs`: trova nodi per percorso, aggiunge nodi/componenti con le info prefab, rimuove componenti/sottoalberi rimappando gli `__id__`.
+- **Fine partita (GameOver/Victory)**: `Column` (Widget L/R 18 + MID, `MaxSize` 600, `Layout` verticale CONTAINER) → `Card` (pannello 800 di altezza: `Frame` letter-slot + illustrazione 400², righe `ScoreRow`/`BestRow`/`RoundRow` su `stat-plate`, `NewBest` al posto di `BestRow`) → `Revive` → `Continue`. Il Layout salta i nodi inattivi: senza REVIVE il Continue sale sotto la card. Lo skin del pannello NON può stare su un nodo con Layout (verrebbe contato come figlio): per questo la Layout è sulla Column e lo skin sulla Card. `EndPanel` scrive solo i valori (`formatNumber` con separatore delle migliaia) e nasconde `bestRow` sul nuovo record.
+- **Classifica**: componente `ui/LeaderboardRow` sul prefab riga (plate normale/giocatore, medaglie 1-3, label); `LeaderboardPanel` lo usa se presente. Rimossi gli override `_contentSize` delle istanze riga (erano altezze negative da una Layout CHILDREN): `Rows` ora è Layout CONTAINER spacing 8.
+- **Settings**: `QuitButton` autorato in Game.scene e assegnato a `Settings.quitButton` (niente più clone a runtime). Checkbox `checkbox-off/on`, icone accanto alle voci.
+- **NameEntry**: frecce = `button-square` + icone (via i glifi ▲▼ che il font non aveva), lettere su `letter-slot`.
+- Override `_contentSize` delle istanze dei pannelli in Game.scene rimossi: comandano le misure dei prefab.
+- **Menu principale**: logo `Title` spostato sotto `UILayer`, anchor (0.5, 0), Widget L/R 20 + BOT 684 (bordo inferiore fisso sopra PLAY, cresce verso l'alto) + `MaxSize` 1240 + `AspectRatioFit` 1000/414 → ~550 telefono, ~920 tablet, 1240 desktop. `BestScore` (pergamena 300×116) in basso al centro, Widget BOT 140 (sopra la riga Privacy/versione/rotella, che sul telefono stretto toccava).
+
+**Test e2e UI**: `tests/e2e/ui-e2e.mjs` (`npm run test:ui`, dopo `npm run build`). Chrome headless via DevTools protocol (nessun pacchetto npm), viewport 390×844 / 768×1024 / 1600×900 (= larghezze di design 591 / 960 / 2276). Apre ogni schermata/modale chiamando i componenti del gioco, salva gli screenshot (`%TEMP%/funwarriors-ui-e2e` o `--out`), controlla che nulla esca dallo schermo e che i bottoni non si sovrappongano, poi fa tap/click veri (frecce NameEntry, cog → Settings, checkbox, Close, Ranking, PLAY, Continue) e verifica l'effetto. Exit 1 su errori di console o problemi.
+
+---
+
 ## Portal SDK (Poki / CrazyGames) — adapter spegnibile (2026-06-10, CrazyGames 2026-06-15)
 
 **Decisione**: stessa stratificazione del leaderboard — `services/PortalSdk.ts` (interfaccia no-throw), `NullPortal` (standalone), `PokiPortal` (SDK v2), `CrazyGamesPortal` (SDK v3), tutti caricati lazy dal CDN a runtime (mai in `index.html`); `PortalProvider.get()` singleton (switch a 3 vie) su flag `PORTAL` in `config/PortalConfig.ts` (`'none' | 'poki' | 'crazygames'`, **default `'none'`** → la build GitHub Pages non cambia di un byte).
@@ -427,3 +463,6 @@ L'approccio modale dal menu (`resources.load` + `getComponent`/duck-typing) si �
 - `md5Cache=true` in `scripts/build.js` per evitare bundle serviti da cache stale.
 
 **Stato/deploy**: deploy manuale su gh-pages (`npm run build` + `npm run deploy`). NIENTE build/deploy automatici (vedi memoria workflow). Rules v1 applicate in console Firebase (2026-06-10) — test-mode disattivato.
+
+## Tutorial powerup: polling invece di hook (2026-11-11)
+La modale del primo powerup della partita parte da un controllo per-frame (`_tickPowerupInfo`) sul powerup del launcher, non da hook nei punti in cui i powerup vengono assegnati: le fonti sono tante (prima comparsa di specie, BOOST, REVIVE, swap Next↔Launcher, debug, ripristino snapshot) e un hook dimenticato lascerebbe il powerup senza spiegazione. Riusa la pausa del BOOST (`_enterAdPause/_exitAdPause`), che gestisce già round-up differiti e resize durante la pausa. Le illustrazioni stanno in `resources/` e si caricano solo all'apertura, per non pesare sul boot (load time Playgama).

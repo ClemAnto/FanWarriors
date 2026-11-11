@@ -28,7 +28,7 @@ const path = require('path');
 const SCENE = path.resolve(__dirname, '..', 'assets', 'scenes', 'Game.scene');
 
 // Asset / script UUIDs (from .meta files).
-const FONT     = '993e10ce-345b-464f-9b7d-bd534dcd6e0b';        // MedievalSharp TTF
+const FONT     = '993e10ce-345b-464f-9b7d-bd534dcd6e0b';        // game font TTF (Lilita One, uuid kept from MedievalSharp)
 const SF_WHITE = '20835ba4-6145-4fbc-a58a-051ce700aa3e@f9941';  // builtin white (Hand placeholder)
 const UUID_ONBOARDING = 'e5bd1b55-f3bd-439c-8627-72726ceaca5f'; // OnboardingHints.ts
 const UUID_GAMEMANAGER = '87d2520b-1b40-48b8-a1eb-d104c989fafc'; // GameManager.ts
@@ -120,7 +120,7 @@ function label(nodeIdx, str, fontSize, c = col(255, 255, 255), o = {}) {
         _lineHeight: o.lineHeight ?? Math.round(fontSize * 1.35),
         _overflow: o.overflow ?? 0, _enableWrapText: o.wrap ?? false,
         _font: { __uuid__: FONT, __expectedType__: 'cc.TTFFont' }, _isSystemFontUsed: false,
-        _spacingX: 0, _isItalic: false, _isBold: !!o.bold, _isUnderline: false,
+        _spacingX: 0, _isItalic: false, _isBold: false /* Lilita One is already heavy */, _isUnderline: false,
         _underlineHeight: 2, _cacheMode: 0, _enableOutline: !!o.outline,
         _outlineColor: col(0, 0, 0, 220), _outlineWidth: o.outlineWidth ?? 3,
         _enableShadow: false, _shadowColor: col(0, 0, 0, 255),

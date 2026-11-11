@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "432fe564-dabe-4e08-8a7d-fd007f5bc72a",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "432fe564-dabe-4e08-8a7d-fd007f5bc72a@6c48a",
+      "displayName": "powerup-brotherhood",
+      "id": "6c48a",
+      "name": "texture",
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {},
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0,
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "432fe564-dabe-4e08-8a7d-fd007f5bc72a",
+        "visible": false
+      }
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "432fe564-dabe-4e08-8a7d-fd007f5bc72a@f9941",
+      "displayName": "powerup-brotherhood",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {},
+      "userData": {
+        "trimType": "none",
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 0,
+        "trimY": 0,
+        "width": 288,
+        "height": 296,
+        "rawWidth": 288,
+        "rawHeight": 296,
+        "borderLeft": 0,
+        "borderTop": 0,
+        "borderRight": 0,
+        "borderBottom": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "432fe564-dabe-4e08-8a7d-fd007f5bc72a@6c48a",
+        "atlasUuid": "",
+        "vertices": {
+          "rawPosition": [
+            -144,
+            -148,
+            0,
+            144,
+            -148,
+            0,
+            -144,
+            148,
+            0,
+            144,
+            148,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            0,
+            296,
+            288,
+            296,
+            0,
+            0,
+            288,
+            0
+          ],
+          "nuv": [
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            1
+          ],
+          "minPos": [
+            -144,
+            -148,
+            0
+          ],
+          "maxPos": [
+            144,
+            148,
+            0
+          ]
+        }
+      }
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "hasAlpha": true,
+    "fixAlphaTransparencyArtifacts": false,
+    "redirect": "432fe564-dabe-4e08-8a7d-fd007f5bc72a@6c48a"
+  }
+}

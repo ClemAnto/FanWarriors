@@ -7,6 +7,7 @@ import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
 import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_CONFIG_ENABLED } from '../config/LeaderboardConfig';
 import { BgFill } from '../entities/BgFill';
+import { PowerupInfoPanel } from './PowerupInfoPanel';
 
 const { ccclass, property } = _decorator;
 
@@ -29,6 +30,10 @@ export class MainMenu extends Component {
     versionLabel: Label | null = null;
     @property({ type: Node, tooltip: 'LEADERBOARD button — opens the Ranking scene.' })
     leaderboardButton: Node | null = null;
+    @property({ type: Node, tooltip: 'POWERUPS button (under Ranking) — opens the powerup catalog.' })
+    powerupsButton: Node | null = null;
+    @property({ type: PowerupInfoPanel, tooltip: 'Powerup tutorial modal (inactive in editor), catalog mode.' })
+    powerupPanel: PowerupInfoPanel | null = null;
 
     /** True once the MainMenu has run in this page session (first-visit skip applies only at boot). */
     private static _entered = false;
@@ -74,6 +79,7 @@ export class MainMenu extends Component {
         if (this.versionLabel) this.versionLabel.string = `v${VERSION}`;
 
         this.playButton?.on(Button.EventType.CLICK, this.onPlay, this);
+        this.powerupsButton?.on(Button.EventType.CLICK, this.onPowerups, this);
         if (this.leaderboardButton) {
             // Hide the LEADERBOARD button when the online leaderboard is off for this build
             // (GameDistribution §7) — the Ranking scene would otherwise be empty/dead.
@@ -151,6 +157,11 @@ export class MainMenu extends Component {
             bgNode!.getComponent(BgFill)?.refit();  // cover-fit now that the texture is loaded
             tween(op).to(0.3, { opacity: 255 }).start();
         });
+    }
+
+    /** Powerup catalog: the tutorials of the powerups met so far (the others locked). */
+    onPowerups(): void {
+        this.powerupPanel?.showCatalog();
     }
 
     /** Opens the dedicated Ranking scene (leaderboard always visible there). */

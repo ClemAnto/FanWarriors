@@ -1,0 +1,246 @@
+{
+ "title": "Buttons",
+ "use": "bottoni di tutte le schermate (vettoriali: source.png = source.svg a 2x)",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-11 (SVG). Regenerate source.png from source.svg at density 144 (3600x2400) if the SVG changes.",
+ "groups": {
+  "button-primary": "azione principale (Resume, Continue, OK)",
+  "button-secondary": "azioni secondarie (Restart, Menu, Close, No thanks)",
+  "button-reward": "azioni con video premio (Revive, Watch, Boost)",
+  "button-disabled": "bottone disattivato",
+  "button-square": "bottoni icona (settings, frecce)",
+  "button-hero": "PLAY del menu"
+ },
+ "pieces": [
+  {
+   "name": "button-primary",
+   "src": [
+    430,
+    120,
+    1549,
+    439
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-primary",
+   "state": "normal"
+  },
+  {
+   "name": "button-primary-pressed",
+   "src": [
+    2050,
+    120,
+    3169,
+    439
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-primary",
+   "state": "pressed"
+  },
+  {
+   "name": "button-secondary",
+   "src": [
+    430,
+    540,
+    1549,
+    859
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-secondary",
+   "state": "normal"
+  },
+  {
+   "name": "button-secondary-pressed",
+   "src": [
+    2050,
+    540,
+    3169,
+    859
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-secondary",
+   "state": "pressed"
+  },
+  {
+   "name": "button-reward",
+   "src": [
+    430,
+    960,
+    1549,
+    1279
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-reward",
+   "state": "normal"
+  },
+  {
+   "name": "button-reward-pressed",
+   "src": [
+    2050,
+    960,
+    3169,
+    1279
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-reward",
+   "state": "pressed"
+  },
+  {
+   "name": "button-disabled",
+   "src": [
+    430,
+    1380,
+    1549,
+    1699
+   ],
+   "size": [
+    280,
+    80
+   ],
+   "slice": [
+    30,
+    30,
+    30,
+    30
+   ],
+   "group": "button-disabled"
+  },
+  {
+   "name": "button-square",
+   "src": [
+    2070,
+    1380,
+    2389,
+    1699
+   ],
+   "size": [
+    80,
+    80
+   ],
+   "slice": [
+    28,
+    28,
+    28,
+    28
+   ],
+   "group": "button-square",
+   "state": "normal"
+  },
+  {
+   "name": "button-square-pressed",
+   "src": [
+    2710,
+    1380,
+    3029,
+    1699
+   ],
+   "size": [
+    80,
+    80
+   ],
+   "slice": [
+    28,
+    28,
+    28,
+    28
+   ],
+   "group": "button-square",
+   "state": "pressed"
+  },
+  {
+   "name": "button-hero",
+   "src": [
+    428,
+    1818,
+    1551,
+    2281
+   ],
+   "size": [
+    281,
+    116
+   ],
+   "slice": [
+    40,
+    40,
+    40,
+    40
+   ],
+   "group": "button-hero",
+   "state": "normal"
+  },
+  {
+   "name": "button-hero-pressed",
+   "src": [
+    2048,
+    1818,
+    3171,
+    2281
+   ],
+   "size": [
+    281,
+    116
+   ],
+   "slice": [
+    40,
+    40,
+    40,
+    40
+   ],
+   "group": "button-hero",
+   "state": "pressed"
+  }
+ ]
+}

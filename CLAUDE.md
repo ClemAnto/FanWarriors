@@ -12,6 +12,9 @@ Progetto Cocos Creator 3.8.8, TypeScript, gioco puzzle-arcade ibrido tra Suika G
 | `TECH.md` | Decisioni architetturali non ovvie e il perché dietro a esse. | Consultare se si tocca l'architettura. Aggiornare quando si prende una decisione strutturale rilevante. |
 | `COCOS.md` | Reference tecnico sul formato `.scene` CC3: UUID encoding, Widget flags, struttura HUD, coordinate design. | Consultare quando si scrive o modifica un file `.scene` manualmente. Aggiornare se si scoprono nuovi dettagli del formato. |
 
+## UI (metodo fogli @2x, dal 2026-11-11)
+Grafica UI: foglio AI → `graphics/sheets/<foglio>/` → `npm run ui:prep` (PSD da ritoccare) → `npm run ui:export` (`assets/ui/`). Mai un'immagine generata direttamente nel gioco. Pezzi SLICED montati su figlio `skin` (scala 0.5). Dettagli in TECH.md §"UI a 2×" e MEMO.md §"UI — workflow fogli @2x". Il gioco gira su mobile, tablet e desktop: test e2e almeno a larghezza visibile 591 (telefono stretto), 960 (tablet) e 2276 (desktop 16:9) prima di chiudere un task UI.
+
 ## Stack
 - Cocos Creator 3.8.8
 - TypeScript strict mode
@@ -41,6 +44,8 @@ Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia auto
 Quando l'utente scrive **"OK Chiudo"** (o varianti come "Ok chiudo"), significa che sta per cambiare chat. Aggiornare immediatamente tutti gli `.md` rilevanti con quanto scoperto/cambiato nella sessione corrente prima di rispondere.
 
 ## Stato attuale
+**Nuova UI @2x montata (2026-11-11, non ancora committata/deployata):** tutte le schermate (HUD, Settings, Pausa, BOOST, GAME OVER/YOU WIN, menu, privacy, classifica, NameEntry) usano i fogli `graphics/sheets/ui-*`; font Lilita One. `npm run test:ui` passa a 591/960/2276 di larghezza.
+
 Fase 5 — Pubblicazione (v0.10.23 LIVE in sandbox Playgama dal 2026-11-09, branch **`feature/playgama`** — NON ancora mergiato su main).
 
 **Statistiche sandbox Playgama al 2026-11-09 (v0.10.20 live):** 8/100 qualifying plays, avg play time **8:27**/9:00, 0.25/0.30 ad/play, 3 target rimanenti. Metrics: 23 launch, **Game ready rate 65%**, bounce 65%, load 3,9 s, time-to-first-ad 2:17. Il vero collo di bottiglia sono le plays: ~35% dei launch non arriva a `game_ready`.
@@ -48,7 +53,7 @@ Fase 5 — Pubblicazione (v0.10.23 LIVE in sandbox Playgama dal 2026-11-09, bran
 
 **Rework resize/fullscreen (v0.10.18):** centraggio del mondo fisico ora **dichiarativo via Widget** (`World`/`Track` HORIZONTAL_CENTER in `Game.scene`) — rimosso lo snap manuale `_recentreGameLayers` (era esso stesso fonte di offset). Al resize: freeze + **re-pin posizione LOCALE** dei warrior (i corpi b2World non seguono i Widget). Rebuild muri **NON** più nel percorso di resize (distruggere collider mentre si muovono i corpi → crash broadphase `UpdatePairs`): i muri statici seguono il Track ri-centrato via sync, e la geometria si rifà al lancio successivo (`_didFirstLaunchRefresh` ri-armato a ogni resize). Re-pin rinviato al resume se il resize cade in pausa-Settings. Dettagli in MEMO/TECH §Resize.
 
-Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (MedievalSharp), pannelli modali end-game, leaderboard Firebase (scena Ranking), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti.
+Fase 3 chiusa il 2026-06-10: gameplay completo, sprite reali, HUD (font MedievalSharp, sostituito da Lilita One il 2026-11-11), pannelli modali end-game, leaderboard Firebase (scena Ranking), powerup Aura/WildRiver/PsychoForce/Brotherhood. Audio/slowmo/trail/juice fatti.
 
 **CrazyGames — RIGETTATO, motivo reale (2026-11-08): "concept too close to existing titles"** (percepito come clone Suika) → problema di differenziazione, non tecnico. Risottomettere senza rework del concept è inutile; dirottare su altri portali (Poki/Playgama).
 **GameDistribution — RIGETTATO (2026-11-08):** "does not match the criteria / fit with top partners' target audiences" (template B2B, nessun motivo tecnico). Adapter GD resta nel codice ma il canale è chiuso per questa build.

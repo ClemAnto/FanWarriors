@@ -1,0 +1,138 @@
+{
+ "title": "Ranking",
+ "use": "classifica e inserimento del nome",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-11.",
+ "groups": {
+  "row": "riga della classifica",
+  "medal": "posizioni 1, 2, 3",
+  "letter-slot": "lettera del nome / cornice illustrazione"
+ },
+ "pieces": [
+  {
+   "name": "row-plate",
+   "src": [
+    37,
+    72,
+    1497,
+    250
+   ],
+   "size": [
+    365,
+    45
+   ],
+   "slice": [
+    22,
+    0,
+    22,
+    0
+   ],
+   "group": "row",
+   "state": "normal"
+  },
+  {
+   "name": "row-plate-me",
+   "src": [
+    36,
+    298,
+    1497,
+    476
+   ],
+   "size": [
+    365,
+    45
+   ],
+   "slice": [
+    22,
+    0,
+    22,
+    0
+   ],
+   "group": "row",
+   "state": "player"
+  },
+  {
+   "name": "medal-gold",
+   "src": [
+    57,
+    553,
+    364,
+    939
+   ],
+   "size": [
+    77,
+    97
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "group": "medal",
+   "state": "1"
+  },
+  {
+   "name": "medal-silver",
+   "src": [
+    423,
+    553,
+    730,
+    939
+   ],
+   "size": [
+    77,
+    97
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "group": "medal",
+   "state": "2"
+  },
+  {
+   "name": "medal-bronze",
+   "src": [
+    787,
+    553,
+    1094,
+    939
+   ],
+   "size": [
+    77,
+    97
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "group": "medal",
+   "state": "3"
+  },
+  {
+   "name": "letter-slot",
+   "src": [
+    1168,
+    543,
+    1460,
+    951
+   ],
+   "size": [
+    73,
+    102
+   ],
+   "slice": [
+    22,
+    22,
+    22,
+    22
+   ],
+   "group": "letter-slot"
+  }
+ ]
+}

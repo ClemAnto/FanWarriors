@@ -4,10 +4,10 @@ const { ccclass } = _decorator;
 
 const FIXED_SCALE = 1.2;
 
-const OUTER_COLOR = new Color(140,  40, 200, 255);  // deep violet
-const INNER_COLOR = new Color(200, 100, 255, 255);  // bright lavender
-
-const SPARK_PALETTE = [
+// Default palette = violet (Brotherhood). Each powerup has its own color: subclasses override.
+const VIOLET_OUTER = new Color(140,  40, 200, 255);  // deep violet
+const VIOLET_INNER = new Color(200, 100, 255, 255);  // bright lavender
+const VIOLET_SPARKS: readonly Color[] = [
     new Color(180,  60, 240, 220),
     new Color(220, 140, 255, 200),
     new Color(160,  80, 220, 180),
@@ -38,6 +38,9 @@ export abstract class GlowPulseEffect extends Component {
     protected readonly innerFadeTarget: number = 120;   // inner ring target opacity
     protected readonly sparkleInterval: number = 0.13;
     protected readonly fadeOutDur:      number = 0.6;
+    protected readonly outerColor:      Color  = VIOLET_OUTER;
+    protected readonly innerColor:      Color  = VIOLET_INNER;
+    protected readonly sparkPalette:    readonly Color[] = VIOLET_SPARKS;
 
     detach(): void {
         if (this._detaching) return;
@@ -96,9 +99,9 @@ export abstract class GlowPulseEffect extends Component {
             return op;
         };
 
-        const outerOp = makeRing(`${this.nodePrefix}Outer`, r * 3.4 * FIXED_SCALE, OUTER_COLOR);
+        const outerOp = makeRing(`${this.nodePrefix}Outer`, r * 3.4 * FIXED_SCALE, this.outerColor);
         this._outerOp = outerOp;
-        const innerOp = makeRing(`${this.nodePrefix}Inner`, r * 2.2 * FIXED_SCALE, INNER_COLOR);
+        const innerOp = makeRing(`${this.nodePrefix}Inner`, r * 2.2 * FIXED_SCALE, this.innerColor);
         this._innerOp = innerOp;
 
         // Fade-in outer → then pulse
@@ -150,7 +153,8 @@ export abstract class GlowPulseEffect extends Component {
         const sc = 0.8 + Math.random() * 1.0;
         spark.setScale(sc, sc, 1);
 
-        const col = SPARK_PALETTE[Math.floor(Math.random() * SPARK_PALETTE.length)];
+        const pal = this.sparkPalette;
+        const col = pal[Math.floor(Math.random() * pal.length)];
 
         if (this._sparkleFrame) {
             const size = 32 + Math.random() * 28;

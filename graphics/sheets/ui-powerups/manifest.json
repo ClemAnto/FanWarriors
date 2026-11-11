@@ -1,0 +1,103 @@
+{
+ "title": "Powerups",
+ "use": "icone dei powerup: modale tutorial e menu POWERUPS (SIMPLE, sizeMode CUSTOM)",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-11. size = native/2. PsychoForce: smalto blu, in gioco è ciano (eventuale ritocco nel PSD).",
+ "pieces": [
+  {
+   "name": "powerup-aura",
+   "src": [
+    24,
+    365,
+    313,
+    661
+   ],
+   "size": [
+    144,
+    148
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-wildriver",
+   "src": [
+    324,
+    365,
+    612,
+    661
+   ],
+   "size": [
+    144,
+    148
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-brotherhood",
+   "src": [
+    624,
+    365,
+    912,
+    661
+   ],
+   "size": [
+    144,
+    148
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-psychoforce",
+   "src": [
+    923,
+    365,
+    1211,
+    661
+   ],
+   "size": [
+    144,
+    148
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "powerup-locked",
+   "src": [
+    1223,
+    365,
+    1512,
+    661
+   ],
+   "size": [
+    144,
+    148
+   ],
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ]
+}

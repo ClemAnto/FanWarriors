@@ -393,6 +393,8 @@ Tutti gli sprite sono già presenti in `assets/warriors/`.
 
 ## 15. AURA Powerup *(ex LevelBoost — riscritto v0.8.19)*
 
+> **Golden Aura (2026-11-11)**: l'Aura data dal BOOST è sempre a piena forza — raggio del Drago (160 px) su qualunque specie, durata 2,5 s invece di 1,5, anelli più grandi e luminosi, scintille raddoppiate. L'Aura gratuita (prima comparsa di Lupo/Aquila/Leone/Drago) resta quella normale, con raggio per specie. Lo stato golden segue il warrior negli swap, nei merge e nel ripristino della partita (`auraGolden`/`nextAuraGolden` nello snapshot).
+
 Powerup ottenibile dal giocatore **solo tramite il BOOST rewarded** al cambio round (guarda uno spot → Aura sul warrior in rampa; anche via debug). Ha precedenza su WildRiver e PsychoForce — li disattiva se attivi. Dal 2026-11-11 lo zap vale per **tutte** le specie (`AURA_ZAP_MIN_TYPE = 0`) e il raggio ha un minimo di 80 px (`AURA_MIN_RANGE`), così il premio rende anche con Rana/Gatto.
 
 ### Attivazione e durata
@@ -481,9 +483,23 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 
 ---
 
+## 15b. Powerup di soccorso e scoperta (2026-11-11)
+
+Un solo **slot di soccorso** automatico, con lo stesso momento e la stessa frequenza del vecchio Brotherhood: **≥ 25 warrior in pista**, cooldown **condiviso** 10 lanci **e** 10 merge dopo qualunque soccorso. Cambia solo la **forma**, scelta in base alla pista e al round (sblocco progressivo = qualcosa da scoprire, difficoltà invariata):
+
+| Situazione al lancio | Soccorso | Sblocco |
+|---|---|---|
+| ≥ 8 warrior della specie del launcher in pista | **WildRiver** | round 5 |
+| Pista frammentata: nessuna specie con ≥ 6 warrior | **PsychoForce** | round 8 |
+| Altrimenti | **Brotherhood** | subito |
+
+I tre soccorsi danno gli stessi punti per warrior imploso (`12 × round × 2^(livello−1)`, formula di Brotherhood: niente moltiplicatore a catena) per non sbilanciare la classifica. Il REVIVE dà sempre Brotherhood. Aura resta il premio a tappe (prima comparsa di Lupo/Aquila/Leone/Drago + BOOST). Il powerup portato è segnalato da un **medaglione sopra la testa** del warrior (`PowerupBadgeEffect`), e alla prima comparsa nella partita si apre la modale tutorial. Soglie e round da verificare con la telemetria (`rescue_powerup`, `powerup_info`).
+
+> Le sezioni 16-17 qui sotto descrivono le meccaniche dei singoli effetti; i loro trigger storici sono superati da questa tabella.
+
 ## 16. WildRiver Powerup
 
-Powerup automatico: il launcher si incendia di sangue e al primo contatto con un warrior in pista scatena una cascata WRS (WildRiver Sparkle) che si propaga per contagio, poi implode accumulando punti.
+Powerup automatico (colore **rosso rubino** dal 2026-11-11, prima viola come Brotherhood): il launcher si accende di rosso e al primo contatto con un warrior in pista scatena una cascata WRS (WildRiver Sparkle) che si propaga per contagio, poi implode accumulando punti.
 
 ### Condizioni di attivazione
 

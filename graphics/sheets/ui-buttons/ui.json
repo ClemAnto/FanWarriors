@@ -1,0 +1,172 @@
+{
+ "width": 1424,
+ "height": 1877,
+ "scale": 2,
+ "pieces": [
+  {
+   "name": "button-primary",
+   "slot": {
+    "x": 24,
+    "y": 159,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-primary-pressed",
+   "slot": {
+    "x": 632,
+    "y": 159,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-secondary",
+   "slot": {
+    "x": 24,
+    "y": 445,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-secondary-pressed",
+   "slot": {
+    "x": 632,
+    "y": 445,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-reward",
+   "slot": {
+    "x": 24,
+    "y": 731,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-reward-pressed",
+   "slot": {
+    "x": 632,
+    "y": 731,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-disabled",
+   "slot": {
+    "x": 24,
+    "y": 1017,
+    "w": 560,
+    "h": 160
+   },
+   "slice": [
+    60,
+    60,
+    60,
+    60
+   ]
+  },
+  {
+   "name": "button-square",
+   "slot": {
+    "x": 24,
+    "y": 1281,
+    "w": 160,
+    "h": 160
+   },
+   "slice": [
+    56,
+    56,
+    56,
+    56
+   ]
+  },
+  {
+   "name": "button-square-pressed",
+   "slot": {
+    "x": 232,
+    "y": 1281,
+    "w": 160,
+    "h": 160
+   },
+   "slice": [
+    56,
+    56,
+    56,
+    56
+   ]
+  },
+  {
+   "name": "button-hero",
+   "slot": {
+    "x": 24,
+    "y": 1567,
+    "w": 562,
+    "h": 232
+   },
+   "slice": [
+    80,
+    80,
+    80,
+    80
+   ]
+  },
+  {
+   "name": "button-hero-pressed",
+   "slot": {
+    "x": 634,
+    "y": 1567,
+    "w": 562,
+    "h": 232
+   },
+   "slice": [
+    80,
+    80,
+    80,
+    80
+   ]
+  }
+ ]
+}

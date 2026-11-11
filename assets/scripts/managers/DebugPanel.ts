@@ -205,12 +205,12 @@ export class DebugPanel extends Component {
 
         // WIN + WR + PF + AURA buttons
         this.winLbl  = this.lbl('🏆 WIN!', WIN_CX,  WIN_BTN_Y, 10, new Color(255, 220, 50, 255));
-        this.wrLbl   = this.lbl('WR',      WR_CX,   WIN_BTN_Y, 13, new Color(200, 100, 255, 255));
+        this.wrLbl   = this.lbl('WR',      WR_CX,   WIN_BTN_Y, 13, new Color(255, 100, 110, 255));
         this.pfLbl   = this.lbl('PF',      PF_CX,   WIN_BTN_Y, 13, new Color(60, 220, 255, 255));
         this.auraLbl = this.lbl('AURA',    AURA_CX, WIN_BTN_Y, 11, new Color(255, 190, 40, 255));
 
         // BR button
-        this.brLbl = this.lbl('⚡ BROTHERHOOD', BR_CX, BR_BTN_Y, 11, new Color(255, 60, 60, 255));
+        this.brLbl = this.lbl('⚡ BROTHERHOOD', BR_CX, BR_BTN_Y, 11, new Color(200, 100, 255, 255));
 
         // LOSE button (instant game over)
         this.loseLbl = this.lbl('💀 LOSE', LOSE_CX, LOSE_BTN_Y, 11, new Color(255, 120, 120, 255));
@@ -310,10 +310,10 @@ export class DebugPanel extends Component {
         g.rect(WIN_CX - WIN_BTN_W / 2, WIN_BTN_Y - WIN_BTN_H / 2, WIN_BTN_W, WIN_BTN_H);
         g.stroke();
 
-        // WR toggle button (purple when on)
+        // WR toggle button (ruby when on)
         const wrOn = this.gm?.isWildRiverEnabled() ?? false;
-        g.fillColor   = wrOn ? new Color(120, 30, 180, 255) : new Color(40, 20, 70, 230);
-        g.strokeColor = wrOn ? new Color(200, 100, 255, 255) : new Color(120, 60, 180, 180);
+        g.fillColor   = wrOn ? new Color(170, 25, 50, 255) : new Color(70, 12, 22, 230);
+        g.strokeColor = wrOn ? new Color(255, 120, 130, 255) : new Color(180, 50, 70, 180);
         g.lineWidth   = wrOn ? 2.5 : 1.5;
         g.rect(WR_CX - WR_BTN_W / 2, WIN_BTN_Y - WR_BTN_H / 2, WR_BTN_W, WR_BTN_H);
         g.fill();
@@ -339,8 +339,8 @@ export class DebugPanel extends Component {
         g.stroke();
 
         // BR (Brotherhood) button — red flash on press
-        g.fillColor   = this.brPressed ? new Color(220, 30, 30, 255) : new Color(80, 10, 10, 230);
-        g.strokeColor = this.brPressed ? new Color(255, 140, 140, 255) : new Color(180, 40, 40, 180);
+        g.fillColor   = this.brPressed ? new Color(120, 30, 180, 255) : new Color(40, 20, 70, 230);
+        g.strokeColor = this.brPressed ? new Color(200, 100, 255, 255) : new Color(120, 60, 180, 180);
         g.lineWidth   = this.brPressed ? 2.5 : 1.5;
         g.rect(BR_CX - BR_BTN_W / 2, BR_BTN_Y - BR_BTN_H / 2, BR_BTN_W, BR_BTN_H);
         g.fill();
@@ -510,8 +510,8 @@ export class DebugPanel extends Component {
         if (this.inRect(p, WR_CX - WR_BTN_W / 2, WIN_BTN_Y - WR_BTN_H / 2, WR_BTN_W, WR_BTN_H)) {
             this.gm.toggleWildRiver();
             this.wrLbl.color = this.gm.isWildRiverEnabled()
-                ? new Color(220, 140, 255, 255)
-                : new Color(200, 100, 255, 255);
+                ? new Color(255, 160, 165, 255)
+                : new Color(255, 100, 110, 255);
             this.drawPanel();
             return;
         }

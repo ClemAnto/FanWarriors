@@ -17,12 +17,14 @@ const { ccclass, property } = _decorator;
  */
 @ccclass('EndPanel')
 export class EndPanel extends Component {
-    @property({ type: Label, tooltip: 'Final score line, e.g. "Score: 1234".' })
+    @property({ type: Label, tooltip: 'Final score VALUE (the "SCORE" caption is static in the prefab).' })
     scoreLabel: Label | null = null;
-    @property({ type: Label, tooltip: 'Round reached — shows the round number. Optional (leave unset to hide).' })
+    @property({ type: Label, tooltip: 'Round reached — VALUE only. Optional (leave unset to hide).' })
     roundLabel: Label | null = null;
-    @property({ type: Label, tooltip: 'Stored best line — hidden automatically when this run set a new best.' })
+    @property({ type: Label, tooltip: 'Stored best score — VALUE only.' })
     bestLabel: Label | null = null;
+    @property({ type: Node, tooltip: 'Row holding the stored best (caption + value). Hidden when this run set a new best: the NEW BEST row takes its place. Unset = hide just bestLabel.' })
+    bestRow: Node | null = null;
     @property({ type: Node, tooltip: 'Animated "NEW BEST SCORE" node — shown only on a new record.' })
     newBestNode: Node | null = null;
     @property({ type: Button, tooltip: 'The single forward button (Continue).' })
@@ -81,12 +83,12 @@ export class EndPanel extends Component {
         this.preloadIllustration();
         this.node.active = true;
         this.setReviveAvailable(canRevive);
-        if (this.scoreLabel) this.scoreLabel.string = `Score ${score}`;
-        if (this.roundLabel) this.roundLabel.string = `ROUND ${round}`;
+        if (this.scoreLabel) this.scoreLabel.string = EndPanel.formatNumber(score);
+        if (this.roundLabel) this.roundLabel.string = String(round);
         if (this.bestLabel) {
-            this.bestLabel.string = `Best ${best}`;
+            this.bestLabel.string = EndPanel.formatNumber(best);
             // Hide the stored best when this run beat it — the NEW BEST message is the cue then.
-            this.bestLabel.node.active = !newBest;
+            (this.bestRow ?? this.bestLabel.node).active = !newBest;
         }
         if (this.newBestNode) {
             this.newBestNode.active = newBest;
@@ -97,6 +99,11 @@ export class EndPanel extends Component {
             this._op.opacity = 0;
             tween(this._op).to(2.0, { opacity: 255 }).start();
         }
+    }
+
+    /** 12450 → "12,450" (grouping by hand: toLocaleString varies across WebViews). */
+    static formatNumber(n: number): string {
+        return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
 
     /** Show / hide the REVIVE option (resets its label and makes it tappable again). */
