@@ -1024,3 +1024,10 @@ cmd /c rd /s /q "d:\Projects\FunWarriors\build"
 
 ## Golden Aura del BOOST (2026-11-11)
 - `activateAura(true)` da `_grantBoostAura`: `_auraGolden` → `_auraRange()` = `AURA_REPEL_RANGE` (160) su ogni specie; `AuraEffect.attach(..., golden)` → `GOLDEN_AURA_DURATION` 2,5 s + anelli più grandi/luminosi, scintille ogni 0,06 s. Lo stato segue swap (`_nextAuraGolden`), merge e snapshot. L'Aura gratuita non cambia.
+
+## v0.10.33 (2026-11-11)
+- **Quit/Menu = primo accesso completato**: `GameManager._leaveToMenu()` (Settings Quit e PausePanel Menu) scrive `fw_played_once` + `fw_menu_on_boot`; `MainMenu` al boot non salta più nel gioco (né primo accesso né partita ripristinabile) finché il flag c'è; `GameManager` lo rimuove all'avvio di una partita (PLAY). e2e: sezione "first visit → Quit → menu".
+- **Bottoni**: tutti (Button e Toggle, scene + prefab) in transizione **SCALE 0.92** sul nodo stesso (arte + testo + icona), niente più sprite "pressed". Script `node tools/ui/buttons-scale.mjs` (ri-eseguibile); `cocos-edit.spriteButton` crea già bottoni così.
+- **Privacy**: testo dedicato alla build Playgama (`PLAYGAMA_POLICY_TEXT` in `PrivacyPanel.ts`, scelto con `PORTAL`): niente Firebase, salvataggi/classifica/ads/statistiche via Playgama.
+- **POWERUPS nel menu** visibile solo se almeno un powerup è stato scoperto (`fw_pu_seen_*`).
+- e2e: `--url <pagina>` per testare una build pubblicata (es. GitHub Pages).

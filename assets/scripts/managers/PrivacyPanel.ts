@@ -1,4 +1,5 @@
 import { _decorator, Component, Node, Label, Button, UIOpacity, tween, ScrollView } from 'cc';
+import { PORTAL } from '../config/PortalConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -14,7 +15,7 @@ const { ccclass, property } = _decorator;
  * The policy text lives HERE (single source of truth) and is pushed into `textLabel`,
  * so the wording can be updated in code without touching the scene.
  */
-const POLICY_TEXT =
+const STANDALONE_POLICY_TEXT =
     'FunWarriors stores only what the online leaderboard needs.\n\n' +
     'If you submit a score, we save your 3-letter tag, score and round ' +
     '(via Google Firebase). No personally identifying data, and nothing ' +
@@ -22,6 +23,18 @@ const POLICY_TEXT =
     'Your best score and settings stay on your device.\n\n' +
     'On game portals, ads are served by the platform under its own ' +
     'privacy policy.';
+
+/** Playgama build: no Firebase, no localStorage — saves, leaderboard, ads and analytics all go
+ *  through the Playgama Bridge (PLAYGAMA.md). */
+const PLAYGAMA_POLICY_TEXT =
+    'FunWarriors collects no personal data of its own and has no servers of its own.\n\n' +
+    'Your progress, best score and settings are saved through the Playgama platform ' +
+    '(in your Playgama account, or in this browser if you are not signed in).\n\n' +
+    'The leaderboard is run by Playgama: it shows your score with your Playgama player name.\n\n' +
+    'Ads and anonymous gameplay statistics are handled by Playgama under its own ' +
+    'privacy policy.';
+
+const POLICY_TEXT = PORTAL === 'playgama' ? PLAYGAMA_POLICY_TEXT : STANDALONE_POLICY_TEXT;
 
 @ccclass('PrivacyPanel')
 export class PrivacyPanel extends Component {

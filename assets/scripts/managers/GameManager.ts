@@ -40,9 +40,12 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.32';
+export const VERSION     = '0.10.33';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
+/** Set when the player leaves a game for the menu (Quit / Menu): the next boots open on the
+ *  MainMenu instead of jumping into a game (first visit or resumable save), until PLAY again. */
+export const LS_MENU_ON_BOOT = 'fw_menu_on_boot';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -733,6 +736,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             // End-panel art is lazy-loaded (not a Game-scene dependency): fetch it once play is under way.
             this.scheduleOnce(() => { this.gameOverPanel?.preloadIllustration(); this.victoryPanel?.preloadIllustration(); }, 5);
             SafeStorage.set(LS_PLAYED_ONCE, '1');  // later visits open on the MainMenu
+            SafeStorage.remove(LS_MENU_ON_BOOT);    // playing again: a saved game may resume at boot
             this._trackEvent('game_started', { restored: restoring, round: this.currentRound });
             if (QA_E2E_HOOKS && sys.isBrowser) {
                 const match = /fwqa=advance(\d+)/.exec(window.location.search);
@@ -2918,7 +2922,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this._settings.canOpen      = () => this.state !== GameState.GameOver && this.state !== GameState.Paused;
                 this._settings.onBeforeOpen = () => this._enterSettingsPause();
                 this._settings.onAfterClose = () => this._exitSettingsPause();
-                this._settings.onQuit       = () => { void this._withCommercialBreak(() => director.loadScene(MAIN_MENU_SCENE)); };
+                this._settings.onQuit       = () => this._leaveToMenu();
             }
             return;
         }
@@ -3020,7 +3024,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             GameManager._forceNewGame = true;  // Restart = new game, not a resume of the saved turn
             void this._withCommercialBreak(() => director.loadScene(this.sceneName));
         };
-        const menu   = (): void => { void this._withCommercialBreak(() => director.loadScene(MAIN_MENU_SCENE)); };
+        const menu   = (): void => this._leaveToMenu();
         if (this.pausePanel) {
             this.pausePanel.onResume  = () => this._exitSettingsPause();
             this.pausePanel.onRestart = reload;
@@ -3044,6 +3048,14 @@ export class GameManager extends Component implements IGameManagerDebug {
                 void advance();
             };
         }
+    }
+
+    /** Quit / Menu: the player chose the menu — treat the first access as complete and never bounce
+     *  them back into the game, now or at the next boots (until they press PLAY again). */
+    private _leaveToMenu(): void {
+        SafeStorage.set(LS_PLAYED_ONCE, '1');
+        SafeStorage.set(LS_MENU_ON_BOOT, '1');
+        void this._withCommercialBreak(() => director.loadScene(MAIN_MENU_SCENE));
     }
 
     /** Run a commercial break between sessions (no-op on standalone builds), then continue.

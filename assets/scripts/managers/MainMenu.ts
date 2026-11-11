@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, Graphics, Color } from 'cc';
 import { AudioManager, SFX } from './AudioManager';
-import { VERSION, LS_PLAYED_ONCE, GameManager } from './GameManager';
+import { VERSION, LS_PLAYED_ONCE, LS_MENU_ON_BOOT, GameManager } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
 import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
@@ -8,6 +8,7 @@ import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_CONFIG_ENABLED } from '../config/LeaderboardConfig';
 import { BgFill } from '../entities/BgFill';
 import { PowerupInfoPanel } from './PowerupInfoPanel';
+import { POWERUP_CATALOG, PowerupTutorialStore } from '../data/PowerupInfo';
 
 const { ccclass, property } = _decorator;
 
@@ -53,7 +54,8 @@ export class MainMenu extends Component {
         MainMenu._entered = true;
         // Same at boot when a saved game (< 12 h) exists: resume it straight away instead of
         // showing the menu (the Game scene restores it automatically).
-        if (bootEntry && (!SafeStorage.get(LS_PLAYED_ONCE) || GameManager.hasResumableGame())) {
+        // Not after the player left a game with Quit / Menu (LS_MENU_ON_BOOT): that is their choice.
+        if (bootEntry && !SafeStorage.get(LS_MENU_ON_BOOT) && (!SafeStorage.get(LS_PLAYED_ONCE) || GameManager.hasResumableGame())) {
             director.loadScene(GAME_SCENE);
             return;
         }
@@ -79,7 +81,11 @@ export class MainMenu extends Component {
         if (this.versionLabel) this.versionLabel.string = `v${VERSION}`;
 
         this.playButton?.on(Button.EventType.CLICK, this.onPlay, this);
-        this.powerupsButton?.on(Button.EventType.CLICK, this.onPowerups, this);
+        if (this.powerupsButton) {
+            // Shown once at least one powerup has been discovered (nothing to browse before).
+            this.powerupsButton.active = POWERUP_CATALOG.some(id => PowerupTutorialStore.isSeen(id));
+            this.powerupsButton.on(Button.EventType.CLICK, this.onPowerups, this);
+        }
         if (this.leaderboardButton) {
             // Hide the LEADERBOARD button when the online leaderboard is off for this build
             // (GameDistribution §7) — the Ranking scene would otherwise be empty/dead.

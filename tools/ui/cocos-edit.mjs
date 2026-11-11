@@ -263,17 +263,19 @@ export function skin(a, n, frame, { tint } = {}) {
     return s;
 }
 
-/** Button with SPRITE transition on its skin: normal / pressed (hover = normal, disabled = button-disabled). */
+/** Button art on its skin. Press feedback = the whole button shrinks a little (SCALE on the button
+ *  node, 2026-11-11: no pressed-sprite swap); the sprites stay set for a switch back to SPRITE. */
 export function spriteButton(a, n, skinNode, base) {
     const b = a.c(n, 'cc.Button');
     const f = name => ({ __uuid__: uiFrame(name), __expectedType__: 'cc.SpriteFrame' });
-    b._transition = 2;
-    b._target = ref(skinNode);
+    b._transition = 3;
+    b._duration = 0.08;
+    b._target = ref(n);
     b._normalSprite = f(base);
     b._hoverSprite = f(base);
     b._pressedSprite = f(`${base}-pressed`);
     b._disabledSprite = base === 'button-square' || base === 'button-hero' ? f(base) : f('button-disabled');
-    b._zoomScale = 1;
+    b._zoomScale = 0.92;
     return b;
 }
 export function ensureButton(a, n) {

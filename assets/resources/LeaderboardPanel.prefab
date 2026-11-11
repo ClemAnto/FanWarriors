@@ -6742,8 +6742,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 251
     },
@@ -7740,8 +7740,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 289
     },
@@ -8262,8 +8262,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 309
     },
@@ -8720,8 +8720,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 327
     },
@@ -9242,8 +9242,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 347
     },
@@ -9700,8 +9700,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 365
     },
@@ -10222,8 +10222,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 385
     },
@@ -10583,8 +10583,8 @@
     "_hoverSprite": null,
     "_pressedSprite": null,
     "_disabledSprite": null,
-    "_duration": 0.1,
-    "_zoomScale": 1.1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
       "__id__": 399
     },

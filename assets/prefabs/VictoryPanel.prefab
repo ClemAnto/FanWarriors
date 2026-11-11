@@ -754,7 +754,7 @@
     },
     "clickEvents": [],
     "_interactable": true,
-    "_transition": 2,
+    "_transition": 3,
     "_normalColor": {
       "__type__": "cc.Color",
       "r": 255,
@@ -799,10 +799,10 @@
       "__uuid__": "865cf2af-953b-477e-9f64-04002d0b46f3@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
-    "_duration": 0.1,
-    "_zoomScale": 1,
+    "_duration": 0.08,
+    "_zoomScale": 0.92,
     "_target": {
-      "__id__": 193
+      "__id__": 20
     },
     "_id": ""
   },

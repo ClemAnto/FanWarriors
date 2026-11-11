@@ -4,7 +4,7 @@
 // the game's own components, saves a screenshot of each and fails on console errors or on
 // on-screen layout problems (nodes outside the visible area, overlapping buttons).
 //
-//   npm run build && node tests/e2e/ui-e2e.mjs [--out <dir>]
+//   npm run build && node tests/e2e/ui-e2e.mjs [--out <dir>] [--url <published page>]
 //
 // Needs Chrome (default path below or $CHROME). No extra npm packages (Node ≥ 22 WebSocket).
 
@@ -20,6 +20,9 @@ const BUILD = path.join(ROOT, 'build', 'web-mobile');
 const CHROME = process.env.CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const outArg = process.argv.indexOf('--out');
 const OUT = outArg > 0 ? process.argv[outArg + 1] : path.join(os.tmpdir(), 'funwarriors-ui-e2e');
+// --url <page>: test a published build (e.g. GitHub Pages) instead of the local build/web-mobile.
+const urlArg = process.argv.indexOf('--url');
+const PAGE_URL = urlArg > 0 ? process.argv[urlArg + 1] : null;
 const PORT = 8125, DEBUG_PORT = 9335;
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -164,6 +167,19 @@ async function tapNode(p, vp) {
     }
 }
 
+/** Press (and hold) the node, check that it shrank, then release (= a normal tap). */
+async function pressCheck(p, vp, tag) {
+    const c = await nodeCenter(p);
+    if (!c) { fail(`node ${p} not found / not active`); return; }
+    if (vp.mobile) await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y }] });
+    else { await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y }); await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', clickCount: 1 }); }
+    await sleep(200);
+    const parts = p.split('/');
+    await expect(tag, `(() => { let hit = null; const w = (n, t) => { const tt = t.concat(n.name); if (!hit && tt.slice(-${parts.length}).join('/') === ${JSON.stringify(p)} && n.activeInHierarchy) hit = n; n.children.forEach(c => w(c, tt)); }; w(cc.director.getScene(), []); return hit && hit.scale.x < 0.97 && hit.scale.x > 0.85; })()`);
+    if (vp.mobile) await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    else await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x, y: c.y, button: 'left', clickCount: 1 });
+}
+
 async function load(scene) {
     await evaluate(`new Promise(r => cc.director.loadScene(${JSON.stringify(scene)}, () => r(true)))`);
     await waitFor(`cc.director.getScene()?.name === ${JSON.stringify(scene)}`);
@@ -179,7 +195,7 @@ try {
         console.log(`\n[${vp.name}] ${vp.width}x${vp.height}`);
         await send('Emulation.setDeviceMetricsOverride', { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: vp.mobile });
         await send('Emulation.setTouchEmulationEnabled', { enabled: vp.mobile });
-        await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/index.html` });
+        await send('Page.navigate', { url: PAGE_URL ?? `http://127.0.0.1:${PORT}/index.html` });
         await waitFor(`typeof cc !== 'undefined' && !!cc.director && !!cc.director.getScene() && ['Game','MainMenu'].includes(cc.director.getScene().name)`, 60000);
         await sleep(2500);
         await evaluate(HELPERS);
@@ -278,7 +294,7 @@ try {
         await tapNode('Layout/Sfx', vp); await sleep(400);
         await tapNode('wood/CloseButton', vp); await sleep(700);
         await expect(`${p} Close hides settings`, `(() => { let d = null; const w = n => { if (n.name === 'Dialog') d = n; n.children.forEach(w); }; w(cc.director.getScene()); return !d.activeInHierarchy; })()`);
-        await tapNode('Center/Ranking', vp);
+        await pressCheck('Center/Ranking', vp, `${p} pressed button shrinks`);
         await waitFor(`cc.director.getScene()?.name === 'Ranking'`).then(() => ok(`${p} menu Ranking → ranking`), () => fail(`${p} menu Ranking → ranking`));
         await load('MainMenu'); await sleep(800);
         await tapNode('Center/PlayButton', vp);
@@ -288,6 +304,26 @@ try {
         await tapNode('Column/Continue', vp);
         await waitFor(`['Ranking','MainMenu'].includes(cc.director.getScene()?.name)`, 30000).then(() => ok(`${p} game over Continue → next screen`), () => fail(`${p} game over Continue → next screen`));
     }
+
+    // First visit lands in the game; leaving it with Quit is a completed first access: the menu
+    // must stay (no bounce back into the game), also after a reload.
+    console.log('\n[first visit → Quit → menu]');
+    const vp0 = VIEWPORTS[0];
+    await send('Emulation.setDeviceMetricsOverride', { width: vp0.width, height: vp0.height, deviceScaleFactor: 1, mobile: vp0.mobile });
+    await evaluate(`localStorage.clear(), true`);
+    const home = PAGE_URL ?? `http://127.0.0.1:${PORT}/index.html`;
+    await send('Page.navigate', { url: home });
+    await waitFor(`typeof cc !== 'undefined' && !!cc.director && cc.director.getScene()?.name === 'Game'`, 60000).then(() => ok('first visit opens the game'), () => fail('first visit opens the game'));
+    await sleep(2500); await evaluate(HELPERS);
+    await evaluate(`__fw.comp('Settings').onQuit(), true`);
+    await waitFor(`cc.director.getScene()?.name === 'MainMenu'`, 30000).then(() => ok('Quit → menu'), () => fail('Quit → menu'));
+    await sleep(4000);
+    await expect('menu stays after Quit (no bounce into the game)', `cc.director.getScene()?.name === 'MainMenu'`);
+    await send('Page.navigate', { url: home });
+    await waitFor(`typeof cc !== 'undefined' && !!cc.director && ['Game','MainMenu'].includes(cc.director.getScene()?.name)`, 60000);
+    await sleep(4000);
+    await expect('after a reload the boot still opens the menu', `cc.director.getScene()?.name === 'MainMenu'`);
+    await expect('POWERUPS hidden until a powerup is discovered', `(() => { let b = null; const w = n => { if (n.name === 'Powerups' && n.parent?.name === 'Center') b = n; n.children.forEach(w); }; w(cc.director.getScene()); return b && !b.active; })()`);
 } catch (e) {
     problems.push(`run aborted: ${e.message}`);
 } finally {
