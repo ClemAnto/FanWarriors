@@ -28,7 +28,7 @@ import { LeaderboardProvider } from '../services/LeaderboardProvider';
 import { ENABLED as LEADERBOARD_CONFIG_ENABLED, TOP_N } from '../config/LeaderboardConfig';
 import { PortalProvider } from '../services/PortalProvider';
 import { PORTAL, LEADERBOARD_ALLOWED } from '../config/PortalConfig';
-import { AnalyticsData } from '../services/PortalSdk';
+import { AnalyticsData, RewardedOutcome } from '../services/PortalSdk';
 import { PerformanceSampler } from '../utils/PerformanceSampler';
 import { BoostOffer } from './BoostOffer';
 const { ccclass, property } = _decorator;
@@ -37,7 +37,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.29';
+export const VERSION     = '0.10.30';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
@@ -119,6 +119,8 @@ const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
 // progress survives a reload) — and after a runtime error. Cleared at game over / victory and
 // skipped on an explicit Restart.
 const STATE_KEY = 'fw_game_state';
+/** A saved game older than this (since its last turn) is discarded: the next visit starts fresh. */
+const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type PowerupKind = 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood';
 
@@ -130,7 +132,7 @@ interface WarriorSnap {
     pu?: PowerupKind;   // residual powerup carried by an on-track warrior (only aura persists)
 }
 
-interface GameSnapshot {
+export interface GameSnapshot {
     version: string;
     score: number;
     round: number;
@@ -144,6 +146,8 @@ interface GameSnapshot {
     nextPowerup: PowerupKind | null;
     next: { type: number; level: number };
     warriors: WarriorSnap[];
+    /** Date.now() of the save. Missing (builds ≤ v0.10.29) = unknown age → treated as expired. */
+    savedAt?: number;
 }
 
 function launchTimerForRound(round: number): number {
@@ -671,7 +675,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Fresh game: await only the round-1 species (the rest streams in during play). A restored
         // mid-game board → await every species of the saved round (see _snapshotSpecies).
-        const willRestore = !GameManager._forceNewGame && (GameManager._pendingRestore || !!SafeStorage.get(STATE_KEY));
+        const willRestore = !GameManager._forceNewGame && (GameManager._pendingRestore || GameManager.readSnapshot() !== null);
         const firstSpecies = willRestore
             ? GameManager._snapshotSpecies()  // board + saved-round species (undefined → all)
             : WARRIORS.filter(w => w.introRound <= 1).map(w => w.type);
@@ -3045,6 +3049,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const launcher = this._activeLauncherWarrior;
             const snap: GameSnapshot = {
                 version:     VERSION,
+                savedAt:     Date.now(),
                 score:       this.score,
                 round:       this.currentRound,
                 totalMerges: this.totalMerges,
@@ -3090,9 +3095,31 @@ export class GameManager extends Component implements IGameManagerDebug {
      *  not on the board; a warrior built before its sheet loads stays a placeholder) and the
      *  round-1 species (fresh-game fallback if the restore fails). undefined (→ await all) when
      *  the snapshot is missing or unreadable. */
+    /** The saved game if it is usable: parseable, complete and saved less than 12 h ago. A corrupt
+     *  or expired one is deleted on the spot, so every caller sees the same answer. */
+    static readSnapshot(): GameSnapshot | null {
+        const raw = SafeStorage.get(STATE_KEY);
+        if (!raw) return null;
+        let snap: GameSnapshot | null = null;
+        try { snap = JSON.parse(raw) as GameSnapshot; } catch { /* corrupt → discarded below */ }
+        const complete = !!snap && typeof snap.round === 'number' && !!snap.launcher && !!snap.next;
+        const age = typeof snap?.savedAt === 'number' ? Date.now() - snap.savedAt : Number.POSITIVE_INFINITY;
+        if (!complete || age > SNAPSHOT_MAX_AGE_MS || age < -60_000) {
+            SafeStorage.remove(STATE_KEY);
+            return null;
+        }
+        return snap;
+    }
+
+    /** True when a valid saved game exists — MainMenu then skips itself and resumes it at boot. */
+    static hasResumableGame(): boolean {
+        return GameManager.readSnapshot() !== null;
+    }
+
     private static _snapshotSpecies(): string[] | undefined {
         try {
-            const snap = JSON.parse(SafeStorage.get(STATE_KEY) ?? '') as GameSnapshot;
+            const snap = GameManager.readSnapshot();
+            if (!snap) return undefined;
             const round = typeof snap.round === 'number' ? Math.max(1, snap.round) : Number.MAX_SAFE_INTEGER;
             const indices = new Set<number>([
                 ...(snap.warriors ?? []).map(w => w.type),
@@ -3109,11 +3136,8 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     /** Rebuild the board from the saved snapshot. Returns false (→ fresh game) if none/invalid. */
     private _restoreSnapshot(): boolean {
-        const raw = SafeStorage.get(STATE_KEY);
-        if (!raw) return false;
-        let snap: GameSnapshot;
-        try { snap = JSON.parse(raw) as GameSnapshot; } catch { return false; }
-        if (!snap || typeof snap.round !== 'number' || !snap.launcher || !snap.next) return false;
+        const snap = GameManager.readSnapshot();
+        if (!snap) return false;
 
         try {
             this.currentRound  = Math.max(1, snap.round);
@@ -3580,11 +3604,21 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private async _watchBoostAd(): Promise<void> {
         const portal = PortalProvider.get();
-        let rewarded = false;
-        try { rewarded = (await portal.showRewarded?.(() => AudioManager.instance.muteForPause())) ?? false; }
+        let outcome: RewardedOutcome = 'unavailable';
+        try { outcome = (await portal.showRewarded?.(() => AudioManager.instance.muteForPause())) ?? 'unavailable'; }
         finally { AudioManager.instance.unmuteForPause(); }
         if (!this.node?.isValid) return;
-        this._trackEvent('boost_ad', { rewarded, round: this.currentRound });
+        const rewarded = outcome === 'rewarded';
+        this._trackEvent('boost_ad', { rewarded, outcome, round: this.currentRound });
+        if (outcome === 'unavailable' && this.boostOffer) {
+            // No ad could be shown (no fill / failure): say so instead of silently resuming, and
+            // give the BOOST back so the player can retry. The game stays paused under the notice.
+            this.boostOffer.showUnavailable(() => {
+                this._exitAdPause();
+                this.boostOffer?.showParked(BOOST_OFFER_EXTRA_SEC);
+            });
+            return;
+        }
         if (rewarded) this._pendingBoostAura = true;
         this._exitAdPause();
         if (rewarded) this._grantBoostAura();

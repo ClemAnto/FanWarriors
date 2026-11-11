@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Button, UIOpacity, UITransform, Vec2, Vec3, tween, Tween } from 'cc';
+import { _decorator, Component, Node, Button, Label, UIOpacity, UITransform, Vec2, Vec3, tween, Tween } from 'cc';
 
 const { ccclass, property } = _decorator;
 
@@ -13,7 +13,11 @@ const { ccclass, property } = _decorator;
  * openPanel() — right away, or once the warrior in flight has landed)
  * + confirm panel "WATCH AN AD TO GET YOUR BOOST" → WATCH → onWatch (host runs the rewarded ad)
  * or NO THANKS → onDecline (host resumes). The ad and the reward are entirely the host's job.
+ * If no ad could be shown, showUnavailable() reuses the same modal as a notice
+ * ("NO AD AVAILABLE RIGHT NOW" + OK) and showParked() offers the button again.
  */
+const UNAVAILABLE_TITLE = 'NO AD AVAILABLE RIGHT NOW';
+const UNAVAILABLE_INFO  = 'Try again in a moment';
 @ccclass('BoostOffer')
 export class BoostOffer extends Component {
     @property({ type: Button, tooltip: 'BOOST button; its editor position is the centre slot under the round-up banner (inactive in editor).' })
@@ -28,6 +32,12 @@ export class BoostOffer extends Component {
     parkAnchor: Node | null = null;
     @property({ tooltip: 'Vertical gap (design px) between the parked BOOST button and the anchor.' })
     parkGap = 12;
+    @property({ type: Label, tooltip: 'Modal title label (swapped to the "no ad" notice when no ad could be shown).' })
+    titleLabel: Label | null = null;
+    @property({ type: Label, tooltip: 'Modal info line under the title.' })
+    infoLabel: Label | null = null;
+    @property({ type: Label, tooltip: 'Label of the NO THANKS button (becomes OK in the "no ad" notice).' })
+    noThanksLabel: Label | null = null;
 
     /** Host hooks — set by GameManager. */
     /** BOOST tapped: the host must eventually pause the game and call openPanel(). */
@@ -38,13 +48,25 @@ export class BoostOffer extends Component {
     private _hideTimer: (() => void) | null = null;
     private _parkTimer: (() => void) | null = null;
     private _centerPosition: Vec3 | null = null;
+    /** Set while the modal shows the "no ad" notice: its single button runs this instead of onDecline. */
+    private _unavailableDone: (() => void) | null = null;
+    private _texts: { title: string; info: string; noThanks: string } | null = null;
 
     get isPanelOpen(): boolean { return !!this.panel?.active; }
 
     onLoad(): void {
         this.boostButton?.node.on(Button.EventType.CLICK, this._onBoostTap, this);
         this.watchButton?.node.on(Button.EventType.CLICK, () => this._closePanel(() => this.onWatch?.()), this);
-        this.noThanksButton?.node.on(Button.EventType.CLICK, () => this._closePanel(() => this.onDecline?.()), this);
+        this.noThanksButton?.node.on(Button.EventType.CLICK, () => this._closePanel(() => {
+            const done = this._unavailableDone;
+            if (done) { this._unavailableDone = null; this._restoreTexts(); done(); }
+            else this.onDecline?.();
+        }), this);
+        this._texts = {
+            title:    this.titleLabel?.string ?? '',
+            info:     this.infoLabel?.string ?? '',
+            noThanks: this.noThanksLabel?.string ?? '',
+        };
         if (this.boostButton) {
             this._centerPosition = this.boostButton.node.position.clone();  // editor position = centre slot
             this.boostButton.node.active = false;
@@ -69,6 +91,45 @@ export class BoostOffer extends Component {
         this._startPulse(buttonNode);
         this._parkTimer = () => this._park(parkSeconds);
         this.scheduleOnce(this._parkTimer, centerSeconds);
+    }
+
+    /** Offer the button again directly in its parked slot (after a "no ad" notice). */
+    showParked(seconds: number): void {
+        const buttonNode = this.boostButton?.node;
+        if (!buttonNode) return;
+        this._cancelTimers();
+        buttonNode.active = true;
+        Tween.stopAllByTarget(buttonNode);
+        const target = this._parkPosition(buttonNode);
+        if (target) buttonNode.setPosition(target);
+        buttonNode.setScale(Vec3.ONE);
+        const opacity = this._opacity(buttonNode);
+        Tween.stopAllByTarget(opacity);
+        opacity.opacity = 0;
+        tween(opacity).to(0.25, { opacity: 255 }).start();
+        this._startPulse(buttonNode);
+        this._hideTimer = () => this.hideOffer();
+        this.scheduleOnce(this._hideTimer, seconds);
+    }
+
+    /** The modal as a notice: no ad could be shown. Its single OK button calls `done` (the host
+     *  resumes the game and re-offers the BOOST). */
+    showUnavailable(done: () => void): void {
+        this._unavailableDone = done;
+        if (this.titleLabel)    this.titleLabel.string    = UNAVAILABLE_TITLE;
+        if (this.infoLabel)     this.infoLabel.string     = UNAVAILABLE_INFO;
+        if (this.noThanksLabel) this.noThanksLabel.string = 'OK';
+        if (this.watchButton)   this.watchButton.node.active = false;
+        this.openPanel();
+    }
+
+    private _restoreTexts(): void {
+        if (this._texts) {
+            if (this.titleLabel)    this.titleLabel.string    = this._texts.title;
+            if (this.infoLabel)     this.infoLabel.string     = this._texts.info;
+            if (this.noThanksLabel) this.noThanksLabel.string = this._texts.noThanks;
+        }
+        if (this.watchButton) this.watchButton.node.active = true;
     }
 
     /** Fade the BOOST button out (offer expired, game over, …). */

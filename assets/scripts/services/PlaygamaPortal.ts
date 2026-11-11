@@ -1,4 +1,4 @@
-import { PortalSdk, PlatformStateHandler, AnalyticsData } from './PortalSdk';
+import { PortalSdk, PlatformStateHandler, AnalyticsData, RewardedOutcome } from './PortalSdk';
 import { BREAK_TIMEOUT_MS } from '../config/PortalConfig';
 import { SafeStorage } from '../utils/SafeStorage';
 
@@ -162,19 +162,20 @@ export class PlaygamaPortal implements PortalSdk {
         try { return !!this._bridge?.advertisement.isRewardedSupported; } catch { return false; }
     }
 
-    showRewarded(onAdStart?: () => void): Promise<boolean> {
+    showRewarded(onAdStart?: () => void): Promise<RewardedOutcome> {
         const bridge = this._bridge;
-        if (!bridge || !this.isRewardedSupported()) return Promise.resolve(false);
+        if (!bridge || !this.isRewardedSupported()) return Promise.resolve('unavailable');
         this.gameplayStop();
 
-        return new Promise<boolean>(resolve => {
+        return new Promise<RewardedOutcome>(resolve => {
             let done = false;
             let rewarded = false;
+            let opened = false;
             let gotState = false;
             const ev = bridge.EVENT_NAME.REWARDED_STATE_CHANGED;
             const listener = (state: string): void => {
                 gotState = true;
-                if (state === 'opened') { try { onAdStart?.(); } catch { /* ignore */ } }
+                if (state === 'opened') { opened = true; try { onAdStart?.(); } catch { /* ignore */ } }
                 // Reward ONLY on 'rewarded' (Bridge docs): 'closed' alone = skipped / closed early.
                 else if (state === 'rewarded') rewarded = true;
                 else if (state === 'closed' || state === 'failed') finish();
@@ -185,7 +186,8 @@ export class PlaygamaPortal implements PortalSdk {
                 clearTimeout(graceTimer);
                 clearTimeout(safetyTimer);
                 try { bridge.advertisement.off?.(ev, listener); } catch { /* ignore */ }
-                resolve(rewarded);
+                // Never opened (failed / no fill / silent) → 'unavailable': the game tells the player.
+                resolve(rewarded ? 'rewarded' : opened ? 'skipped' : 'unavailable');
             };
             // Bridge silent (no 'loading'/'opened' at all) → don't keep the game frozen for the full cap.
             const graceTimer  = setTimeout(() => { if (!gotState) finish(); }, REWARDED_NO_STATE_GRACE_MS);

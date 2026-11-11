@@ -21,10 +21,10 @@ interface BridgeLeaderboardsLike {
 
 /** Best score already accepted by the platform board — never re-submit a lower one. */
 const LS_SUBMITTED_BEST = 'fw_lb_submitted_best';
-/** Platform names can be long ("Okay Catshark…"); the LeaderboardRow "Name" Label is
- *  left-anchored at x=-190 (grows rightward, never over Rank) with no overflow clamp, so the
- *  only limit is the Round column → ~190 px free. 8 chars (7 + "…") fits comfortably. */
-const NAME_MAX_CHARS = 8;
+/** Platform names can be long ("Teenage Mutant…"). The LeaderboardRow "Name" Label is left-anchored
+ *  at x=-190 and, on platform boards, the Round column is hidden (no round stored), so the name runs
+ *  up to the right-aligned Score (~290 px at font 34) → 16 chars (15 + "…"). */
+const NAME_MAX_CHARS = 16;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms}ms`)), ms))]);

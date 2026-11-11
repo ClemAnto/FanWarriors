@@ -38,13 +38,16 @@ export interface PortalSdk {
     /** Optional: whether an opt-in rewarded ad can be offered right now (show the BOOST UI only if true). */
     isRewardedSupported?(): boolean;
     /**
-     * Optional: show an opt-in rewarded ad (from a direct player action only). Resolves `true`
-     * ONLY when the platform confirms the reward (Playgama state `rewarded`) — closing early,
-     * failing or timing out resolve `false`. `onAdStart` fires when the ad actually opens
-     * (mute there); callers unmute unconditionally once the promise resolves. Never rejects.
+     * Optional: show an opt-in rewarded ad (from a direct player action only). Resolves
+     * 'rewarded' ONLY when the platform confirms the reward (Playgama state `rewarded`);
+     * 'skipped' when the ad opened but was closed early; 'unavailable' when no ad could be shown
+     * (failed, no state, timeout). `onAdStart` fires when the ad actually opens (mute there);
+     * callers unmute unconditionally once the promise resolves. Never rejects.
      */
-    showRewarded?(onAdStart?: () => void): Promise<boolean>;
+    showRewarded?(onAdStart?: () => void): Promise<RewardedOutcome>;
 }
+
+export type RewardedOutcome = 'rewarded' | 'skipped' | 'unavailable';
 
 /** Flat analytics payload: string / number / boolean values only (Bridge contract). */
 export type AnalyticsData = Record<string, string | number | boolean>;

@@ -173,8 +173,10 @@ export class LeaderboardPanel extends Component {
             this._setRowLabel(row, 'Score', String(e.score), tint);
             // Round is shown if the prefab row has a "Round" Label (optional).
             // Date and Version are stored (Firestore) but intentionally NOT shown in the UI.
-            // Platform boards don't store the round (round 0) → dash.
-            this._setRowLabel(row, 'Round', e.round > 0 ? String(e.round) : '–', tint);
+            this._setRowLabel(row, 'Round', e.round > 0 ? String(e.round) : '', tint);
+            // Platform boards store no round: hide the column so long player names get its space.
+            const roundNode = row.getChildByName('Round');
+            if (roundNode) roundNode.active = e.round > 0;
         }
     }
 

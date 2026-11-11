@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, Graphics, Color } from 'cc';
 import { AudioManager, SFX } from './AudioManager';
-import { VERSION, LS_PLAYED_ONCE } from './GameManager';
+import { VERSION, LS_PLAYED_ONCE, GameManager } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
 import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
@@ -46,7 +46,9 @@ export class MainMenu extends Component {
         // bounce straight back into the Game.
         const bootEntry = !MainMenu._entered;
         MainMenu._entered = true;
-        if (bootEntry && !SafeStorage.get(LS_PLAYED_ONCE)) {
+        // Same at boot when a saved game (< 12 h) exists: resume it straight away instead of
+        // showing the menu (the Game scene restores it automatically).
+        if (bootEntry && (!SafeStorage.get(LS_PLAYED_ONCE) || GameManager.hasResumableGame())) {
             director.loadScene(GAME_SCENE);
             return;
         }
