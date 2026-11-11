@@ -3,15 +3,16 @@ import { Warrior } from './Warrior';
 
 const { ccclass } = _decorator;
 
-const BADGE_W      = 84;          // view-local px (the launcher's view is scaled ×1.2 at the bottom)
+const BADGE_W      = 54;          // view-local px (the launcher's view is scaled ×1.2 at the bottom)
 const BADGE_H      = BADGE_W * 296 / 288;
 const HEAD_GAP     = -0.15;       // × radius from the top of the warrior's frame (4r tall): slightly overlaps the head
 const BOB_PX       = 5;
 const BOB_HALF_SEC = 0.55;
+const SHOW_SEC     = 3;           // then it fades away by itself (the warrior's glow keeps signalling the power)
 
 /**
  * Medallion of the powerup a warrior carries, floating above its head: pops in when the power
- * lands on the warrior, bobs gently while it is carried, fades when the power is spent.
+ * lands on the warrior, bobs gently, fades away after SHOW_SEC (or earlier, when the power is spent).
  * Child of warrior.viewNode, so it follows the perspective mapper and dies with the warrior.
  */
 @ccclass('PowerupBadgeEffect')
@@ -51,6 +52,7 @@ export class PowerupBadgeEffect extends Component {
                     .start();
             })
             .start();
+        this.scheduleOnce(() => this.detach(), SHOW_SEC);
     }
 
     /** Stay on top of the warrior's other effect layers (rings added later). */

@@ -40,7 +40,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.33';
+export const VERSION     = '0.10.35';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Set when the player leaves a game for the menu (Quit / Menu): the next boots open on the
@@ -97,6 +97,7 @@ const WILDRIVER_FROM_ROUND      = 5;
 const WILDRIVER_MIN_KIND        = 8;   // launcher's kind on track
 const PSYCHO_FROM_ROUND         = 8;
 const PSYCHO_FRAGMENTED_BELOW   = 6;   // no kind with this many on track
+const BOOST_NO_AD_PAUSE_ROUNDS = 2;   // rounds without the BOOST offer after an ad was unavailable
 const BOOST_OFFER_EXTRA_SEC  = 4;    // BOOST button stays parked above the settings gear this long after the round-up pause ends
 const WRS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
 const WRS_CONTACT_DELAY      = 0.15; // seconds of sustained proximity before WRS spreads
@@ -227,6 +228,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _puInfoShown = new Set<PowerupKind>();  // powerup tutorials already shown in THIS game
     private _puInfoHold  = 0;                       // s the launcher's powerup has been visible
     private _puInfoOpen  = false;
+    private _boostPauseRounds = 0;  // BOOST offers still to skip after a "no ad available"
     private _auraGolden     = false;   // the active Aura is the BOOST's Golden Aura (full range, longer)
     private _nextAuraGolden = false;   // same for the Aura pending on the next launcher (swap)
     private _puBadges    = new Map<Warrior, { kind: PowerupKind; fx: PowerupBadgeEffect }>();
@@ -3628,7 +3630,10 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.showRoundUpBanner();
             // Mid-session interstitial: Playgama only (Poki / CrazyGames / GD allow ads only between sessions).
             const interstitialRound = PORTAL === 'playgama' && (this.currentRound - 1) % INTERSTITIAL_EVERY_ROUNDS === 0;
-            if (!interstitialRound) this._offerBoost(ROUND_UP_PAUSE_SEC, QA_E2E_HOOKS ? 30 : BOOST_OFFER_EXTRA_SEC);
+            // After a "no ad available" the BOOST sits out BOOST_NO_AD_PAUSE_ROUNDS rounds (no fill now
+            // usually means no fill for a while: don't keep promising an ad that won't come).
+            if (this._boostPauseRounds > 0) this._boostPauseRounds--;
+            else if (!interstitialRound) this._offerBoost(ROUND_UP_PAUSE_SEC, QA_E2E_HOOKS ? 30 : BOOST_OFFER_EXTRA_SEC);
             // New species unlocked → game-over line steps down as part of the reward.
             // Runs inside the physics freeze: warriors are static while the line moves,
             // and a descending line can only GRANT crossings, never cause game over/malus.
@@ -3770,11 +3775,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         const rewarded = outcome === 'rewarded';
         this._trackEvent('boost_ad', { rewarded, outcome, round: this.currentRound });
         if (outcome === 'unavailable' && this.boostOffer) {
-            // No ad could be shown (no fill / failure): say so instead of silently resuming, and
-            // give the BOOST back so the player can retry. The game stays paused under the notice.
+            // No ad could be shown (no fill / failure): say so instead of silently resuming. The
+            // BOOST is withdrawn for the next BOOST_NO_AD_PAUSE_ROUNDS rounds. The game stays paused under the notice.
             this.boostOffer.showUnavailable(() => {
                 this._exitAdPause();
-                this.boostOffer?.showParked(BOOST_OFFER_EXTRA_SEC);
+                this.boostOffer?.hideOffer();
+                this._boostPauseRounds = BOOST_NO_AD_PAUSE_ROUNDS;
             });
             return;
         }

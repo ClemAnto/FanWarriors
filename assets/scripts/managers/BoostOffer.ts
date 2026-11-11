@@ -14,10 +14,10 @@ const { ccclass, property } = _decorator;
  * + confirm panel "WATCH AN AD TO GET YOUR BOOST" → WATCH → onWatch (host runs the rewarded ad)
  * or NO THANKS → onDecline (host resumes). The ad and the reward are entirely the host's job.
  * If no ad could be shown, showUnavailable() reuses the same modal as a notice
- * ("NO AD AVAILABLE RIGHT NOW" + OK) and showParked() offers the button again.
+ * ("NO AD AVAILABLE RIGHT NOW" + OK); the host then withdraws the BOOST for a couple of rounds.
  */
 const UNAVAILABLE_TITLE = 'NO AD AVAILABLE RIGHT NOW';
-const UNAVAILABLE_INFO  = 'Try again in a moment';
+const UNAVAILABLE_INFO  = 'The BOOST will be back in a few rounds';
 @ccclass('BoostOffer')
 export class BoostOffer extends Component {
     @property({ type: Button, tooltip: 'BOOST button; its editor position is the centre slot under the round-up banner (inactive in editor).' })

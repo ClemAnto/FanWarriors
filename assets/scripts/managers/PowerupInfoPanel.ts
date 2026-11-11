@@ -1,10 +1,11 @@
-import { _decorator, Component, Node, Label, Sprite, SpriteFrame, Button, UIOpacity, tween, Tween, resources } from 'cc';
+import { _decorator, Component, Node, Label, Sprite, SpriteFrame, Button, UIOpacity, UITransform, Vec3, view, tween, Tween, resources } from 'cc';
 import { POWERUP_INFO, POWERUP_CATALOG, PowerupId, PowerupTutorialStore } from '../data/PowerupInfo';
 
 const { ccclass, property } = _decorator;
 
 const ICON_ORDER: PowerupId[] = ['aura', 'wildRiver', 'brotherhood', 'psychoForce'];
 const LOCKED_LORE = 'Keep playing to discover this power.';
+const ZOOM_MARGIN = 40;   // design px kept free around the zoomed illustration
 
 /**
  * Powerup tutorial modal (Game + MainMenu). Behavior only: the layout is authored in the scene
@@ -37,6 +38,9 @@ export class PowerupInfoPanel extends Component {
     @property({ type: [SpriteFrame], tooltip: 'Medallions in order: Aura, Wild River, Brotherhood, Psycho Force.' })
     iconFrames: SpriteFrame[] = [];
     @property(SpriteFrame) lockedFrame: SpriteFrame | null = null;
+    @property({ type: Node, tooltip: 'Fullscreen zoomed illustration (inactive); tap anywhere closes it.' })
+    zoomNode: Node | null = null;
+    @property(Sprite) zoomSprite: Sprite | null = null;
 
     private _ids: PowerupId[] = [];
     private _index = 0;
@@ -96,9 +100,12 @@ export class PowerupInfoPanel extends Component {
         on(this.prevButton, () => this._show(this._index - 1));
         on(this.nextButton, () => this._show(this._index + 1));
         on(this.checkRow, () => this._setChecked(!this._checked));
+        on(this.artSprite?.node ?? null, () => this._openZoom());
+        on(this.zoomNode, () => this._closeZoom());
     }
 
     private _show(index: number): void {
+        this._closeZoom(true);
         const n = this._ids.length;
         this._index = ((index % n) + n) % n;
         const id = this._ids[this._index];
@@ -138,9 +145,43 @@ export class PowerupInfoPanel extends Component {
         if (persist && this._catalog) PowerupTutorialStore.setMuted(this._ids[this._index], on);
     }
 
+    /** Tap on the illustration: as big as the screen allows. On a portrait screen it is turned 90°
+     *  so the 2:1 art runs along the screen's height (about 2.5× bigger than in the card). */
+    private _openZoom(): void {
+        const art = this.artSprite, zoom = this.zoomNode, big = this.zoomSprite;
+        if (!art?.spriteFrame || !art.node.active || !zoom || !big) return;
+        big.sizeMode = Sprite.SizeMode.CUSTOM;
+        big.spriteFrame = art.spriteFrame;
+        const vs = view.getVisibleSize();
+        const portrait = vs.height > vs.width;
+        const long = (portrait ? vs.height : vs.width) - ZOOM_MARGIN;
+        const short = (portrait ? vs.width : vs.height) - ZOOM_MARGIN;
+        const w = Math.min(long, short * 2);
+        big.node.getComponent(UITransform)?.setContentSize(w, w / 2);
+        big.node.angle = portrait ? -90 : 0;
+        zoom.active = true;
+        const op = zoom.getComponent(UIOpacity) ?? zoom.addComponent(UIOpacity);
+        Tween.stopAllByTarget(op);
+        Tween.stopAllByTarget(big.node);
+        op.opacity = 0;
+        big.node.setScale(0.85, 0.85, 1);
+        tween(op).to(0.18, { opacity: 255 }).start();
+        tween(big.node).to(0.22, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+    }
+
+    private _closeZoom(instant = false): void {
+        const zoom = this.zoomNode;
+        if (!zoom?.active) return;
+        const op = zoom.getComponent(UIOpacity) ?? zoom.addComponent(UIOpacity);
+        Tween.stopAllByTarget(op);
+        if (instant) { zoom.active = false; return; }
+        tween(op).to(0.15, { opacity: 0 }).call(() => { zoom.active = false; }).start();
+    }
+
     private _close(): void {
         if (this._closing || !this.node.active) return;
         this._closing = true;
+        this._closeZoom(true);
         if (!this._catalog) PowerupTutorialStore.setMuted(this._ids[0], this._checked);
         const cb = this._onClosed;
         this._onClosed = null;

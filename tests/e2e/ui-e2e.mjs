@@ -109,7 +109,7 @@ window.__fw = {
       const op = n.getComponent('cc.UIOpacity'); if (op && op.opacity === 0 && n !== root) return;
       const vis = n.getComponent('cc.Sprite') || n.getComponent('cc.Label');
       const b = box(n);
-      if (vis && b && b.width > 1 && b.height > 1 && n.name !== 'Background' && n.name !== 'Dim' && n.name !== 'skin') {
+      if (vis && b && b.width > 1 && b.height > 1 && n.name !== 'Background' && n.name !== 'Dim' && n.name !== 'skin' && n.name !== 'flag_red' /* HUD banners hang from above the top edge by design */) {
         const tol = 2;
         if (b.xMin < cw.xMin - tol || b.xMax > cw.xMax + tol || b.yMin < cw.yMin - tol || b.yMax > cw.yMax + tol) cut.push(n.name + ' ' + [b.xMin, b.yMin, b.width, b.height].map(Math.round).join(','));
       }
@@ -263,6 +263,11 @@ try {
         await tapNode('Center/Powerups', vp); await sleep(1300);
         await expect(`${p} menu Powerups opens the catalog`, `(() => { const c = __fw.comp('PowerupInfoPanel'); return c.node.active && c.titleLabel.string === 'AURA'; })()`);
         await shot(`${p}-10b-powerups-catalog`); await check(`${p} powerups catalog`, 'PowerupInfoPanel');
+        await tapNode('Frame/Art', vp); await sleep(600);
+        await expect(`${p} tap on the illustration zooms it`, `__fw.comp('PowerupInfoPanel').zoomNode.active`);
+        await shot(`${p}-10b2-powerup-zoom`);
+        await tapNode('Zoom/Dim', vp); await sleep(500);
+        await expect(`${p} tap closes the zoom`, `!__fw.comp('PowerupInfoPanel').zoomNode.active`);
         await tapNode('Card/Next', vp); await sleep(700);
         await expect(`${p} catalog → shows the next (locked) powerup`, `__fw.comp('PowerupInfoPanel').titleLabel.string === '???'`);
         await shot(`${p}-10c-powerups-locked`); await check(`${p} powerups locked`, 'PowerupInfoPanel');

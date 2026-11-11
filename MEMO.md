@@ -1031,3 +1031,10 @@ cmd /c rd /s /q "d:\Projects\FunWarriors\build"
 - **Privacy**: testo dedicato alla build Playgama (`PLAYGAMA_POLICY_TEXT` in `PrivacyPanel.ts`, scelto con `PORTAL`): niente Firebase, salvataggi/classifica/ads/statistiche via Playgama.
 - **POWERUPS nel menu** visibile solo se almeno un powerup è stato scoperto (`fw_pu_seen_*`).
 - e2e: `--url <pagina>` per testare una build pubblicata (es. GitHub Pages).
+
+## v0.10.35 (2026-11-12)
+- Ranking: numeri 1-2-3 sopra le medaglie (`LeaderboardRow`: crema con contorno marrone, 24 px).
+- BOOST senza pubblicità ("NO AD AVAILABLE"): dopo OK il bottone BOOST sparisce e salta le offerte dei **2 round successivi** (`BOOST_NO_AD_PAUSE_ROUNDS`, `_boostPauseRounds`, non salvato nello snapshot), testo "The BOOST will be back in a few rounds".
+- Modale powerup: tap sull'illustrazione → zoom a tutto schermo (nodo `Zoom`; su schermo verticale ruotata di 90°), tap ovunque per chiudere. Frecce del catalogo spostate ai lati di "Got it".
+- Badge del potere: 54 px e sparisce da solo dopo 3 s (`SHOW_SEC`).
+- HUD: tornati gli **stendardi rossi** di SCORE/ROUND (`tools/ui/restore-hud-banners.mjs`, da commit 420d006); menu: tornata la **targa Best Score con la coppa** in alto a sinistra (`tools/ui/restore-best-score.mjs`). L'audit e2e esclude `flag_red` (pende oltre il bordo superiore per design).

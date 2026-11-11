@@ -40,7 +40,7 @@ function textButton(a, parent, name, base, { w, h, text, size, pos = [0, 0], ico
 }
 
 function arrowButton(a, parent, name, side) {
-    const n = a.addNode(parent, name, { pos: [0, 155] });
+    const n = a.addNode(parent, name, { pos: [0, -352] });   // beside "Got it", clear of the illustration
     transform(a, n, 84, 84);
     const s = skin(a, n, uiFrame('button-square'));
     ensureButton(a, n);
@@ -49,7 +49,7 @@ function arrowButton(a, parent, name, side) {
     const z = side === LEFT ? 1 : -1;   // up arrow turned 90° → left / right
     a.arr[ic]._lrot = { __type__: 'cc.Quat', x: 0, y: 0, z: z * Math.SQRT1_2, w: Math.SQRT1_2 };
     a.arr[ic]._euler = { __type__: 'cc.Vec3', x: 0, y: 0, z: z * 90 };
-    widget(a, n, side, { left: -14, right: -14, mode: ALWAYS });
+    widget(a, n, side, { left: 26, right: 26, mode: ALWAYS });
     return n;
 }
 
@@ -89,6 +89,7 @@ function buildPanel(a, parent, at = null) {
     const art = a.addNode(frame, 'Art', { active: false });
     transform(a, art, 476, 238);
     sprite(a, art, null);
+    ensureButton(a, art);   // tap → zoomed view
     const locked = a.addNode(frame, 'Locked', { active: false });
     transform(a, locked, 200, 200);
     label(a, locked, '?', 150, { tint: color(150, 110, 70), overflow: 0 });
@@ -128,6 +129,21 @@ function buildPanel(a, parent, at = null) {
     a.active(prev, false);
     a.active(next, false);
 
+    // Zoomed illustration: fullscreen, tap anywhere to close (size/rotation set when opened).
+    const zoom = a.addNode(root, 'Zoom', { active: false });
+    transform(a, zoom, 720, 1280);
+    widget(a, zoom, ALL, { mode: ALWAYS });
+    a.addComp(zoom, 'cc.UIOpacity', { _opacity: 255 });
+    a.addComp(zoom, 'cc.BlockInputEvents', {});
+    ensureButton(a, zoom);
+    const zdim = a.addNode(zoom, 'Dim');
+    transform(a, zdim, 720, 1280);
+    sprite(a, zdim, WHITE_SF, { tint: color(0, 0, 0, 225) });
+    widget(a, zdim, ALL, { mode: ALWAYS });
+    const big = a.addNode(zoom, 'Big');
+    transform(a, big, 1040, 520);
+    sprite(a, big, null);
+
     const L = i => ref(a.comp(i, 'cc.Label'));
     const S = i => ref(a.comp(i, 'cc.Sprite'));
     return a.addComp(root, scriptType('managers/PowerupInfoPanel'), {
@@ -136,6 +152,7 @@ function buildPanel(a, parent, at = null) {
         closeButton: ref(close), prevButton: ref(prev), nextButton: ref(next), pageLabel: L(page),
         iconFrames: ['powerup-aura', 'powerup-wildriver', 'powerup-brotherhood', 'powerup-psychoforce'].map(frameRef),
         lockedFrame: frameRef('powerup-locked'),
+        zoomNode: ref(zoom), zoomSprite: S(big),
     });
 }
 

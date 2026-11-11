@@ -1,6 +1,10 @@
-import { _decorator, Component, Label, Sprite, SpriteFrame } from 'cc';
+import { _decorator, Component, Label, Sprite, SpriteFrame, Color } from 'cc';
 
 const { ccclass, property } = _decorator;
+
+const MEDAL_INK     = new Color(255, 248, 225, 255);
+const MEDAL_OUTLINE = new Color(74, 38, 8, 255);
+const MEDAL_FONT    = 24;
 
 /**
  * One leaderboard row (prefab LeaderboardRow): parchment plate, medal for ranks 1-3, labels.
@@ -18,7 +22,7 @@ export class LeaderboardRow extends Component {
     medal: Sprite | null = null;
     @property({ type: [SpriteFrame], tooltip: 'Gold, silver, bronze.' })
     medalFrames: SpriteFrame[] = [];
-    @property({ type: Label, tooltip: 'Rank number (hidden when a medal is shown).' })
+    @property({ type: Label, tooltip: 'Rank number (on top of the medal for ranks 1-3).' })
     rankLabel: Label | null = null;
     @property({ type: Label, tooltip: 'Player name.' })
     nameLabel: Label | null = null;
@@ -33,9 +37,17 @@ export class LeaderboardRow extends Component {
             this.medal.node.active = !!medalFrame;
             if (medalFrame) this.medal.spriteFrame = medalFrame;
         }
-        if (this.rankLabel) {
-            this.rankLabel.string = String(rank);
-            this.rankLabel.node.active = !medalFrame;
+        const rl = this.rankLabel;
+        if (rl) {
+            if (this._rankStyle === null) this._rankStyle = { color: rl.color.clone(), size: rl.fontSize, outline: rl.enableOutline };
+            rl.string = String(rank);
+            rl.node.active = true;
+            // On a medal (ranks 1-3) the number sits on the disc: cream with a dark outline to read on gold/silver/bronze.
+            const s = this._rankStyle;
+            rl.color = medalFrame ? MEDAL_INK : s.color;
+            rl.fontSize = medalFrame ? MEDAL_FONT : s.size;
+            rl.enableOutline = medalFrame ? true : s.outline;
+            if (medalFrame) { rl.outlineColor = MEDAL_OUTLINE; rl.outlineWidth = 3; }
         }
         if (this.nameLabel) this.nameLabel.string = name;
         if (this.roundLabel) {
@@ -52,6 +64,8 @@ export class LeaderboardRow extends Component {
         for (const l of [this.rankLabel, this.nameLabel, this.roundLabel, this.scoreLabel]) if (l) l.string = '';
         this._plate(false);
     }
+
+    private _rankStyle: { color: Color; size: number; outline: boolean } | null = null;
 
     private _plate(mine: boolean): void {
         const frame = mine ? this.mineFrame : this.normalFrame;
