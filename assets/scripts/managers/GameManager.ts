@@ -37,7 +37,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.24';
+export const VERSION     = '0.10.28';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
@@ -113,9 +113,11 @@ const NEW_BEST_MIN_SCORE = 10000;  // min score for the "new best" message to ap
 // Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
 const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
 
-// ── Resumable game state (localStorage snapshot) ──
-// Saved at the start of every turn (settled board + launcher ready) so a runtime error can be
-// recovered by reloading the scene and rebuilding the exact turn-start situation.
+// ── Resumable game state (storage snapshot) ──
+// Saved at the start of every turn (settled board + launcher ready). Restored automatically when
+// the Game scene opens and a snapshot exists — page reload, back from the menu (Playgama 3.2.3:
+// progress survives a reload) — and after a runtime error. Cleared at game over / victory and
+// skipped on an explicit Restart.
 const STATE_KEY = 'fw_game_state';
 
 type PowerupKind = 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood';
@@ -210,6 +212,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _roundUpResumeDeferred = false;
     /** Rewarded BOOST granted while no warrior was on the launcher → Aura on the next one. */
     private _pendingBoostAura = false;
+    /** BOOST tapped while a shot was in flight → open the modal on the next launcher. */
+    private _boostPanelRequested = false;
     private timerRemaining = LAUNCH_TIMER;
     private timerPaused = false;
     private waitForSettling = false;
@@ -288,6 +292,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     // Set just before a scene reload triggered by the "RIPRISTINA" button — the fresh GameManager
     // detects it in start() and rebuilds the board from the saved snapshot instead of a new game.
     private static _pendingRestore = false;
+    /** Set by the pause panel's Restart: the next Game scene ignores the saved snapshot. */
+    private static _forceNewGame = false;
     private _errorPanel: Node | null = null;
     private _endlineDebugNode: Node | null = null;
     private _errorDialogShown = false;
@@ -663,6 +669,12 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         const loadingSpinner = this._showLoadingSpinner();
 
+        // Fresh game: await only the round-1 species (the rest streams in during play). A restored
+        // mid-game board may contain any species → await all of them.
+        const willRestore = !GameManager._forceNewGame && (GameManager._pendingRestore || !!SafeStorage.get(STATE_KEY));
+        const firstSpecies = willRestore
+            ? GameManager._snapshotSpecies()  // only the species on the saved board (undefined → all)
+            : WARRIORS.filter(w => w.introRound <= 1).map(w => w.type);
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
             this.initHud();
@@ -672,8 +684,9 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(SafeStorage.get('fw_best_score') ?? '0', 10) || 0;
 
-            const restoring = GameManager._pendingRestore;
+            const restoring = willRestore;
             GameManager._pendingRestore = false;
+            GameManager._forceNewGame = false;
             if (!(restoring && this._restoreSnapshot())) {
                 // Fresh game: clear any leftover snapshot, then start normally.
                 this._clearSnapshot();
@@ -685,6 +698,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.onboarding?.maybeShowAimHint();  // first-turn "drag & release" gesture hint
             }
             this._gameStartedAt = performance.now();
+            // End-panel art is lazy-loaded (not a Game-scene dependency): fetch it once play is under way.
+            this.scheduleOnce(() => { this.gameOverPanel?.preloadIllustration(); this.victoryPanel?.preloadIllustration(); }, 5);
             SafeStorage.set(LS_PLAYED_ONCE, '1');  // later visits open on the MainMenu
             this._trackEvent('game_started', { restored: restoring, round: this.currentRound });
             if (QA_E2E_HOOKS && sys.isBrowser) {
@@ -740,7 +755,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 }
                 portal.gameplayStart();
             });
-        });
+        }, firstSpecies);
     }
 
     onDestroy() {
@@ -1157,7 +1172,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!DEBUG) return;
         const typeCounts = new Map<number, number>();
         for (const w of this.warriors) typeCounts.set(w.type, (typeCounts.get(w.type) ?? 0) + 1);
-        const log = [...typeCounts.entries()]
+        const log = Array.from(typeCounts.entries())
             .sort((a, b) => b[1] - a[1])
             .map(([t, n]) => `${WARRIORS[t]?.name ?? t}=${n}`)
             .join(' ');
@@ -1310,6 +1325,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private activateWarrior(w: Warrior): void {
         this._activeLauncherWarrior = w;
         if (this._pendingBoostAura) this.scheduleOnce(() => this._grantBoostAura(), 0);  // after the launcher setup below
+        if (this._boostPanelRequested) this.scheduleOnce(() => { if (this._boostPanelRequested) this._requestBoostPanel(); }, 0);
         this.inputCtrl.setWarrior(w);
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this.mergesThisLaunch = 0;
@@ -1702,6 +1718,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // The panel appears only once pending merges and the score odometer have settled.
         this._revealEndPanelWhenSettled(() => this.showGameOverScreen(), END_PANEL_DELAY);
         PortalProvider.get().gameplayStop();
+        this._clearSnapshot();  // the game is over: a reload must start a new one
         this.boostOffer?.hideOffer();
         try {
             this.vfx.screenShake(12, 0.35);
@@ -1749,6 +1766,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private triggerVictory(): void {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
+        this._clearSnapshot();
         this._slowmoTimer = 0;
         this._slowmoScale = 1.0;
         director.getScheduler().setTimeScale(1.0);
@@ -2348,7 +2366,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _restoreAuraScales(): void {
         const targets = new Set<Warrior>([
-            ...this._zapTargetEnergy.keys(),
+            ...Array.from(this._zapTargetEnergy.keys()),  // Array.from: spread of an iterator compiles to [].concat() and breaks
             ...(this._auraWarrior ? [this._auraWarrior] : []),
         ]);
         for (const w of targets) {
@@ -2920,7 +2938,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
         // Every between-sessions navigation passes through a commercial break (no-op
         // on standalone builds). Never called during gameplay — Poki requirement.
-        const reload = (): void => { void this._withCommercialBreak(() => director.loadScene(this.sceneName)); };
+        const reload = (): void => {
+            GameManager._forceNewGame = true;  // Restart = new game, not a resume of the saved turn
+            void this._withCommercialBreak(() => director.loadScene(this.sceneName));
+        };
         const menu   = (): void => { void this._withCommercialBreak(() => director.loadScene(MAIN_MENU_SCENE)); };
         if (this.pausePanel) {
             this.pausePanel.onResume  = () => this._exitSettingsPause();
@@ -2999,7 +3020,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const out: [number, [number, number][]][] = [];
         const log = this._spawnLog;
         if (!log || typeof log.forEach !== 'function') return out;
-        log.forEach((m, r) => { out.push([r, m ? [...m] : []]); });
+        log.forEach((m, r) => { out.push([r, m ? Array.from(m) : []]); });
         return out;
     }
 
@@ -3022,7 +3043,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 round:       this.currentRound,
                 totalMerges: this.totalMerges,
                 cooldowns:   { wr: this._wrCooldownLaunches, pf: this._pfCooldownLaunches, br: this._brCooldownLaunches, brMerges: this._brCooldownMerges },
-                firstLaunchSpecies:    [...this._firstLaunchSpecies],
+                firstLaunchSpecies:    Array.from(this._firstLaunchSpecies),  // not [...set]: downlevel spread breaks Sets
                 trackClearedBonusUsed: this._trackClearedBonusUsed,
                 bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
                 spawnLog:    this._serializeSpawnLog(),
@@ -3056,6 +3077,23 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._auraEffect.onExpired = () => { this._auraEffect?.detach(); this._restoreAuraScales(); this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear(); };
         this._auraEffect.startTimer();
         this._auraWarrior = w;
+    }
+
+    /** Species present in the saved snapshot (board + launcher + next), so a restore awaits only
+     *  their sheets. undefined (→ await all) when the snapshot is missing or unreadable. */
+    private static _snapshotSpecies(): string[] | undefined {
+        try {
+            const snap = JSON.parse(SafeStorage.get(STATE_KEY) ?? '') as GameSnapshot;
+            const indices = new Set<number>([
+                ...(snap.warriors ?? []).map(w => w.type),
+                snap.launcher?.type, snap.next?.type,
+            ].filter((t): t is number => typeof t === 'number'));
+            // Array.from, not [...set]: the build's downlevel spread of a Set yields [Set] (no iteration).
+            const types = Array.from(indices).map(i => WARRIORS[i]?.type).filter((t): t is string => !!t);
+            return types.length ? types : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     /** Rebuild the board from the saved snapshot. Returns false (→ fresh game) if none/invalid. */
@@ -3107,6 +3145,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (launcher.viewNode?.isValid) launcher.viewNode.setScale(0, 0, 1);
             this.warriors.push(launcher);
             this.nextLaunchWarrior = launcher;
+            // Pop it in (same bounce as a regular spawn) — otherwise it stays at scale 0, invisible.
+            if (launcher.mapper) {
+                tween(launcher.mapper)
+                    .to(0.18, { animScale: 1.2 }, { easing: 'quadOut' })
+                    .to(0.08, { animScale: 0.9 })
+                    .to(0.06, { animScale: 1.0 })
+                    .call(() => { if (this.nextLaunchWarrior === launcher) this.nextLaunchWarrior = null; })
+                    .start();
+            }
 
             this._nextPowerup        = launcherPU;
             this._nextPowerupPending = launcherPU != null;
@@ -3347,20 +3394,20 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _logSpawnReport(): void {
         if (!DEBUG) return;
-        const rounds = [...this._spawnLog.keys()].sort((a, b) => a - b);
+        const rounds = Array.from(this._spawnLog.keys()).sort((a, b) => a - b);
         const totals = new Map<number, number>();
         const lines: string[] = ['[SpawnLog] ── Spawn report ──'];
         for (const r of rounds) {
             const rm = this._spawnLog.get(r)!;
             const parts: string[] = [];
-            for (const [type, count] of [...rm.entries()].sort((a, b) => a[0] - b[0])) {
+            for (const [type, count] of Array.from(rm.entries()).sort((a, b) => a[0] - b[0])) {
                 const n = WARRIORS[type]?.name ?? `type${type}`;
                 parts.push(`${n}×${count}`);
                 totals.set(type, (totals.get(type) ?? 0) + count);
             }
             lines.push(`  Round ${r}: ${parts.join(', ')}`);
         }
-        const totalParts = [...totals.entries()]
+        const totalParts = Array.from(totals.entries())
             .sort((a, b) => a[0] - b[0])
             .map(([type, count]) => `${WARRIORS[type]?.name ?? `type${type}`}×${count}`);
         lines.push(`  Total: ${totalParts.join(', ')}`);
@@ -3503,7 +3550,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const offer = this.boostOffer;
         if (!offer) return;
         this.inputCtrl.ignorePressAt = (screenLocation) => offer.hitsButton(screenLocation);
-        offer.onOpen    = () => this._enterAdPause();
+        offer.onRequest = () => this._requestBoostPanel();
         offer.onDecline = () => this._exitAdPause();
         offer.onWatch   = () => { void this._watchBoostAd(); };
     }
@@ -3521,6 +3568,21 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     /** Aura on the warrior waiting on the launcher; if none is there yet, on the next one. */
+    /** Open the BOOST modal only when it is safe to freeze the game: launcher ready (Aiming) or
+     *  during the round-up freeze. Freezing physics while a shot is in flight (tap right after the
+     *  release) left the warrior stuck below the line — the launch never resolved. Otherwise the
+     *  request waits for the next launcher (activateWarrior). */
+    private _requestBoostPanel(): void {
+        if (this.state === GameState.GameOver) return;
+        if (this.state === GameState.Aiming || this.roundUpPause) {
+            this._boostPanelRequested = false;
+            this._enterAdPause();
+            this.boostOffer?.openPanel();
+        } else {
+            this._boostPanelRequested = true;
+        }
+    }
+
     private _grantBoostAura(): void {
         const w = this._activeLauncherWarrior;
         if (!w?.node?.isValid || w.launched || this.state === GameState.GameOver) return;  // stays pending

@@ -9,7 +9,8 @@ const { ccclass, property } = _decorator;
  *
  * Flow: offer(centerSec, parkSec) shows the BOOST button at its editor position (centre, under the
  * round-up banner) for `centerSec`, then slides it just above `parkAnchor` (the settings gear) for
- * `parkSec` and fades it out → tap → onOpen (host pauses the game)
+ * `parkSec` and fades it out → tap → onRequest (host decides WHEN: it pauses the game and calls
+ * openPanel() — right away, or once the warrior in flight has landed)
  * + confirm panel "WATCH AN AD TO GET YOUR BOOST" → WATCH → onWatch (host runs the rewarded ad)
  * or NO THANKS → onDecline (host resumes). The ad and the reward are entirely the host's job.
  */
@@ -29,7 +30,8 @@ export class BoostOffer extends Component {
     parkGap = 12;
 
     /** Host hooks — set by GameManager. */
-    onOpen:    (() => void) | null = null;
+    /** BOOST tapped: the host must eventually pause the game and call openPanel(). */
+    onRequest: (() => void) | null = null;
     onWatch:   (() => void) | null = null;
     onDecline: (() => void) | null = null;
 
@@ -92,7 +94,11 @@ export class BoostOffer extends Component {
         this._cancelTimers();
         const buttonNode = this.boostButton?.node;
         if (buttonNode) { Tween.stopAllByTarget(buttonNode); buttonNode.active = false; }
-        this.onOpen?.();
+        this.onRequest?.();
+    }
+
+    /** Show the confirm modal (the host has already paused the game). */
+    openPanel(): void {
         if (!this.panel) { this.onDecline?.(); return; }
         this.panel.active = true;
         const opacity = this._opacity(this.panel);

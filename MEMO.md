@@ -148,6 +148,9 @@ Errore correlato: **"Can not find class 'XXXXXX'"** al reload della scena — si
 
 ## Gotcha Cocos Creator 3.8
 
+### CRITICO — lo spread di Set/Map/iteratori/stringhe NON funziona nella build
+La build compila `[...x]` in `[].concat(x)` (Babel loose): con un array va bene, ma con un `Set`, un `Map`, un iteratore (`map.keys()`, `.entries()`) o una stringa produce `[x]` (un solo elemento, l'oggetto stesso). Trovato 2026-11-11: snapshot con `firstLaunchSpecies: [{}]`, `_snapshotSpecies` sempre vuoto, `SpawnManager._weightedPick` rotto. **Usare sempre `Array.from(x)`** per tutto ciò che non è già un array. Il `for…of` invece funziona (usa un helper con iteratore).
+
 ### `node.color` non esiste in CC3 — usare `Sprite.color`
 
 In CC3 i nodi 2D non hanno una proprietà `.color` accessibile via TypeScript. Per tintare uno sprite usare direttamente la proprietà `.color` del component `Sprite`:

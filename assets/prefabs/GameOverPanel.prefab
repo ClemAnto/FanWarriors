@@ -365,10 +365,7 @@
       "b": 255,
       "a": 255
     },
-    "_spriteFrame": {
-      "__uuid__": "92064824-789f-4549-8926-c9bdb869b82d@f9941",
-      "__expectedType__": "cc.SpriteFrame"
-    },
+    "_spriteFrame": null,
     "_type": 0,
     "_fillType": 0,
     "_sizeMode": 0,
@@ -1846,7 +1843,11 @@
     "continueButton": {
       "__id__": 65
     },
-    "_id": ""
+    "_id": "",
+    "illustration": {
+      "__id__": 13
+    },
+    "illustrationPath": "illustrations/game_over"
   },
   {
     "__type__": "cc.CompPrefabInfo",

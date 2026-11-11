@@ -121,6 +121,16 @@ Decisioni 2026-11-11: interstitial a fine partita **e ogni 5 round** (pausa roun
 
 Lettura: `get_game_telemetry_event_analytics` (eventKind `custom`) su `game_ended` → distribuzione round/durata; `game_started`/game_ready = quanti premono PLAY.
 
+## 2d. Peso del primo avvio (v0.10.25, 2026-11-11)
+
+Ottimizzato il percorso di caricamento (`scripts/optimize-boot-images.js`, UUID invariati):
+- `hud/cog.png` 1024² → 192², compressione texture off (prima: 3×512 KB PVR/ETC/ASTC + PNG, ora 42 KB).
+- Sfondi senza alfa → JPG q80 4:2:0 (truecolor, niente banding): `background` 548 → 297 KB, `title_bg` 596 → 331 KB.
+- Illustrazioni fine partita → 512² JPG in `resources/illustrations/`, **lazy-load** da `EndPanel.preloadIllustration()` (5 s dopo l'inizio partita e in `show()`): fuori dalle dipendenze della scena Game.
+- `menu/title.png` 1488 → 1000 px (palette) 241 → 117 KB; logo loader HTML `title.webp` 184 → 47 KB.
+- Warrior: `WarriorSpriteCache.preload(onDone, firstTypes)` attende solo le specie del round 1 (668 KB invece di 1,45 MB), le altre in background; partita ripresa = attende tutto.
+Risultato: native del bundle `main` 3,5 MB → 1,0 MB, zip 8,6 → 6,7 MB. Da verificare su Playgama: load time e Game ready rate.
+
 ## 3. Self-check moderazione (motivi di rimando più comuni, da wiki)
 - [ ] Progressi persi dopo reload / salvati fuori da `bridge.storage` / storage letto-scritto troppo spesso
 - [ ] Interstitial assenti o temporizzati da noi invece che dal Bridge

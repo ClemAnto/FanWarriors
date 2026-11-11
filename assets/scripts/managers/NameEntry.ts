@@ -110,7 +110,7 @@ export class NameEntry extends Component {
     private _loadLastName(): number[] | null {
         const saved = SafeStorage.get(LAST_NAME_KEY);
         if (!saved || saved.length !== NAME_LEN) return null;
-        const idx = [...saved].map(ch => NAME_ALPHABET.indexOf(ch));
+        const idx = Array.from(saved).map(ch => NAME_ALPHABET.indexOf(ch));
         return idx.every(i => i >= 0) ? idx : null;
     }
 }

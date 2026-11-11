@@ -365,10 +365,7 @@
       "b": 255,
       "a": 255
     },
-    "_spriteFrame": {
-      "__uuid__": "383e8b9f-7c84-41e6-a269-ca8784337732@f9941",
-      "__expectedType__": "cc.SpriteFrame"
-    },
+    "_spriteFrame": null,
     "_type": 0,
     "_fillType": 0,
     "_sizeMode": 0,
@@ -1846,7 +1843,11 @@
     "continueButton": {
       "__id__": 65
     },
-    "_id": ""
+    "_id": "",
+    "illustration": {
+      "__id__": 13
+    },
+    "illustrationPath": "illustrations/win"
   },
   {
     "__type__": "cc.CompPrefabInfo",

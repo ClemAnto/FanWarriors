@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Button, UIOpacity, tween, Tween, Vec3 } from 'cc';
+import { _decorator, Component, Node, Label, Button, Sprite, SpriteFrame, UIOpacity, resources, tween, Tween, Vec3 } from 'cc';
 
 const { ccclass, property } = _decorator;
 
@@ -27,11 +27,16 @@ export class EndPanel extends Component {
     newBestNode: Node | null = null;
     @property({ type: Button, tooltip: 'The single forward button (Continue).' })
     continueButton: Button | null = null;
+    @property({ type: Sprite, tooltip: 'Illustration sprite. Left EMPTY in the prefab: the art is lazy-loaded from resources (keeps ~180 KB off the Game-scene load).' })
+    illustration: Sprite | null = null;
+    @property({ tooltip: 'resources/ path of the illustration, e.g. "illustrations/game_over" (no extension).' })
+    illustrationPath = '';
 
     /** Host hook — set by the owning scene (GameManager). */
     onContinue: (() => void) | null = null;
 
     private _op: UIOpacity | null = null;
+    private _illustrationRequested = false;
 
     onLoad(): void {
         // Leave the node INACTIVE in the editor — this onLoad runs on the first show() activation
@@ -41,8 +46,20 @@ export class EndPanel extends Component {
         this.continueButton?.node.on(Button.EventType.CLICK, () => this.onContinue?.(), this);
     }
 
+    /** Start downloading the illustration in the background (GameManager calls it once play is
+     *  under way). Idempotent; show() also calls it, so a slow network only delays the art. */
+    preloadIllustration(): void {
+        if (this._illustrationRequested || !this.illustrationPath || !this.illustration) return;
+        this._illustrationRequested = true;
+        resources.load(`${this.illustrationPath}/spriteFrame`, SpriteFrame, (err, frame) => {
+            if (err || !frame) { console.warn(`[EndPanel] illustration '${this.illustrationPath}' failed to load:`, err); return; }
+            if (this.illustration?.isValid) this.illustration.spriteFrame = frame;
+        });
+    }
+
     /** Fill the labels and fade the panel in. */
     show(score: number, round: number, best: number, newBest: boolean): void {
+        this.preloadIllustration();
         this.node.active = true;
         if (this.scoreLabel) this.scoreLabel.string = `Score ${score}`;
         if (this.roundLabel) this.roundLabel.string = `ROUND ${round}`;

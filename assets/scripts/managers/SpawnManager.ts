@@ -262,7 +262,7 @@ export class SpawnManager extends Component {
     }
 
     private _weightedPick(map: Map<number, number>): number {
-        const entries = [...map.entries()];
+        const entries = Array.from(map.entries());  // not [...]: the build compiles spread to [].concat(), which breaks iterators
         const total   = entries.reduce((s, [, n]) => s + n, 0);
         let r = Math.random() * total;
         for (const [species, count] of entries) {
