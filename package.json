@@ -19,7 +19,8 @@
     "ui:export": "node tools/art/ui-sheet.mjs --export",
     "ui:apply": "node tools/ui/apply-ui.mjs",
     "test:ui": "node tests/e2e/ui-e2e.mjs",
-    "test:pause": "node tests/e2e/platform-pause-e2e.mjs"
+    "test:pause": "node tests/e2e/platform-pause-e2e.mjs",
+    "test:saves": "node tests/e2e/save-stamp-e2e.mjs"
   },
   "devDependencies": {
     "ag-psd": "^34.1.0",
