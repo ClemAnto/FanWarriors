@@ -135,7 +135,7 @@ Guida generica riusabile: `PLAYGAMA_PLAYBOOK.md`; istanza progetto: `PLAYGAMA.md
 - Vibrazione: fonte unica tramite getter statico `Settings.vibrationEnabled` (legge `fw_vibration`). `GameManager._vibrate()` lo usa.
 - Hook host (null in MainMenu): `canOpen` (veto apertura, es. game over), `onBeforeOpen`/`onAfterClose`. `GameManager` ci registra pausa/resume (`_enterSettingsPause`/`_exitSettingsPause`).
 - `GameManager` trova il componente con `(canvas).getComponentInChildren(Settings)` — indipendente dalla gerarchia.
-- `VERSION` è ora `export const` in `GameManager.ts` (importata da `MainMenu.ts`).
+- `VERSION` vive in `config/Version.ts` (dal 2026-11-12, perché SafeStorage la usa per marcare i salvataggi senza import circolare con GameManager), riesportata da `GameManager.ts`.
 
 **Gotcha**: `Settings` va su un nodo **sempre attivo** (es. Canvas) con `dialogNode` → il pannello Dialog; così il Dialog può restare disattivo nell'editor. Un componente su nodo disattivo non riceve `onLoad` → niente wiring. Vedi MEMO.
 

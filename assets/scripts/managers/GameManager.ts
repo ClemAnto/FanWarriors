@@ -34,13 +34,15 @@ import { PerformanceSampler } from '../utils/PerformanceSampler';
 import { BoostOffer } from './BoostOffer';
 import { PowerupInfoPanel } from './PowerupInfoPanel';
 import { PowerupTutorialStore, PowerupId } from '../data/PowerupInfo';
+import { VERSION, compareVersions } from '../config/Version';
 const { ccclass, property } = _decorator;
 
 /** Effective online-leaderboard switch: configured ON *and* allowed on this portal build
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.37';
+// The version lives in config/Version.ts (SafeStorage stamps every save with it); re-exported here.
+export { VERSION };
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Set when the player leaves a game for the menu (Quit / Menu): the next boots open on the
@@ -138,6 +140,9 @@ const ROUND_THRESHOLDS = [0, 8, 20, 35, 55, 80, 105, 130] as const;
 const STATE_KEY = 'fw_game_state';
 /** A saved game older than this (since its last turn) is discarded: the next visit starts fresh. */
 const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+/** Oldest build whose saved game is still valid here: bump it when the snapshot format or the rules it
+ *  depends on change (0.10.37: front-loaded ROUND_THRESHOLDS — an older game would round up twice). */
+const SNAPSHOT_MIN_VERSION = '0.10.37';
 
 type PowerupKind = PowerupId;
 
@@ -3160,7 +3165,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const launcher = this._activeLauncherWarrior;
             const snap: GameSnapshot = {
                 version:     VERSION,
-                savedAt:     Date.now(),
+                savedAt:     Math.round(SafeStorage.now()),
                 score:       this.score,
                 round:       this.currentRound,
                 totalMerges: this.totalMerges,
@@ -3215,8 +3220,16 @@ export class GameManager extends Component implements IGameManagerDebug {
         let snap: GameSnapshot | null = null;
         try { snap = JSON.parse(raw) as GameSnapshot; } catch { /* corrupt → discarded below */ }
         const complete = !!snap && typeof snap.round === 'number' && !!snap.launcher && !!snap.next;
-        const age = typeof snap?.savedAt === 'number' ? Date.now() - snap.savedAt : Number.POSITIVE_INFINITY;
-        if (!complete || age > SNAPSHOT_MAX_AGE_MS || age < -60_000) {
+        // Version: the one stamped by SafeStorage, else the one inside the snapshot (older saves).
+        // Valid only from SNAPSHOT_MIN_VERSION up to this build (a newer build's save, e.g. after
+        // a platform rollback, may follow rules this build doesn't know).
+        const stamp = SafeStorage.stampOf(STATE_KEY);
+        const version = stamp?.v ?? (typeof snap?.version === 'string' ? snap.version : '0');
+        const versionOk = compareVersions(version, SNAPSHOT_MIN_VERSION) >= 0 && compareVersions(version, VERSION) <= 0;
+        const savedAt = stamp?.t ?? (typeof snap?.savedAt === 'number' ? snap.savedAt : Number.NaN);
+        const age = Number.isFinite(savedAt) ? SafeStorage.now() - savedAt : Number.POSITIVE_INFINITY;
+        if (!complete || !versionOk || age > SNAPSHOT_MAX_AGE_MS || age < -60_000) {
+            console.log(`[GameManager] saved game discarded (complete=${complete}, version=${version}, age=${Math.round(age / 1000)}s)`);
             SafeStorage.remove(STATE_KEY);
             return null;
         }

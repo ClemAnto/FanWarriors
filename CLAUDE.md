@@ -37,7 +37,7 @@ Grafica UI: foglio AI → `graphics/sheets/<foglio>/` → `npm run ui:prep` (PSD
 Se la chat è aperta da qualche minuto (sessione di sviluppo attiva), avvia automaticamente il remote-control così possiamo continuare la conversazione tramite app
 
 ## Versioning
-- La versione è definita in due posti: `package.json` (campo `version`) e `GameManager.ts` (costante `VERSION`) — devono essere sempre allineati.
+- La versione è definita in due posti: `package.json` (campo `version`) e `assets/scripts/config/Version.ts` (costante `VERSION`, riesportata da `GameManager.ts`) — devono essere sempre allineati.
 - **Ad ogni `npm run serve` incrementa la patch** (`0.1.x → 0.1.x+1`) in entrambi i file prima di buildare.
 
 ## Comando di chiusura sessione

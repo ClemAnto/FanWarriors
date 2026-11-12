@@ -1,5 +1,18 @@
 import { sys } from 'cc';
 import { PORTAL, PLAYGAMA_SAVE_KEY } from '../config/PortalConfig';
+import { VERSION } from '../config/Version';
+
+/** Stamp of one saved key: game version that wrote it and when (epoch ms). */
+export interface SaveStamp {
+    /** Game version (config/Version.ts) of the last write. */
+    v: string;
+    /** Epoch ms of the last write: performance.timeOrigin + performance.now() — monotonic within
+     *  the page session (a clock change while playing doesn't move it), comparable across sessions. */
+    t: number;
+}
+
+/** Key holding the {key: SaveStamp} map of every stamped save (itself never stamped). */
+export const SAVE_META_KEY = 'fw_meta';
 
 /** Minimal surface of the Playgama Bridge storage we use. */
 interface BridgeStorageLike {
@@ -36,19 +49,22 @@ export class SafeStorage {
         catch { return fallback; }
     }
 
+    /** Writes `value` and stamps the key with the current game version and time (see stampOf). */
     static set(key: string, value: string): void {
         const store = SafeStorage._bridgeStore();
         if (store) {
             if (store[key] === value) return;  // no-op write → no Bridge traffic
             store[key] = value;
+            SafeStorage._stamp(key);
             SafeStorage._scheduleFlush();
             return;
         }
-        try { sys.localStorage.setItem(key, value); }
+        try { sys.localStorage.setItem(key, value); SafeStorage._stamp(key); }
         catch { /* storage unavailable — ignore */ }
     }
 
     static remove(key: string): void {
+        SafeStorage._unstamp(key);
         const store = SafeStorage._bridgeStore();
         if (store) {
             if (!(key in store)) return;
@@ -57,6 +73,70 @@ export class SafeStorage {
             return;
         }
         try { sys.localStorage.removeItem(key); }
+        catch { /* storage unavailable — ignore */ }
+    }
+
+    /** Version and time of the last write of `key`; null if absent or written before stamping
+     *  existed (≤ 0.10.37) — callers treat null as "old". */
+    static stampOf(key: string): SaveStamp | null {
+        const s = SafeStorage._meta()[key];
+        return s && typeof s.v === 'string' && typeof s.t === 'number' ? s : null;
+    }
+
+    /** Current time on the same scale as SaveStamp.t (epoch ms, monotonic within the session). */
+    static now(): number {
+        try { return performance.timeOrigin + performance.now(); }
+        catch { return Date.now(); }
+    }
+
+    /** Deletes every stamped key for which `isStale(key, stamp)` is true; returns the deleted keys.
+     *  E.g. `SafeStorage.purge((k, s) => SafeStorage.now() - s.t > maxAgeMs)`. */
+    static purge(isStale: (key: string, stamp: SaveStamp) => boolean): string[] {
+        const removed: string[] = [];
+        const meta = SafeStorage._meta();
+        for (const key of Object.keys(meta)) {
+            const stamp = SafeStorage.stampOf(key);
+            if (!stamp || isStale(key, stamp)) { SafeStorage.remove(key); removed.push(key); }
+        }
+        if (removed.length) console.log(`[SafeStorage] purged stale saves: ${removed.join(', ')}`);
+        return removed;
+    }
+
+    // ── Stamps: one JSON map under SAVE_META_KEY, cached in memory after the first read ──
+    private static _metaCache: Record<string, SaveStamp> | null = null;
+
+    private static _meta(): Record<string, SaveStamp> {
+        if (SafeStorage._metaCache) return SafeStorage._metaCache;
+        let meta: Record<string, SaveStamp> = {};
+        try {
+            const parsed = JSON.parse(SafeStorage.get(SAVE_META_KEY) ?? '{}');
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) meta = parsed;
+        } catch { /* corrupt → start over */ }
+        SafeStorage._metaCache = meta;
+        return meta;
+    }
+
+    private static _stamp(key: string): void {
+        if (key === SAVE_META_KEY) return;
+        const meta = SafeStorage._meta();
+        meta[key] = { v: VERSION, t: Math.round(SafeStorage.now()) };
+        SafeStorage._writeMeta(meta);
+    }
+
+    private static _unstamp(key: string): void {
+        if (key === SAVE_META_KEY) return;
+        const meta = SafeStorage._meta();
+        if (!(key in meta)) return;
+        delete meta[key];
+        SafeStorage._writeMeta(meta);
+    }
+
+    /** Raw write of the stamp map (not through set(): no self-stamp, no recursion). */
+    private static _writeMeta(meta: Record<string, SaveStamp>): void {
+        const raw = JSON.stringify(meta);
+        const store = SafeStorage._bridgeStore();
+        if (store) { store[SAVE_META_KEY] = raw; SafeStorage._scheduleFlush(); return; }
+        try { sys.localStorage.setItem(SAVE_META_KEY, raw); }
         catch { /* storage unavailable — ignore */ }
     }
 

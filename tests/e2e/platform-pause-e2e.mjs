@@ -116,6 +116,11 @@ try {
     check('storage: save blob preloaded from bridge.storage', before.hasStore === true);
     check('storage: turn snapshot present', before.savedAt !== null, before);
     check('storage: blob well under YouTube 3 MiB', before.bytes < 64 * 1024, before.bytes);
+    // Every save is stamped (fw_meta) with the game version and an epoch-ms time (performance clock).
+    const APP_VERSION = JSON.parse(fs.readFileSync(path.join(BUILD, '..', '..', 'package.json'), 'utf8')).version;
+    const stamp = await evaluate(`(() => { try { const m = JSON.parse(window.__fwStore.fw_meta); return { s: m.fw_game_state, now: performance.timeOrigin + performance.now() }; } catch { return null; } })()`);
+    check('storage: snapshot stamped with the game version', stamp?.s?.v === APP_VERSION, stamp?.s);
+    check('storage: stamp time is recent epoch ms', !!stamp && stamp.s.t > 1.7e12 && stamp.now - stamp.s.t >= 0 && stamp.now - stamp.s.t < 120_000, stamp);
     // Mark the in-memory snapshot (score 4321) so the reload proves it came back from bridge.storage:
     // only the pause flush can have written it.
     await evaluate(`(() => { const st = window.__fwStore; const snap = JSON.parse(st.fw_game_state); snap.score = 4321; st.fw_game_state = JSON.stringify(snap); return true; })()`);
@@ -134,7 +139,17 @@ try {
     check('storage: reload resumes into the game', (await evaluate(`cc.director.getScene()?.name`)) === 'Game');
     const hudScore = await evaluate(`(() => { let t = null; const w = n => { const l = n.getComponent('cc.Label'); if (l && /^4[^0-9]?321$/.test(l.string)) t = l.string; n.children.forEach(w); }; w(cc.director.getScene()); return t; })()`);
     check('storage: HUD shows the restored score', hudScore !== null, hudScore);
-    const pauseLogs = logs.filter(l => /PlatformPause|SafeStorage|restored|EXCEPTION|error:/i.test(l));
+    // A save stamped by a build older than SNAPSHOT_MIN_VERSION is discarded at load: back to the menu.
+    await evaluate(`(() => { const st = window.__fwStore; const m = JSON.parse(st.fw_meta); m.fw_game_state.v = '0.10.30'; st.fw_meta = JSON.stringify(m); return true; })()`);
+    await evaluate(`bridge.platform._platformBridge.emit(bridge.EVENT_NAME.PAUSE_STATE_CHANGED, true), true`);
+    await sleep(800);
+    await send('Page.reload', { ignoreCache: true });
+    await sleep(1500);
+    for (let i = 0; i < 240; i++) { try { if (await evaluate(`typeof cc !== 'undefined' && !!cc.director.getScene()?.name`)) break; } catch { } await sleep(250); }
+    await sleep(2500);
+    const old = await evaluate(`({ scene: cc.director.getScene()?.name, snap: 'fw_game_state' in (window.__fwStore || {}) })`);
+    check('storage: old-version save discarded at load', old.scene === 'MainMenu' && old.snap === false, old);
+    const pauseLogs = logs.filter(l => /PlatformPause|SafeStorage|restored|discarded|EXCEPTION|error:/i.test(l));
     console.log(pauseLogs.join('\n'));
 } catch (e) {
     console.log('ABORTED', e.message); failures++;
