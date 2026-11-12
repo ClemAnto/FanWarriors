@@ -36,8 +36,12 @@ const VIEWPORTS = [
 ];
 // --only phone,square: run a subset of the viewports.
 const onlyArg = process.argv.indexOf('--only');
-const ONLY = onlyArg > 0 ? process.argv[onlyArg + 1].split(',') : null;
+const ONLY = onlyArg > 0 ? (process.argv[onlyArg + 1] ?? '').split(',').filter(Boolean) : null;
 const RUN_VIEWPORTS = ONLY ? VIEWPORTS.filter(v => ONLY.includes(v.name)) : VIEWPORTS;
+if (!RUN_VIEWPORTS.length) {
+    console.log(`--only matched no viewport (known: ${VIEWPORTS.map(v => v.name).join(', ')})`);
+    process.exit(1);
+}
 
 // ------------------------------------------------------------------ static server
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webp': 'image/webp' };

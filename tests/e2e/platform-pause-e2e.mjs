@@ -36,6 +36,11 @@ for (let i = 0; i < 50 && !wsUrl; i++) {
     try { wsUrl = (await (await fetch(`http://127.0.0.1:${DEBUG_PORT}/json`)).json()).find(t => t.type === 'page')?.webSocketDebuggerUrl; } catch { /* not up */ }
     if (!wsUrl) await sleep(200);
 }
+if (!wsUrl) {
+    console.log(`Chrome DevTools not reachable on port ${DEBUG_PORT} (CHROME=${CHROME})`);
+    chrome.kill(); server.close();
+    process.exit(1);
+}
 const ws = new WebSocket(wsUrl);
 await new Promise(r => ws.addEventListener('open', r, { once: true }));
 let seq = 0; const pending = new Map(); const logs = [];
@@ -92,6 +97,17 @@ try {
     check('resumed: frames advance', s1.frames > s0.frames, s1.frames - s0.frames);
     check('resumed: no jump right after resume', Math.abs(s0.y - p1.y) < 60, Math.round(s0.y - p1.y));
     check('resumed: music back', (await evaluate(music)) === musicBefore, musicBefore);
+
+    // ---- platform pause that arrives while the tab is hidden: showing the tab again must NOT restart
+    // the loop (the engine's own hide/show pause would otherwise cancel the platform pause).
+    await evaluate(`cc.game._onHide(), true`);
+    await evaluate(`bridge.platform._platformBridge.emit(bridge.EVENT_NAME.PAUSE_STATE_CHANGED, true), true`);
+    await evaluate(`cc.game._onShow(), true`);
+    const h0 = await evaluate(sample); await sleep(1000); const h1 = await evaluate(sample);
+    check('hidden + platform pause: still stopped after the tab is shown', h1.paused === true && h1.frames === h0.frames, h1.frames - h0.frames);
+    await evaluate(`bridge.platform._platformBridge.emit(bridge.EVENT_NAME.PAUSE_STATE_CHANGED, false), true`);
+    const h2 = await evaluate(sample); await sleep(500); const h3 = await evaluate(sample);
+    check('hidden + platform pause: platform resume restarts the loop', h3.paused === false && h3.frames > h2.frames, h3.frames - h2.frames);
 
     // ---- storage: the platform pause flushes the save blob through bridge.storage; after a
     // reload the game resumes the same turn. Nothing of ours goes to raw localStorage.

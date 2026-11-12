@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx } from 'cc';
+import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx, game, Game } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -236,6 +236,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _puBadges    = new Map<Warrior, { kind: PowerupKind; fx: PowerupBadgeEffect }>();
     /** performance.now() when this game started (fresh or restored) — game_ended duration. */
     private _gameStartedAt = 0;
+    /** performance.now() when the engine main loop stopped (platform pause / tab hidden); -1 = running. */
+    private _engineStoppedAt = -1;
     /** Playgama performance_sample emitter; null on portals without analytics. */
     private _perfSampler: PerformanceSampler | null = null;
     /** True while the BOOST confirm modal / rewarded ad (or a round-up interstitial) holds the game. */
@@ -785,6 +787,8 @@ export class GameManager extends Component implements IGameManagerDebug {
                 window.addEventListener('error', this._onGlobalError);
                 window.addEventListener('unhandledrejection', this._onUnhandledRejection);
             }
+            game.on(Game.EVENT_PAUSE,  this._onEnginePause,  this);
+            game.on(Game.EVENT_RESUME, this._onEngineResume, this);
 
             // Portal SDK: active play starts here (init is idempotent — covers the
             // dev-preview case where the Game scene loads without passing by MainMenu)
@@ -820,6 +824,24 @@ export class GameManager extends Component implements IGameManagerDebug {
             window.removeEventListener('error', this._onGlobalError);
             window.removeEventListener('unhandledrejection', this._onUnhandledRejection);
         }
+        game.off(Game.EVENT_PAUSE,  this._onEnginePause,  this);
+        game.off(Game.EVENT_RESUME, this._onEngineResume, this);
+    }
+
+    /** Engine main loop stopped (platform pause, tab hidden): the stop must not count as play time. */
+    private _onEnginePause(): void {
+        if (this._engineStoppedAt < 0) this._engineStoppedAt = performance.now();
+    }
+
+    /** Engine loop restarted: shift the game start by the stopped time (game_ended duration) and
+     *  break the perf sampler's frame chain so the gap is never recorded as one long frame. */
+    private _onEngineResume(): void {
+        // PlatformPause may stop the loop again inside this same RESUME (tab shown during a platform
+        // pause): still stopped → keep counting from the original stop.
+        if (game.isPaused()) return;
+        if (this._engineStoppedAt >= 0 && this._gameStartedAt > 0) this._gameStartedAt += performance.now() - this._engineStoppedAt;
+        this._engineStoppedAt = -1;
+        this._perfSampler?.tick(false);
     }
 
     private _autoPause(): void {

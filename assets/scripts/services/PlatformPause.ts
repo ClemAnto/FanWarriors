@@ -1,4 +1,4 @@
-import { game } from 'cc';
+import { game, Game } from 'cc';
 import { PortalSdk } from './PortalSdk';
 
 /**
@@ -20,10 +20,13 @@ export class PlatformPause {
             audio: () => { /* handled by AudioManager */ },
             pause: (paused) => PlatformPause._apply(paused),
         });
+        // The engine pauses itself on tab hide and resumes on show (pauseByEngine/resumeByEngine).
+        // If the platform pause arrived while the tab was hidden, that show would restart the loop
+        // under a still-active platform pause: stop it again.
+        game.on(Game.EVENT_RESUME, () => {
+            if (PlatformPause._pausedByPlatform) game.pause();
+        });
     }
-
-    /** True while the engine is stopped by the platform (not by the player's own pause). */
-    static get isPaused(): boolean { return PlatformPause._pausedByPlatform; }
 
     private static _apply(paused: boolean): void {
         if (paused === PlatformPause._pausedByPlatform) return;
