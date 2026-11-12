@@ -93,7 +93,7 @@ Stile Tetris: il gioco è endless ma diviso in **round di difficoltà crescente*
 | 9-10 | 7 specie (+ Drago) | Livello 1-3 | ~4s | Tutte le specie attive |
 | 11+ | 7 specie | Livello 1-3 | ~3s | Timer minimo, pressione massima |
 
-**Regole di promozione tra round**: si avanza al round successivo dopo aver eseguito un numero di merge totali pari alla soglia del round corrente. Soglie da bilanciare in playtest (es. round 1 → 10 merge, round 2 → 25 merge, ecc.).
+**Regole di promozione tra round**: si avanza al round successivo dopo aver eseguito un numero di merge totali pari alla soglia del round corrente. Soglie cumulative attuali (2026-11-12): round 2 a 8 merge, poi 20, 35, 55, 80, 105, 130; dal round 8 `round × 20` (`ROUND_THRESHOLDS` in GameManager).
 
 ## 8. Sistema di punteggio
 

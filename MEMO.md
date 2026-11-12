@@ -449,7 +449,7 @@ Calibrato a iterazioni con l'utente il 2026-06-12 — prima di ritoccare i param
 5. `_evolveWarrior`: `finalLevel = floor(log₂(initEnergy + accEnergy)) + 1` → **score evoluzione** (`20 × round × ΔLevel`) → spawn evolved o blackhole; animazione bubble post-flash
 
 ### Round illimitati
-`MAX_ROUND` rimosso. `_roundThreshold(round)` usa `ROUND_THRESHOLDS[round]` per i round 1–7, poi `round × 20` per i round successivi.
+`MAX_ROUND` rimosso. `_roundThreshold(round)` usa `ROUND_THRESHOLDS[round]` per i round 1–7, poi `round × 20` per i round successivi. Soglie cumulative di merge **[0, 8, 20, 35, 55, 80, 105, 130]** dal 2026-11-12 (prima [0, 20, 40, 60, 80, 100, 120]): round 2 dopo 8 merge, perché solo il 15% delle partite arrivava al round 2 a 20 merge. Dal round 8 identico a prima (160, 180…). NB: il punteggio scala col round → punteggi iniziali un po' più alti di prima.
 
 ### Gotcha Tween
 **`Tween.stopAllByTarget(component)` quando non ci sono tween attivi corrompe il sistema tween CC3** — i tween successivi sullo stesso target completano istantaneamente. Usare sempre la reference all'istanza: `this._myTween = tween(...).start()` poi `this._myTween?.stop()`.

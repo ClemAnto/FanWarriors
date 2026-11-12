@@ -40,7 +40,7 @@ const { ccclass, property } = _decorator;
  *  (off on GameDistribution per §7). Gates end-game routing + name-entry prep. */
 const LEADERBOARD_ENABLED = LEADERBOARD_CONFIG_ENABLED && LEADERBOARD_ALLOWED;
 
-export const VERSION     = '0.10.36';
+export const VERSION     = '0.10.37';
 /** Set when a game starts; absent = first visit → MainMenu skips itself and opens the Game. */
 export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Set when the player leaves a game for the menu (Quit / Menu): the next boots open on the
@@ -125,8 +125,10 @@ const GO_LINE_RAISE_FRAC  = 0.13; // game-start raise, fraction of TRACK_H — t
 const GO_LINE_DESCENT_DUR = 1.4;  // s, fits inside the round-up banner physics freeze (2.16s)
 const NEW_BEST_MIN_SCORE = 10000;  // min score for the "new best" message to appear
 
-// Cumulative totalMerges to reach each round (index = round - 1, so [1] = 10 means 10 merges → round 2)
-const ROUND_THRESHOLDS = [0, 20, 40, 60, 80, 100, 120] as const;
+// Cumulative totalMerges needed to leave round N = ROUND_THRESHOLDS[N] ([1] = 8 → round 2 after 8 merges).
+// Front-loaded (2026-11-12, telemetry: only 15% of games reached round 2 at 20 merges): the first round-up
+// banner / new species / BOOST arrive within ~1 min. From round 8 on: round × 20, as before.
+const ROUND_THRESHOLDS = [0, 8, 20, 35, 55, 80, 105, 130] as const;
 
 // ── Resumable game state (storage snapshot) ──
 // Saved at the start of every turn (settled board + launcher ready). Restored automatically when
