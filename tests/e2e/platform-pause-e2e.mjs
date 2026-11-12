@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
     fs.createReadStream(file).pipe(res);
 }).listen(PORT);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'fw-pause-chrome-'));
-const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${DEBUG_PORT}`, `--user-data-dir=${profile}`, '--no-first-run', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${DEBUG_PORT}`, `--user-data-dir=${profile}`, '--no-first-run', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let wsUrl;
@@ -149,7 +149,20 @@ try {
     await sleep(2500);
     const old = await evaluate(`({ scene: cc.director.getScene()?.name, snap: 'fw_game_state' in (window.__fwStore || {}) })`);
     check('storage: old-version save discarded at load', old.scene === 'MainMenu' && old.snap === false, old);
-    const pauseLogs = logs.filter(l => /PlatformPause|SafeStorage|restored|discarded|EXCEPTION|error:/i.test(l));
+    // ---- telemetry context: game_started carries platform, test flag and version ----
+    const startedPayloads = () => logs.filter(l => l.includes('[Portal] analytics game_started')).map(l => { try { return JSON.parse(l.slice(l.indexOf('{'))); } catch { return null; } });
+    const firstStart = startedPayloads()[0];
+    check('telemetry: game_started has platform/test/version (local mock = test)', firstStart?.platform === 'mock' && firstStart?.test === true && firstStart?.version === APP_VERSION, firstStart);
+    // Simulated YouTube (?platform_id=youtube): outside YouTube the Bridge never initializes (no ytgame
+    // SDK), so nothing is sent; the game must not query the uninitialized Bridge (it logs an error).
+    logs.length = 0;
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/index.html?platform_id=youtube` });
+    for (let i = 0; i < 200 && !startedPayloads().length; i++) await sleep(250);
+    const ytStart = startedPayloads()[0];
+    check('telemetry: uninitialized Bridge (YouTube outside YouTube) → platform "uninitialized", test true', ytStart?.platform === 'uninitialized' && ytStart?.test === true, ytStart);
+    const bridgeErrors = logs.filter(l => /must initialize/i.test(l));
+    check('telemetry: no "must initialize" Bridge error', bridgeErrors.length === 0, bridgeErrors);
+    const pauseLogs = logs.filter(l => /PlatformPause|SafeStorage|restored|discarded|analytics game_started|EXCEPTION|error:/i.test(l));
     console.log(pauseLogs.join('\n'));
 } catch (e) {
     console.log('ABORTED', e.message); failures++;

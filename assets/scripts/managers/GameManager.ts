@@ -748,7 +748,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.scheduleOnce(() => { this.gameOverPanel?.preloadIllustration(); this.victoryPanel?.preloadIllustration(); }, 5);
             SafeStorage.set(LS_PLAYED_ONCE, '1');  // later visits open on the MainMenu
             SafeStorage.remove(LS_MENU_ON_BOOT);    // playing again: a saved game may resume at boot
-            this._trackEvent('game_started', { restored: restoring, round: this.currentRound });
+            this._trackEvent('game_started', { restored: restoring, round: this.currentRound, ...GameManager._telemetryContext() });
             if (QA_E2E_HOOKS && sys.isBrowser) {
                 const match = /fwqa=advance(\d+)/.exec(window.location.search);
                 if (match) this.scheduleOnce(() => { this.setDebugRound(Number(match[1])); this.advanceRound(); }, 4);
@@ -1977,6 +1977,19 @@ export class GameManager extends Component implements IGameManagerDebug {
             score: this.score,
             duration_sec: this._gameStartedAt > 0 ? Math.round((performance.now() - this._gameStartedAt) / 1000) : 0,
         });
+    }
+
+    /** Session context for game_started, so the telemetry can be filtered: `platform` (Bridge
+     *  platform id, else the build's PORTAL), `test` (our own sessions: Playgama QA tool, Bridge mock
+     *  platform, or a local host) and the game `version`. */
+    private static _telemetryContext(): AnalyticsData {
+        let platform: string = PORTAL;
+        try { platform = PortalProvider.get().platformId?.() ?? PORTAL; } catch { /* keep PORTAL */ }
+        let host = '';
+        try { host = sys.isBrowser ? window.location.hostname : ''; } catch { /* no location */ }
+        const localHost = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/.test(host) || host.endsWith('.localhost') || host.endsWith('.test');
+        const test = localHost || platform === 'qa_tool' || platform === 'mock';
+        return { platform, test, version: VERSION };
     }
 
     private _trackEvent(name: string, data?: AnalyticsData): void {

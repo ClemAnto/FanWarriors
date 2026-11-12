@@ -4,7 +4,7 @@
  * Lives in its own module so low-level utils (SafeStorage) can stamp saves with it
  * without importing GameManager (circular import).
  */
-export const VERSION = '0.10.37';
+export const VERSION = '0.10.38';
 
 /** Compare two dotted numeric versions ("0.10.37"): <0 if a<b, 0 if equal, >0 if a>b.
  *  Missing or non-numeric parts count as 0, so a malformed version sorts as oldest. */

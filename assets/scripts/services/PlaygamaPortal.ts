@@ -111,7 +111,16 @@ export class PlaygamaPortal implements PortalSdk {
 
     gameplayStart(): void { this._gameplayActive = true; }
 
+    platformId(): string | undefined {
+        // Only an initialized Bridge may be queried (reading it earlier logs a Bridge error). Analytics
+        // are sent only after init anyway, so 'uninitialized' never reaches the telemetry.
+        if (!this._bridge) return 'uninitialized';
+        try { return this._bridge.platform.id || undefined; } catch { return undefined; }
+    }
+
     trackEvent(name: string, data?: AnalyticsData): void {
+        // Console trace for QA (QA tool console, e2e tests); the 30 s performance samples are skipped.
+        if (name !== 'performance_sample') console.log(`[Portal] analytics ${name} ${JSON.stringify(data ?? {})}`);
         void this.init().then(() => {
             try { this._bridge?.analytics?.send(name, data); }
             catch (e) { console.warn(`[Portal] Playgama analytics.send('${name}') failed (ignored):`, e); }

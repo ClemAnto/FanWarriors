@@ -35,6 +35,9 @@ export interface PortalSdk {
      * Portals without an analytics channel don't implement it.
      */
     trackEvent?(name: string, data?: AnalyticsData): void;
+    /** Optional: id of the host platform as the portal SDK reports it (Playgama Bridge `platform.id`:
+     *  'playgama', 'youtube', 'qa_tool', 'mock'…). Used to tag analytics; undefined when unknown. */
+    platformId?(): string | undefined;
     /** Optional: whether an opt-in rewarded ad can be offered right now (show the BOOST UI only if true). */
     isRewardedSupported?(): boolean;
     /**
