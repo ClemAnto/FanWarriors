@@ -20,23 +20,23 @@ export interface PowerupInfo {
 export const POWERUP_INFO: Record<PowerupId, PowerupInfo> = {
     aura: {
         id: 'aura', name: 'AURA', art: 'powerups/aura', inGame: true,
-        lore: "A golden blessing from the tournament's guardian spirits. Whoever wears it pushes rivals aside and sends their strength to their kin.",
-        how: 'The first Wolf, Eagle, Lion and Dragon of each game bring it along. Watch the BOOST at a new round for a Golden Aura: full power on any warrior.',
+        lore: "A golden blessing from the guardian spirits: it pushes rivals aside and sends their strength to their kin.",
+        how: 'The first Wolf, Eagle, Lion and Dragon of each game bring it. Watch the BOOST for a Golden Aura: full power on any warrior.',
     },
     wildRiver: {
         id: 'wildRiver', name: 'WILD RIVER', art: 'powerups/wildriver', inGame: true,
         lore: 'An ancient crimson spell flows through a single tribe, binding them in one wild current.',
-        how: 'From round 5, when 25+ warriors crowd the track and 8+ of them are of your kind. A rescue power can return after 10 launches and 10 merges.',
+        how: 'From round 5, when 25+ warriors crowd the track and 8+ are of your kind. Rescue powers return after 10 launches and 10 merges.',
     },
     brotherhood: {
         id: 'brotherhood', name: 'BROTHERHOOD', art: 'powerups/brotherhood', inGame: true,
         lore: 'When the arena is overcrowded, the oath of brotherhood calls every sibling home at once.',
-        how: 'When 25+ warriors crowd the track. A rescue power can return after 10 launches and 10 merges. REVIVE grants it too.',
+        how: 'When 25+ warriors crowd the track. Rescue powers return after 10 launches and 10 merges. REVIVE grants it too.',
     },
     psychoForce: {
         id: 'psychoForce', name: 'PSYCHO FORCE', art: 'powerups/psychoforce', inGame: true,
         lore: 'A mind spell that makes strangers feel like kin: any two of the same level can join together.',
-        how: 'From round 8, when 25+ warriors crowd the track and no kind has 6 or more of them. A rescue power can return after 10 launches and 10 merges.',
+        how: 'From round 8, when 25+ warriors crowd the track and no kind has 6+. Rescue powers return after 10 launches and 10 merges.',
     },
 };
 

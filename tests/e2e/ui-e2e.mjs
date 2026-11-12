@@ -108,7 +108,8 @@ window.__fw = {
     let root = scene; if (rootName && rootName[0] === '#') { const walk = n => n.name === rootName.slice(1) ? n : n.children.map(walk).find(Boolean); root = walk(scene) || scene; } else if (rootName) { const c = this.comp(rootName); root = c ? c.node : scene; }
     const vs = cc.view.getVisibleSize();
     const canvas = cc.find('Canvas');
-    const cut = [], buttons = [];
+    const cut = [], buttons = [], texts = [];
+    const cssPerUnit = document.querySelector('canvas').getBoundingClientRect().height / vs.height;
     const box = n => { const ut = n.getComponent('cc.UITransform'); return ut ? ut.getBoundingBoxToWorld() : null; };
     const cp = canvas.worldPosition; const cw = new cc.Rect(cp.x - vs.width / 2, cp.y - vs.height / 2, vs.width, vs.height);
     const walk = n => {
@@ -121,23 +122,34 @@ window.__fw = {
         if (b.xMin < cw.xMin - tol || b.xMax > cw.xMax + tol || b.yMin < cw.yMin - tol || b.yMax > cw.yMax + tol) cut.push(n.name + ' ' + [b.xMin, b.yMin, b.width, b.height].map(Math.round).join(','));
       }
       if (n.getComponent('cc.Button') && b) buttons.push({ name: n.name, b });
+      const lab = n.getComponent('cc.Label');
+      if (lab && lab.string && lab.string.trim()) {
+        const size = (lab.overflow === 2 && lab.actualFontSize ? lab.actualFontSize : lab.fontSize) * Math.abs(n.worldScale.y) * cssPerUnit;
+        texts.push({ name: n.name, px: Math.round(size * 10) / 10, text: lab.string.slice(0, 24).split(String.fromCharCode(10)).join(' ') });
+      }
       n.children.forEach(walk);
     };
     walk(root);
     const overlaps = [];
     for (let i = 0; i < buttons.length; i++) for (let j = i + 1; j < buttons.length; j++) if (buttons[i].b.intersects(buttons[j].b)) overlaps.push(buttons[i].name + '×' + buttons[j].name);
-    return { visible: [Math.round(vs.width), Math.round(vs.height)], cut, overlaps };
+    texts.sort((a, b) => a.px - b.px);
+    return { visible: [Math.round(vs.width), Math.round(vs.height)], cut, overlaps, texts };
   },
 };
 true`;
 
 const problems = [];
+// Readability (YouTube review rejects "small" UI): rendered glyph size in CSS px. Report-only.
+const MIN_TEXT_PX = Number(process.env.MIN_TEXT_PX || 12);
+const smallTexts = new Map();
 async function check(tag, rootName) {
     await evaluate(HELPERS);
     const a = await evaluate(`__fw.audit(${JSON.stringify(rootName || '')})`);
     for (const c of a.cut) problems.push(`${tag}: outside the screen → ${c}`);
     for (const o of a.overlaps) problems.push(`${tag}: buttons overlap → ${o}`);
-    console.log(`  ${tag.padEnd(28)} visible ${a.visible.join('x')}  cut ${a.cut.length}  overlaps ${a.overlaps.length}`);
+    const small = a.texts.filter(t => t.px < MIN_TEXT_PX);
+    for (const t of small) smallTexts.set(`${tag} · ${t.name} "${t.text}"`, t.px);
+    console.log(`  ${tag.padEnd(28)} visible ${a.visible.join('x')}  cut ${a.cut.length}  overlaps ${a.overlaps.length}  min text ${a.texts[0]?.px ?? '-'}px${small.length ? `  small ${small.length}` : ''}`);
 }
 
 const ok = tag => console.log(`    ok   ${tag}`);
@@ -342,6 +354,8 @@ try {
     ws.close(); chrome.kill(); server.close();
 }
 
+if (smallTexts.size) { console.log(`
+text under ${MIN_TEXT_PX} CSS px (report only):`); for (const [k, v] of smallTexts) console.log(`  ${v}px  ${k}`); }
 const relevantErrors = consoleErrors.filter(e => !/firestore|firebase|poki|crazygames|playgama|gamedistribution|net::|Failed to load resource|AudioContext/i.test(e));
 console.log(`\nscreenshots: ${OUT}`);
 if (relevantErrors.length) { console.log('console errors:'); relevantErrors.forEach(e => console.log('  ' + e)); }
