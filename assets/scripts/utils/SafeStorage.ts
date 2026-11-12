@@ -78,11 +78,24 @@ export class SafeStorage {
     }
 
     private static _scheduleFlush(): void {
+        SafeStorage._installPageHideFlush();
         if (SafeStorage._flushTimer !== null) return;
         SafeStorage._flushTimer = setTimeout(() => {
             SafeStorage._flushTimer = null;
             SafeStorage.flush();
         }, FLUSH_DELAY_MS);
+    }
+
+    private static _pageHideFlushInstalled = false;
+
+    /** The page can close inside the write debounce (no platform pause on every host): write the
+     *  pending changes as soon as the page is hidden or unloaded. Installed once, on the first write. */
+    private static _installPageHideFlush(): void {
+        if (SafeStorage._pageHideFlushInstalled || typeof window === 'undefined') return;
+        SafeStorage._pageHideFlushInstalled = true;
+        const flushIfPending = (): void => { if (SafeStorage._flushTimer !== null) SafeStorage.flush(); };
+        window.addEventListener('pagehide', flushIfPending);
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushIfPending(); });
     }
 
     private static _bridge(): BridgeStorageLike | null {

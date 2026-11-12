@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // UI end-to-end check on the web build: serves build/web-mobile, drives headless Chrome through
-// the DevTools protocol at phone / tablet / desktop sizes, opens every screen and modal through
+// the DevTools protocol at phone / tablet / desktop / 1:1 / 9:16 sizes, opens every screen and modal through
 // the game's own components, saves a screenshot of each and fails on console errors or on
 // on-screen layout problems (nodes outside the visible area, overlapping buttons).
 //
-//   npm run build && node tests/e2e/ui-e2e.mjs [--out <dir>] [--url <published page>]
+//   npm run build && node tests/e2e/ui-e2e.mjs [--out <dir>] [--url <published page>] [--only phone,square]
 //
 // Needs Chrome (default path below or $CHROME). No extra npm packages (Node ≥ 22 WebSocket).
 
@@ -30,7 +30,14 @@ const VIEWPORTS = [
     { name: 'phone', width: 390, height: 844, mobile: true },      // 9:19.5 → ~591 design px wide
     { name: 'tablet', width: 768, height: 1024, mobile: true },    // 3:4 → 960
     { name: 'desktop', width: 1600, height: 900, mobile: false },  // 16:9 → 2276
+    // YouTube Playables asks for 1:1, 16:9 and 9:16 (PLAYGAMA.md §5 Y1).
+    { name: 'square', width: 900, height: 900, mobile: false },    // 1:1
+    { name: 'portrait916', width: 450, height: 800, mobile: true }, // 9:16
 ];
+// --only phone,square: run a subset of the viewports.
+const onlyArg = process.argv.indexOf('--only');
+const ONLY = onlyArg > 0 ? process.argv[onlyArg + 1].split(',') : null;
+const RUN_VIEWPORTS = ONLY ? VIEWPORTS.filter(v => ONLY.includes(v.name)) : VIEWPORTS;
 
 // ------------------------------------------------------------------ static server
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webp': 'image/webp' };
@@ -191,7 +198,7 @@ async function load(scene) {
 await send('Runtime.enable');
 await send('Page.enable');
 try {
-    for (const vp of VIEWPORTS) {
+    for (const vp of RUN_VIEWPORTS) {
         console.log(`\n[${vp.name}] ${vp.width}x${vp.height}`);
         await send('Emulation.setDeviceMetricsOverride', { width: vp.width, height: vp.height, deviceScaleFactor: 1, mobile: vp.mobile });
         await send('Emulation.setTouchEmulationEnabled', { enabled: vp.mobile });

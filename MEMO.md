@@ -366,6 +366,12 @@ Guards in `_autoPause`: non fa nulla se lo stato è già `GameOver`, `Paused` o 
 
 **AudioManager**: `muteForPause()` azzera il volume music senza modificare le preferenze utente; `unmuteForPause()` lo ripristina. SFX bloccati tramite flag `_pauseMuted` controllato in `play()`.
 
+**Pausa di PIATTAFORMA (v0.10.36, requisito YouTube Playables):** distinta dall'auto-pausa. `services/PlatformPause.ts` (installato in `PortalProvider.get()`) su `PAUSE_STATE_CHANGED` del Bridge fa `game.pause()`/`game.resume()` → si ferma l'intero main loop (rendering, scheduler, tween, fisica, input); niente PausePanel. Il primo dt dopo una pausa > 1 s viene riportato dal motore a 1 frame (`Game.DEBUG_DT_THRESHOLD`) → nessun salto. L'audio NON segue il main loop (Web Audio) → lo silenzia `AudioManager` (`_platformPaused`).
+- Test: `npm run pack:playgama && npm run test:pause` (headless, emette l'evento dal Bridge mock con `bridge.platform._platformBridge.emit(...)`). Copre anche lo storage: flush del blob su pausa + reload → ripresa partita. NB: sul mock il Bridge tiene `fw_save` in `localStorage` — è la chiave del Bridge, non nostra.
+- `SafeStorage` (Playgama): oltre alla pausa di piattaforma, scrive i cambi pendenti anche su `pagehide` e tab nascosta (debounce 1,5 s).
+- **Simulare un'altra piattaforma del Bridge:** aprire la build Playgama con `?platform_id=<id>` (es. `youtube`): `bridge.platform.id` cambia e si vedono i rami del codice per quella piattaforma (init in timeout se manca l'SDK della piattaforma, il boot prosegue).
+- Gotcha verifica: nel Chrome dell'estensione, se la finestra è coperta/non in primo piano, rAF è throttled (frame = 0 anche senza pausa) e gli screenshot CDP vanno in timeout → per misurare usare il test headless, non il QA tool.
+
 ---
 
 ## Blackhole VFX (v0.6.14, ridisegnato "tornado" 2026-06-12)
