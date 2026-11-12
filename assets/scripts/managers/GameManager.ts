@@ -89,6 +89,7 @@ const AURA_REPEL_FORCE       = 500;  // base force magnitude (design-px units, s
 const AURA_ZAPP_HOLD         = 0.2;  // seconds a warrior must stay in range before being zapped
 const AURA_ZAP_MIN_TYPE      = 0;    // species below this index only repel — 0 = every species zaps (the rewarded BOOST can put Aura on any species, even a Frog: it must always pay off)
 const AURA_MIN_RANGE         = 80;   // design-px floor for the per-species range: the quadratic curve gives Frog ~3 px (= no zap ever), the floor keeps the neighbours in reach
+const GOLDEN_AURA_RANGE      = AURA_REPEL_RANGE * 0.5; // BOOST's Golden Aura: half the Dragon's range (full range was too strong, 2026-11-12); never below the launcher's own species range
 const INTERSTITIAL_EVERY_ROUNDS = 5; // interstitial during the round-up pause of rounds 6, 11, 16… (Bridge still enforces its own min delay)
 const ROUND_UP_PAUSE_SEC     = 2.16; // round-up freeze length (banner on screen, physics off)
 // Rescue powerups (GDD §16-17): one slot, same trigger and cooldown for every form.
@@ -2465,9 +2466,10 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     // --- aura powerup ---
 
-    /** Range of the active Aura: the Golden Aura (BOOST) always has the Dragon's full range. */
+    /** Range of the active Aura: the Golden Aura (BOOST) has half the Dragon's range, or the species' own if larger. */
     private _auraRange(type: number): number {
-        return this._auraGolden ? AURA_REPEL_RANGE : this._auraRangeForType(type);
+        const own = this._auraRangeForType(type);
+        return this._auraGolden ? Math.max(own, GOLDEN_AURA_RANGE) : own;
     }
 
     /** Attach the Aura (normal or Golden, per _auraGolden) to `w`. The expiry is bound to THIS effect:

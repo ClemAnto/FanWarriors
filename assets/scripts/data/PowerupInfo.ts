@@ -21,7 +21,7 @@ export const POWERUP_INFO: Record<PowerupId, PowerupInfo> = {
     aura: {
         id: 'aura', name: 'AURA', art: 'powerups/aura', inGame: true,
         lore: "A golden blessing from the guardian spirits: it pushes rivals aside and sends their strength to their kin.",
-        how: 'The first Wolf, Eagle, Lion and Dragon of each game bring it. Watch the BOOST for a Golden Aura: full power on any warrior.',
+        how: 'The first Wolf, Eagle, Lion and Dragon of each game bring it. Watch the BOOST for a Golden Aura: extra power on any warrior.',
     },
     wildRiver: {
         id: 'wildRiver', name: 'WILD RIVER', art: 'powerups/wildriver', inGame: true,

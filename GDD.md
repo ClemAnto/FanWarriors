@@ -393,7 +393,7 @@ Tutti gli sprite sono già presenti in `assets/warriors/`.
 
 ## 15. AURA Powerup *(ex LevelBoost — riscritto v0.8.19)*
 
-> **Golden Aura (2026-11-11)**: l'Aura data dal BOOST è sempre a piena forza — raggio del Drago (160 px) su qualunque specie, durata 2,5 s invece di 1,5, anelli più grandi e luminosi, scintille raddoppiate. L'Aura gratuita (prima comparsa di Lupo/Aquila/Leone/Drago) resta quella normale, con raggio per specie. Lo stato golden segue il warrior negli swap, nei merge e nel ripristino della partita (`auraGolden`/`nextAuraGolden` nello snapshot).
+> **Golden Aura (2026-11-11)**: l'Aura data dal BOOST è sempre a piena forza — raggio pari a metà di quello del Drago (80 px, dal 2026-11-12: a 160 px era troppo potente) o quello della specie se maggiore, durata 2,5 s invece di 1,5, anelli più grandi e luminosi, scintille raddoppiate. L'Aura gratuita (prima comparsa di Lupo/Aquila/Leone/Drago) resta quella normale, con raggio per specie. Lo stato golden segue il warrior negli swap, nei merge e nel ripristino della partita (`auraGolden`/`nextAuraGolden` nello snapshot).
 
 Powerup ottenibile dal giocatore **solo tramite il BOOST rewarded** al cambio round (guarda uno spot → Aura sul warrior in rampa; anche via debug). Ha precedenza su WildRiver e PsychoForce — li disattiva se attivi. Dal 2026-11-11 lo zap vale per **tutte** le specie (`AURA_ZAP_MIN_TYPE = 0`) e il raggio ha un minimo di 80 px (`AURA_MIN_RANGE`), così il premio rende anche con Rana/Gatto.
 

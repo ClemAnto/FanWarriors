@@ -1033,6 +1033,7 @@ cmd /c rd /s /q "d:\Projects\FunWarriors\build"
 
 ## Golden Aura del BOOST (2026-11-11)
 - `activateAura(true)` da `_grantBoostAura`: `_auraGolden` → `_auraRange()` = `AURA_REPEL_RANGE` (160) su ogni specie; `AuraEffect.attach(..., golden)` → `GOLDEN_AURA_DURATION` 2,5 s + anelli più grandi/luminosi, scintille ogni 0,06 s. Lo stato segue swap (`_nextAuraGolden`), merge e snapshot. L'Aura gratuita non cambia.
+- **2026-11-12 — dimezzata**: a piena forza era troppo potente. Ora `_auraRange()` golden = `max(raggio della specie, GOLDEN_AURA_RANGE)` con `GOLDEN_AURA_RANGE = AURA_REPEL_RANGE * 0.5` (80 px); durata 2,5 s e grafica invariate.
 
 ## v0.10.33 (2026-11-11)
 - **Quit/Menu = primo accesso completato**: `GameManager._leaveToMenu()` (Settings Quit e PausePanel Menu) scrive `fw_played_once` + `fw_menu_on_boot`; `MainMenu` al boot non salta più nel gioco (né primo accesso né partita ripristinabile) finché il flag c'è; `GameManager` lo rimuove all'avvio di una partita (PLAY). e2e: sezione "first visit → Quit → menu".
