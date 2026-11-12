@@ -457,6 +457,8 @@
 
 ## Prossime azioni concrete
 
+> **2026-11-12 — YouTube Playables (via Playgama):** roadmap Y1 gap tecnici → Y2 qualità review → Y3 candidatura → Y4 monitoraggio in **`PLAYGAMA.md` §5**. Gap principale: la pausa di piattaforma oggi ferma solo l'audio, non gameplay/rendering.
+
 > **2026-11-11 — Rework UI (non committato):** metodo fogli AI → PSD → PNG @2x (TECH §"UI a 2×"), font Lilita One, tutte le schermate rifatte, test e2e `npm run test:ui`. Da fare: hover + Invio su desktop, eliminare le texture vecchie (`wood`, `button`, `flag_*`, `play`, `cog`, `best_bg`, `progress*`, `check/uncheck`), ritocco PSD, commit, nuova build Playgama.
 >
 > **2026-11-08 — Pivot portali:** CrazyGames ("concept too close to existing titles") e GameDistribution ("not matching partners' audiences") hanno rigettato. Prossimo canale: **Playgama** → roadmap dettagliata (fasi P1 integrazione Bridge, P2 QA, P3 asset/submission, P4 misura) in **`PLAYGAMA.md`**.

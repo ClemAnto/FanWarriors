@@ -88,6 +88,7 @@
 - [ ] Form: Engine = `cocos-creator`, Devices = iOS/Android/Desktop, Orientation = **portrait**, Languages = English
 - [ ] Distribuzione: lasciare attivi i partner (opt-out di MSN/Facebook se proposti, tanto non qualificano)
 - [x] Account + scheda creata (2026-11-08): titolo, engine cocos-creator, agent Claude Code, categoria Merge, ZIP v0.10.19, device tutti, portrait, EN, 3 cover — salvata in bozza
+- [x] **Sandbox aggiornata via MCP (2026-11-12): v0.10.35 live** (upload `start_archive_upload` → PUT curl → `confirm_archive_upload` → check PASSED in ~2 min → `publish_sandbox` con `updateNote`, live in pochi secondi). Bridge rilevato 2.4.1.
 - [x] **Sandbox LIVE (2026-11-08)** con build v0.10.20 → https://playgama.ai/play/ivo67cyadktzzf. Orientamento dichiarato **portrait + landscape** (il gioco supporta entrambi → niente rotate overlay nella build Playgama). Link "published elsewhere" = GitHub Pages.
 - [ ] **Target Sandbox per accedere alla Review** (categoria Merge): **100 qualifying plays**, **avg play time 9:00**, **0.30 ad shows per play**. Leve: boost gratuiti nel portale. **Usati (2026-11-08):** Starter (~50 plays, fino al 9/11) + Share #1 = post Facebook pubblico dell'utente (link incollato in "Share your game" → Claim). Resta Share #2 (post diverso, es. Instagram) + Invite. Il post deve essere PUBBLICO (su FB: audience "Tutti" solo per quel post, togliere "Imposta come pubblico predefinito").
 - [ ] Send for Review quando i target sono raggiunti
@@ -156,3 +157,44 @@ Risultato: native del bundle `main` 3,5 MB → 1,0 MB, zip 8,6 → 6,7 MB. Da ve
 - **Build condivisa**: come `pack:crazygames`, anche `pack:playgama` sovrascrive `build/web-mobile` → rifare `npm run build` prima di un `npm run deploy` su GitHub Pages.
 - **SDK in head vs build template**: non toccare `build-templates/web-mobile/index.html` (servirebbe anche alla build standalone); l'iniezione la fa solo il pack script.
 - **ZIP**: usare pwsh 7 (separatori `/`), come già scoperto per GD.
+
+---
+
+## 5. YouTube Playables (via Playgama) — roadmap *(aperta 2026-11-12)*
+
+Fonti (pagine Playgama, NON doc ufficiale YouTube): [annuncio novembre 2026](https://wiki.playgama.com/platforms/youtube-playables-in-november-2026) · [requisiti](https://wiki.playgama.com/platforms/youtube-playables-requirements-for-games).
+
+**Come funziona:** Playgama prende i giochi live sul suo catalogo e li pubblica sul proprio account YouTube (o su un account **partner**: $50 alla pubblicazione + $50 a 100k partite, monetizzazione ad non ancora attiva sui partner). Niente opt-in: se dopo qualche settimana dal lancio su Playgama il gioco non è in coda → [Google Form](https://forms.gle/Un16iKriicxyLsGCA). Sull'account principale si resta solo con **≥ 1.000 partite/giorno** (media 7 giorni, dopo il primo mese). Generi cercati: **fisica/ragdoll**, distruzione, runner, obby, corse. Sconsigliati: puzzle di parole, board, RPG, strategia, stile "da IA".
+
+### Già conformi (verificato 2026-11-12, v0.10.35)
+- [x] Primo caricamento < 30 MB, nessun file > 30 MB (build 12,9 MB, zip 10,8 MB, file max `cc.js` 2,1 MB)
+- [x] Nessuna chiamata esterna nella build Playgama (classifica via Bridge SaaS, niente Firebase)
+- [x] `game_ready` solo a gioco interattivo (v0.10.23)
+- [x] Mute di piattaforma prioritario: `AudioManager._platformAudioOff` è separato dal mute utente → il toggle in gioco non può riaccendere l'audio
+- [x] Supporto ad controllato prima di ogni chiamata (`isInterstitialSupported` in `commercialBreak`, `isRewardedSupported` per BOOST/REVIVE; senza ad il BOOST sparisce 2 round, REVIVE dice "NO AD YET")
+- [x] Nessun timer/conto alla rovescia prima delle interstitial (cadenza decisa dal Bridge)
+- [x] Niente in-app purchase, banner, ad intrinseche
+
+### Y1 — Gap tecnici *(da fare prima di chiedere la pubblicazione)*
+- [ ] **Pausa di piattaforma = stop totale.** Oggi `PAUSE_STATE_CHANGED` silenzia solo l'audio (`AudioManager`): fisica, timer di round e rendering continuano. YouTube chiede stop immediato di rendering, suono e gameplay → collegare `onPlatformState.pause` a GameManager (stesso freeze della pausa Settings, senza aprire il pannello; `game.pause()`/`resume()` per il rendering) e verificare che il resume non lanci né faccia scattare timer.
+- [ ] **Aspect ratio 1:1.** Richiesti 1:1, 16:9, 9:16. `npm run test:ui` copre 591/960/2276 di larghezza → aggiungere un caso **quadrato** (es. 900×900) e uno 9:16 esplicito; controllare HUD, modali, tutorial powerup, BOOST, Ranking.
+- [ ] **Classifica su YouTube.** Il blocco `saas` ha `platforms: ["playgama","qa_tool"]` → su `youtube` `leaderboards.type` non sarà `in_game` e il bottone Ranking deve sparire senza errori. Verificare nel QA tool simulando la piattaforma YouTube (o aggiungere `youtube` se il Bridge SaaS lo supporta).
+- [ ] **Storage.** "Progressi salvati con i metodi della piattaforma": confermare che su YouTube `bridge.storage` usi il cloud save della piattaforma (non `localStorage`) e che la ripresa partita (`fw_*`, scadenza 12 h) sopravviva al reload; controllare limiti di dimensione del salvataggio.
+- [ ] **Compressione.** La pagina dice "no compression, fallback di decompressione ok": verificare che lo zip `pack:playgama` non contenga file `.gz`/`.br` serviti compressi.
+
+### Y2 — Qualità richiesta in review
+- [ ] **UI leggibile e luminosa**: nessun testo piccolo o pannello scuro a 591 px e a 1:1 (la review boccia UI "dark or small").
+- [ ] **Zero bug visivi/bloccanti**: giro completo di regressione (resize, fullscreen, revive, boost, soccorso, round-up) nel QA tool.
+- [ ] **Originalità asset**: niente che ricordi altri franchise; ridurre ciò che sembra generato da IA. Rischio maggiore: somiglianza a Suika (stesso motivo del rigetto CrazyGames) → nella scheda puntare su **fisica + lancio a fionda**.
+- [ ] **Durata media ~10 min**: oggi ~8:27 (sandbox 2026-11-09). Leve: progressione con novità ogni pochi round, difficoltà graduale (in gioco < 30 s, novità ogni 5 min, incentivo al ritorno); misurare con `game_ended.duration_sec`.
+
+### Y3 — Lettura e candidatura
+- [ ] Leggere le pagine non ancora lette: [how to publish on YouTube Playables](https://wiki.playgama.com/platforms/how-to-publish-your-game-on-youtube-playables) e [monetization best practices](https://wiki.playgama.com/playgama/guides/monetization/best-practices); confrontare i limiti (30 MB, compressione, storage) con la doc ufficiale YouTube Playables.
+- [ ] Testare la build nel QA tool con piattaforma YouTube simulata (pausa, mute, ad non supportate, classifica assente).
+- [ ] Gioco live sul catalogo Playgama (serve chiudere la Review: 100 plays, 9:00, 0,30 ad/play).
+- [ ] Se dopo 2–3 settimane dal lancio non è in coda → inviare il Google Form.
+
+### Y4 — Dopo la pubblicazione su YouTube
+- [ ] Monitorare partite/giorno (soglia 1.000 per restare sull'account principale) e durata media.
+- [ ] Valutare commenti sotto il gioco (nuova funzione YouTube) come fonte di feedback.
+- [ ] Quando arrivano in-app purchase / multiplayer su YouTube (date non confermate): rivalutare.

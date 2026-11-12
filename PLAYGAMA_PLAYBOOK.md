@@ -24,7 +24,7 @@
 | Partner | Requisiti chiave |
 |---------|------------------|
 | GameSnacks (Google) | ogni file < 10 MiB, totale < 100 MiB, download iniziale < 15 MiB; supporta 9:16 portrait |
-| YouTube Playables | build iniziale ≤ 30 MB, ≤ 8000 file, **zero chiamate esterne** (anche analytics), niente barre nere su desktop, no titoli dominati da AI generativa |
+| YouTube Playables | requisiti ufficiali (verificati il 2026-11-12, developers.google.com/youtube/gaming/playables/certification/requirements): caricamento iniziale < 30 MiB (meglio < 15), ogni file < 30 MiB (meglio < 512 KiB), ≤ 8000 file, nomi `[A-Za-z0-9_.-]`, solo percorsi relativi, salvataggio < 3 MiB solo via cloud save, load < 5 s, heap < 512 MB; `gameReady` solo a gioco interattivo; pausa solo da `onPause`/`onResume` (vietata la Page Visibility API); muto di YouTube rispettato, niente muto generale nel gioco; touch **e** mouse; ogni proporzione 9:32–32:9 (le **bande nere sono ammesse** se il gioco è centrato); Esc senza `preventDefault`; niente link esterni, condivisione, bottone "esci"; pubblicità e acquisti solo di YouTube (interstitial solo tra schermate, rewarded solo opt-in); lingua da `getLanguage`, mai `navigator.language`. Il divieto ufficiale riguarda monetizzazione, link e pubblicità esterni: "zero chiamate esterne" in generale è una lettura di Playgama, non del testo ufficiale. Playgama sconsiglia titoli con grafica che sembra AI |
 | Yandex / Playhop | localizzazione **russa** obbligatoria, > 10 min di contenuto |
 | MSN | build < 50 MB, landscape o entrambe le orientazioni |
 | Facebook | ≤ 200 MB, ≤ 500 file, almeno 2 tra IAP / leaderboard / multiplayer / social share, load < 3 s, no ad all'avvio |
