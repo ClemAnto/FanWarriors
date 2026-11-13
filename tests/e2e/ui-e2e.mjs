@@ -203,6 +203,81 @@ async function pressCheck(p, vp, tag) {
     else await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x, y: c.y, button: 'left', clickCount: 1 });
 }
 
+/** Zoomed illustration state: scale, position and the pan limits for that scale. */
+const ZOOM_STATE = `(() => { const c = __fw.comp('PowerupInfoPanel'); const n = c.zoomSprite.node; const t = n.getComponent('cc.UITransform'); const vs = cc.view.getVisibleSize(); const s = n.scale.x;
+    return { open: c.zoomNode.active, s, x: n.position.x, y: n.position.y, angle: n.angle, w: t.width, h: t.height, vw: vs.width, vh: vs.height,
+             mx: Math.max(0, (t.width * s - vs.width) / 2), my: Math.max(0, (t.height * s - vs.height) / 2) }; })()`;
+
+/** Real input on the zoomed illustration: pinch (touch) or wheel (mouse) in, zoom cap, drag-scroll
+ *  to both corners, device rotation while zoomed (touch viewports), zoom back out to the fitted size. */
+async function zoomGestures(p, vp) {
+    const c = await nodeCenter('Zoom/Big');
+    if (!c) { fail(`${p} zoomed art not found`); return; }
+    const near = (a, b) => Math.abs(a - b) < 1;
+    const inside = z => Math.abs(z.x) <= z.mx + 0.5 && Math.abs(z.y) <= z.my + 0.5;
+    const pinch = async (cx, cy, from, to) => {
+        const pts = d => [{ x: cx - d / 2, y: cy, id: 1 }, { x: cx + d / 2, y: cy, id: 2 }];
+        await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(from) });
+        for (let i = 1; i <= 10; i++) { await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(from + (to - from) * i / 10) }); await sleep(30); }
+        await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await sleep(300);
+    };
+    const wheel = async (n, dy) => {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y });
+        for (let i = 0; i < n; i++) { await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: c.x, y: c.y, deltaX: 0, deltaY: dy }); await sleep(30); }
+        await sleep(300);
+    };
+    const drag = async (dx, dy) => {
+        if (vp.mobile) {
+            await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: c.x, y: c.y }] });
+            for (let i = 1; i <= 8; i++) { await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: c.x + dx * i / 8, y: c.y + dy * i / 8 }] }); await sleep(25); }
+            await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else {
+            await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: c.x, y: c.y, button: 'left', buttons: 1, clickCount: 1 });
+            for (let i = 1; i <= 8; i++) { await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x + dx * i / 8, y: c.y + dy * i / 8, button: 'left', buttons: 1 }); await sleep(25); }
+            await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: c.x + dx, y: c.y + dy, button: 'left', buttons: 0, clickCount: 1 });
+        }
+        await sleep(250);
+    };
+    const how = vp.mobile ? 'pinch' : 'wheel';
+
+    if (vp.mobile) await pinch(c.x, c.y, 40, 260); else await wheel(6, -120);
+    let z = await evaluate(ZOOM_STATE);
+    (z.open && z.s > 1.8 && z.s <= 4.0001 && inside(z)) ? ok(`${p} ${how} zooms in (x${z.s.toFixed(2)}), art inside its edges, still open`) : fail(`${p} ${how} zooms in: ${JSON.stringify(z)}`);
+
+    if (vp.mobile) await pinch(c.x, c.y, 20, 320); else await wheel(20, -120);
+    z = await evaluate(ZOOM_STATE);
+    near(z.s * 100, 400) ? ok(`${p} zoom capped at 4x`) : fail(`${p} zoom capped at 4x: s=${z.s}`);
+
+    // Drag towards bottom-right well past the art: it scrolls to its top-left corner and stops; no close.
+    const step = Math.min(vp.width, vp.height) * 0.3;
+    for (let i = 0; i < 12; i++) await drag(step, step);
+    z = await evaluate(ZOOM_STATE);
+    (z.open && z.mx > 0 && near(z.x, z.mx) && near(z.y, -z.my)) ? ok(`${p} drag scrolls to the top-left corner and stops (zoom stays open)`) : fail(`${p} drag to the top-left corner: ${JSON.stringify(z)}`);
+    await shot(`${p}-10b3-powerup-zoom-in`);
+    for (let i = 0; i < 30; i++) await drag(-step, -step);   // corner to corner: twice the way (4x art on desktop is ~9000 px wide)
+    z = await evaluate(ZOOM_STATE);
+    (z.open && near(z.x, -z.mx) && near(z.y, z.my)) ? ok(`${p} drag back reaches the bottom-right corner`) : fail(`${p} drag to the bottom-right corner: ${JSON.stringify(z)}`);
+
+    if (vp.mobile) {
+        // Device turned while zoomed: upright, re-fitted to the new screen, pan still clamped; then back.
+        for (const [w, h, tag] of [[vp.height, vp.width, 'rotated'], [vp.width, vp.height, 'rotated back']]) {
+            await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true });
+            await sleep(1500);
+            z = await evaluate(ZOOM_STATE);
+            const fitted = z.w <= z.vw - 39 && z.h <= z.vh - 19 && (near(z.w, z.vw - 40) || near(z.h, z.vh - 40));
+            (z.open && z.angle === 0 && fitted && inside(z)) ? ok(`${p} ${tag} while zoomed: upright, re-fitted, inside the edges`) : fail(`${p} ${tag} while zoomed: ${JSON.stringify(z)}`);
+            if (tag === 'rotated') await shot(`${p}-10b4-powerup-zoom-rotated`);
+        }
+        const c2 = await nodeCenter('Zoom/Dim');
+        await pinch(c2.x, c2.y, 320, 20);
+    } else {
+        await wheel(25, 120);
+    }
+    z = await evaluate(ZOOM_STATE);
+    (z.open && near(z.s * 100, 100) && near(z.x, 0) && near(z.y, 0)) ? ok(`${p} zooming out stops at the fitted size, centred`) : fail(`${p} zoom out to fitted: ${JSON.stringify(z)}`);
+}
+
 async function load(scene) {
     await evaluate(`new Promise(r => cc.director.loadScene(${JSON.stringify(scene)}, () => r(true)))`);
     await waitFor(`cc.director.getScene()?.name === ${JSON.stringify(scene)}`);
@@ -248,7 +323,19 @@ try {
         await waitFor(puOpen, 5000).then(() => ok(`${p} Aura on launcher opens the powerup modal`), () => fail(`${p} Aura on launcher opens the powerup modal`));
         await expect(`${p} powerup badge above the launcher`, `(() => { let b = null; const w = n => { if (n.name === 'PowerupBadge' && n.activeInHierarchy) b = n; n.children.forEach(w); }; w(cc.director.getScene()); return !!b; })()`);
         await expect(`${p} game paused under the powerup modal`, `__fw.comp('GameManager').state === 5`);
-        await sleep(900);
+        // Intro: frozen scene dims, the medallion pops big over the warrior, then flies into the card.
+        const spotOn = `(() => { const c = __fw.comp('PowerupInfoPanel'); return !!c.spotlightNode && c.spotlightNode.active; })()`;
+        await sleep(450);
+        await expect(`${p} intro: spotlight on, card still hidden`, `(() => { const c = __fw.comp('PowerupInfoPanel'); return ${spotOn} && c.cardNode.getComponent('cc.UIOpacity').opacity < 30 && c.spotlightMedal.node.scale.x > 1 && c.dimNode.getComponent('cc.Sprite').color.a >= 230; })()`);
+        await expect(`${p} intro: medallion starts above the launcher`, `(() => { const c = __fw.comp('PowerupInfoPanel'); const gm = __fw.comp('GameManager'); const w = gm._activeLauncherWarrior; const cam = cc.director.getScene().getComponentsInChildren(cc.Camera); const sc = n => cam.find(k => k.node.activeInHierarchy && (k.visibility & n.layer)).worldToScreen(n.worldPosition); const a = sc(c.spotlightNode), b = sc(w.viewNode); return Math.abs(a.x - b.x) < 60 && a.y > b.y; })()`);
+        // Tap "Got it" while the intro still runs (before the screenshot: on big viewports a shot outlasts the intro).
+        await expect(`${p} intro still running before the tap`, spotOn);
+        await tapNode('Card/Close', vp); await sleep(100);
+        await expect(`${p} intro: Got it ignored until the card is in`, puOpen);
+        await shot(`${p}-04a-powerup-intro`);
+        await waitFor(`!${spotOn}`, 4000).then(() => ok(`${p} intro ends`), () => fail(`${p} intro ends`));
+        await expect(`${p} after the intro the card is fully in`, `(() => { const c = __fw.comp('PowerupInfoPanel'); return c.cardNode.getComponent('cc.UIOpacity').opacity === 255 && Math.abs(c.cardNode.scale.x - 1) < 0.01 && c.iconSprite.enabled && c.dimNode.getComponent('cc.Sprite').color.a === 200; })()`);
+        await sleep(300);
         await shot(`${p}-04b-powerup-aura`); await check(`${p} powerup modal`, 'PowerupInfoPanel');
         await tapNode('Card/Close', vp); await sleep(600);
         await expect(`${p} Got it closes the modal and resumes`, `!${puOpen} && __fw.comp('GameManager').state !== 5`);
@@ -288,9 +375,15 @@ try {
         await shot(`${p}-10b-powerups-catalog`); await check(`${p} powerups catalog`, 'PowerupInfoPanel');
         await tapNode('Frame/Art', vp); await sleep(600);
         await expect(`${p} tap on the illustration zooms it`, `__fw.comp('PowerupInfoPanel').zoomNode.active`);
+        await expect(`${p} zoomed illustration upright and inside the screen`, `(() => { const z = __fw.comp('PowerupInfoPanel').zoomSprite.node; const t = z.getComponent('cc.UITransform'); const vs = cc.view.getVisibleSize(); return z.angle === 0 && t.width <= vs.width && t.height <= vs.height; })()`);
         await shot(`${p}-10b2-powerup-zoom`);
+        await zoomGestures(p, vp);
         await tapNode('Zoom/Dim', vp); await sleep(500);
         await expect(`${p} tap closes the zoom`, `!__fw.comp('PowerupInfoPanel').zoomNode.active`);
+        // Reopen: the zoom must start fitted again (scale 1, centred), not where the last one was left.
+        await tapNode('Frame/Art', vp); await sleep(600);
+        await expect(`${p} reopened zoom starts fitted and centred`, `(() => { const n = __fw.comp('PowerupInfoPanel').zoomSprite.node; return Math.abs(n.scale.x - 1) < 0.01 && Math.abs(n.position.x) < 0.5 && Math.abs(n.position.y) < 0.5; })()`);
+        await tapNode('Zoom/Dim', vp); await sleep(500);
         await tapNode('Card/Next', vp); await sleep(700);
         await expect(`${p} catalog → shows the next (locked) powerup`, `__fw.comp('PowerupInfoPanel').titleLabel.string === '???'`);
         await shot(`${p}-10c-powerups-locked`); await check(`${p} powerups locked`, 'PowerupInfoPanel');

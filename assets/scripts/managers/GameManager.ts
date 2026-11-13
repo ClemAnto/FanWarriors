@@ -3942,10 +3942,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._puInfoOpen = true;
         this._enterAdPause();
         this._trackEvent('powerup_info', { powerup: kind, round: this.currentRound });
+        // The game is frozen first; the panel then dims the scene and spotlights the medallion
+        // above the warrior before the card fades in.
+        const badge = this._puBadges.get(w!)?.fx.node;
         panel.showSingle(kind, () => {
             this._puInfoOpen = false;
             if (this.node?.isValid) this._exitAdPause();
-        });
+        }, badge?.isValid ? badge : w!.viewNode);
     }
 
     /** Hold the game while the BOOST modal / an ad is up: state=Paused (also keeps the blur/visibility
