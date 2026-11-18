@@ -235,3 +235,45 @@ enamel center, a simple bold symbol in the middle in white/cream with a dark-bro
 5. LOCKED: plain grey stone medallion with a dark keyhole silhouette in the center (a
    keyhole, not a letter), for powerups not discovered yet.
 ```
+
+## 6. `ui-tokens` — gettoni dei poteri sulla pista (2026-11-18)
+
+Allegati: `assets/ui/powerup-wildriver.png`, `powerup-brotherhood.png`, `powerup-psychoforce.png` (i simboli
+da riprendere) e uno screenshot di gioco (pista + warrior, per palette e luce). I gettoni si disegnano
+**dritti** (cerchio perfetto, visti dall'alto): l'inclinazione della pista la applica il gioco con la
+stessa compressione verticale dei warrior, così combacia al pixel. Il bordo (spessore della moneta) è un
+pezzo separato che il gioco mette sotto la faccia.
+
+```
+Use the attached images as the style reference: match their palette, outline thickness, shading and
+mood; the attached medallion icons give the SYMBOL of each power. This is a game sprite sheet for a
+cute medieval tournament puzzle game (chibi animal warriors on a wooden arena track).
+Style: kawaii cartoon, thick dark-brown outlines (not pure black), highly saturated warm colors,
+flat shading with one simple highlight, festive and friendly, clean vector-like edges.
+Output: one landscape 3:2 PNG with a fully TRANSPARENT background. Every piece is separate and well
+spaced (at least 60 px of empty space around each), seen perfectly straight on from above (perfect
+circles, no perspective, no tilt), with NO text, NO letters, NO numbers anywhere, no glow or shadow
+bleeding outside the outline.
+
+Four pieces, the three coins exactly the same size:
+1. WILD RIVER TOKEN: a thick gold coin face with a raised rim and a ruby-red enamel center; on it,
+   embossed in cream with a dark-brown outline, the winding river of three sparkles from the WILD
+   RIVER medallion.
+2. BROTHERHOOD TOKEN: same gold coin, violet enamel center, embossed symbol: the three small round
+   heads joined by a ring from the BROTHERHOOD medallion.
+3. PSYCHO FORCE TOKEN: same gold coin, cyan enamel center, embossed symbol: the spiral swirl with two
+   orbiting dots from the PSYCHO FORCE medallion.
+4. COIN EDGE: the same coin seen straight on but showing only its outer gold rim band as a plain ring
+   in a darker gold, same outer size as the coins, empty (transparent) inside — used as the coin's
+   thickness under the face.
+```
+
+### 6b. Versione 2 (2026-11-18, quella in gioco): monete semplici già in prospettiva
+
+Nella stessa chat, allegato lo screenshot di gioco `burst-phone.png` (gettoni sulla pista). Il gioco usa
+un solo sprite per gettone (niente bordo separato). Pezzi esportati a 72×53 @2x.
+
+```
+Generate an image. New version of the three tokens, SIMPLER and ALREADY IN PERSPECTIVE with their thickness. The attached screenshot is the game: the coins must lie flat on the floor seen from the SAME camera angle as the round bases under the warriors (tilted, foreshortened). Each coin: the top face is an ellipse about 2.2 times wider than tall, and below it the coin's side band (its thickness) is visible as a darker gold band whose height is about 1/8 of the coin width, following the curve of the front edge; nothing of the side is visible at the back. Make the coins much SIMPLER than before: a plain smooth gold rim (no studs, no rivets, no gems, no beading, no decorations), the colored enamel center (ruby red WILD RIVER, violet BROTHERHOOD, cyan PSYCHO FORCE) and the same embossed cream symbol as before, drawn foreshortened with the face. Keep the same style, outline thickness and palette as the previous sheet. Three pieces only (no separate edge piece), all exactly the same size, side by side and well spaced (at least 60 px of empty space around each), real transparent PNG (alpha), not a drawn checkerboard, no shadow on the floor, no glow, no text.
+```
+Esito: alfa vero al primo colpo; ellisse un po' meno inclinata del chiesto (rapporto ~0,63 invece di 0,45), compensata in gioco con `TILT_Y` 0.85.

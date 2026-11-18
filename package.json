@@ -1,6 +1,6 @@
 {
   "name": "FunWarriors",
-  "version": "0.10.40",
+  "version": "0.10.42",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
@@ -21,7 +21,11 @@
     "test:ui": "node tests/e2e/ui-e2e.mjs",
     "record:powerup": "node tests/e2e/record-powerup.mjs",
     "test:pause": "node tests/e2e/platform-pause-e2e.mjs",
-    "test:saves": "node tests/e2e/save-stamp-e2e.mjs"
+    "test:saves": "node tests/e2e/save-stamp-e2e.mjs",
+    "test:telemetry": "node tests/e2e/progression-telemetry-e2e.mjs",
+    "test:early": "node tests/e2e/early-progression-e2e.mjs",
+    "test:tokens": "node tests/e2e/power-tokens-e2e.mjs",
+    "test:token-pacing": "node tests/e2e/token-pacing-e2e.mjs"
   },
   "devDependencies": {
     "ag-psd": "^34.1.0",

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FunWarriors · Suoni gettoni</title>
+<style>
+:root{--bg:#f6f1e7;--card:#fffaf0;--ink:#3b2f2a;--muted:#8a7b70;--accent:#c8643b;--ok:#4f8a3c;--pick:#e6f1dc;--line:#e3d8c6}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif;padding:16px;max-width:1100px;margin:auto}
+h1{font-size:20px;margin:0 0 4px}.hint{color:var(--muted);font-size:13px;margin:0 0 14px}
+button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 10px;cursor:pointer;color:inherit}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.card h2{font:600 18px ui-monospace,monospace;margin:0;display:flex;gap:10px;align-items:center}
+.status{font:600 12px system-ui;padding:2px 8px;border-radius:10px;background:#eadfcd;color:var(--muted)}.status.ok{background:var(--ok);color:#fff}
+.card>p{margin:4px 0 12px;color:var(--muted)}
+.grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.cand{display:grid;grid-template-columns:auto 1fr auto;column-gap:10px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:#fff;min-width:0}
+.cand>div{min-width:0}.cand.chosen{background:var(--pick);border-color:#9cc485}.cand.playing{border-color:var(--accent)}
+.play{width:36px;height:36px;padding:0;border-radius:50%}.name{font:13px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cand.chosen .choose{background:var(--ok);color:#fff;border-color:var(--ok)}
+#out{width:100%;font:12px ui-monospace,monospace;margin-top:8px}
+</style></head><body>
+<h1>FunWarriors · Suoni dei gettoni</h1>
+<p class="hint">Ascolta con ▶, scegli un candidato per ogni suono, poi <b>Copia scelte</b> e incolla il JSON in chat. In fondo, per confrontare stile e volume, alcuni suoni già nel gioco. I candidati sono solo tagliati, non normalizzati: il volume finale lo uniforma l'import.</p>
+<div id="ids"></div>
+<div class="card"><h2>Riferimento: suoni già nel gioco</h2><p>Per confrontare stile e volume.</p><div class="grid" id="refs"></div></div>
+<div class="card"><button class="primary" id="copy">Copia scelte</button> <span id="msg" class="hint"></span><textarea id="out" rows="6" readonly></textarea></div>
+<script>
+const DATA = {
+ "token_appear": {
+  "desc": "Il gettone compare sulla pista: pop/chime magico leggero",
+  "cands": [
+   {
+    "file": "library/token_appear/fs-511485-wink-sparkle.mp3",
+    "name": "fs-511485-wink-sparkle.mp3",
+    "meta": "Freesound #511485 · MLaudio · CC0 · \"cartoon_wink_magic_sparkle.wav\""
+   },
+   {
+    "file": "library/token_appear/fs-714257-puff.mp3",
+    "name": "fs-714257-puff.mp3",
+    "meta": "Freesound #714257 · qubodup · CC0 · \"Puff of Smoke\""
+   },
+   {
+    "file": "library/token_appear/funkoolkan-spawn.mp3",
+    "name": "funkoolkan-spawn.mp3",
+    "meta": "FunKoolkan (progetto dell'utente) · spawn.mp3, già nel gioco come \"spawn\""
+   },
+   {
+    "file": "library/token_appear/kenney-jingles_NES02.mp3",
+    "name": "kenney-jingles_NES02.mp3",
+    "meta": "Kenney Music Jingles · jingles_NES02 · CC0"
+   },
+   {
+    "file": "library/token_appear/kenney-maximize_004.mp3",
+    "name": "kenney-maximize_004.mp3",
+    "meta": "Kenney Interface Sounds · maximize_004 · CC0"
+   }
+  ]
+ },
+ "token_vanish": {
+  "desc": "Il gettone sparisce senza essere preso: fizz/whoosh morbido discendente",
+  "cands": [
+   {
+    "file": "library/token_vanish/fs-512217-poof-cloud.mp3",
+    "name": "fs-512217-poof-cloud.mp3",
+    "meta": "Freesound #512217 · Mateusz_Chenc · CC0 · \"Poof in cloud\""
+   },
+   {
+    "file": "library/token_vanish/fs-802472-magic-disappear.mp3",
+    "name": "fs-802472-magic-disappear.mp3",
+    "meta": "Freesound #802472 · Sadiquecat · CC0 · \"Whoosh - Magic disappear\""
+   },
+   {
+    "file": "library/token_vanish/fs-879801-celesta-descending.mp3",
+    "name": "fs-879801-celesta-descending.mp3",
+    "meta": "Freesound #879801 · Qvantor · CC0 · \"Celesta Chime Descending\""
+   },
+   {
+    "file": "library/token_vanish/kenney-minimize_004.mp3",
+    "name": "kenney-minimize_004.mp3",
+    "meta": "Kenney Interface Sounds · minimize_004 · CC0"
+   },
+   {
+    "file": "library/token_vanish/kenney-phaserDown3.mp3",
+    "name": "kenney-phaserDown3.mp3",
+    "meta": "Kenney Digital Audio · phaserDown3 · CC0"
+   }
+  ]
+ },
+ "token_collect": {
+  "desc": "Un personaggio raccoglie il gettone: moneta brillante + scintilla",
+  "cands": [
+   {
+    "file": "library/token_collect/fs-347174-coin-v02.mp3",
+    "name": "fs-347174-coin-v02.mp3",
+    "meta": "Freesound #347174 · Davidsraba · CC0 · \"Coin Pickup Sound V 0.2\""
+   },
+   {
+    "file": "library/token_collect/fs-538146-plingy-coin.mp3",
+    "name": "fs-538146-plingy-coin.mp3",
+    "meta": "Freesound #538146 · Fupicat · CC0 · \"Plingy Coin\""
+   },
+   {
+    "file": "library/token_collect/fs-876168-coin-loot.mp3",
+    "name": "fs-876168-coin-loot.mp3",
+    "meta": "Freesound #876168 · Assetsmith · CC0 · \"Coin Pickup Loot Sound (Fantasy RPG)\""
+   },
+   {
+    "file": "library/token_collect/kenney-handleCoins2.mp3",
+    "name": "kenney-handleCoins2.mp3",
+    "meta": "Kenney RPG Audio · handleCoins2 · CC0"
+   },
+   {
+    "file": "library/token_collect/kenney-powerUp10.mp3",
+    "name": "kenney-powerUp10.mp3",
+    "meta": "Kenney Digital Audio · powerUp10 · CC0"
+   }
+  ]
+ },
+ "power_ready": {
+  "desc": "Raccolti abbastanza gettoni, il potere si carica sul lanciatore: jingle magico breve (~1 s)",
+  "cands": [
+   {
+    "file": "library/power_ready/fs-577965-rpg-powerup.mp3",
+    "name": "fs-577965-rpg-powerup.mp3",
+    "meta": "Freesound #577965 · colorsCrimsonTears · CC0 · \"rpgPowerup.wav\""
+   },
+   {
+    "file": "library/power_ready/fs-683185-power-up.mp3",
+    "name": "fs-683185-power-up.mp3",
+    "meta": "Freesound #683185 · NearTheAtmoshphere · CC0 · \"Power Up\""
+   },
+   {
+    "file": "library/power_ready/fs-878312-8bit-heal.mp3",
+    "name": "fs-878312-8bit-heal.mp3",
+    "meta": "Freesound #878312 · Qvantor · CC0 · \"8-Bit Heal\""
+   },
+   {
+    "file": "library/power_ready/kenney-jingles_STEEL00.mp3",
+    "name": "kenney-jingles_STEEL00.mp3",
+    "meta": "Kenney Music Jingles · jingles_STEEL00 · CC0"
+   },
+   {
+    "file": "library/power_ready/kenney-powerUp1.mp3",
+    "name": "kenney-powerUp1.mp3",
+    "meta": "Kenney Digital Audio · powerUp1 · CC0"
+   }
+  ]
+ }
+};
+const REFS = [{"file":"../assets/resources/audio/sfx/merge_1.mp3","name":"merge_1"},{"file":"../assets/resources/audio/sfx/spawn.mp3","name":"spawn"},{"file":"../assets/resources/audio/sfx/land.mp3","name":"land"},{"file":"../assets/resources/audio/sfx/round_up.mp3","name":"round_up"}];
+const KEY = 'fw-token-sfx-picks';
+let picks = {};
+try { picks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { picks = {}; }
+const audio = new Audio();
+function play(file, el) {
+  audio.pause();
+  document.querySelectorAll('.playing').forEach(e => e.classList.remove('playing'));
+  audio.src = file; audio.currentTime = 0; audio.play();
+  if (el) { el.classList.add('playing'); audio.onended = () => el.classList.remove('playing'); }
+}
+function cand(c, id) {
+  const d = document.createElement('div'); d.className = 'cand';
+  d.innerHTML = '<button class="play">▶</button><div><div class="name"></div><div class="meta"></div></div>' + (id ? '<button class="choose">Scegli</button>' : '');
+  d.querySelector('.name').textContent = c.name;
+  d.querySelector('.meta').textContent = c.meta || c.file;
+  d.querySelector('.play').onclick = () => play(c.file, d);
+  if (id) {
+    if (picks[id] === c.file) d.classList.add('chosen');
+    d.querySelector('.choose').onclick = () => {
+      if (picks[id] === c.file) delete picks[id]; else picks[id] = c.file;
+      try { localStorage.setItem(KEY, JSON.stringify(picks)); } catch (e) { /* private mode */ }
+      render();
+    };
+  }
+  return d;
+}
+function render() {
+  const root = document.getElementById('ids'); root.innerHTML = '';
+  for (const [id, v] of Object.entries(DATA)) {
+    const c = document.createElement('div'); c.className = 'card';
+    c.innerHTML = '<h2></h2><p></p><div class="grid"></div>';
+    c.querySelector('h2').innerHTML = id + ' <span class="status' + (picks[id] ? ' ok' : '') + '">' + (picks[id] ? 'scelto' : 'da scegliere') + '</span>';
+    c.querySelector('p').textContent = v.desc;
+    const g = c.querySelector('.grid'); v.cands.forEach(x => g.appendChild(cand(x, id)));
+    root.appendChild(c);
+  }
+  document.getElementById('out').value = JSON.stringify(picks, null, 1);
+}
+render();
+const rg = document.getElementById('refs'); REFS.forEach(r => rg.appendChild(cand(r, null)));
+document.getElementById('copy').onclick = async () => {
+  const t = JSON.stringify(picks, null, 1); const out = document.getElementById('out'); out.value = t;
+  try { await navigator.clipboard.writeText(t); document.getElementById('msg').textContent = 'Copiato'; }
+  catch (e) { out.select(); document.execCommand('copy'); document.getElementById('msg').textContent = 'Copiato dal riquadro'; }
+};
+</script></body></html>

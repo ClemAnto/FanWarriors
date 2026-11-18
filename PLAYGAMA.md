@@ -127,6 +127,19 @@ Lettura: `get_game_telemetry_event_analytics` (eventKind `custom`) su `game_ende
 ### REVIVE (v0.10.31, 2026-11-11)
 Al **primo game over** di ogni partita il GameOverPanel mostra "WATCH AN AD TO KEEP PLAYING" + **REVIVE** (gruppo `Revive` nel prefab, `EndPanel.reviveGroup`). REVIVE → rewarded (stesso `showRewarded` del BOOST): `rewarded` → `_revive()`: pannello nascosto, handoff classifica annullato, zap (come l'Aura) del colpevole + dei warrior che toccano la linea + del 35% più basso della pista, poi il warrior in rampa (o uno nuovo) riceve **Brotherhood**; `skipped` → l'offerta resta; `unavailable` → il tasto dice "NO AD YET". Con l'offerta attiva il tasto "Continue" diventa **"End game"** ("Continue" accanto a REVIVE era fuorviante). Una sola volta per partita (Playgama 2.2.4). Test e2e: `?fwqa=gameover` (con `QA_E2E_HOOKS=true`) forza un game over a 4 s e a 20 s. `game_ended` viene inviato su Continue se c'era l'offerta; nuovi eventi `revive_ad` {outcome} e `game_revived` {cleared}.
 
+### Analisi abbandoni 11–17/11 (v0.10.40) e funnel di progressione (v0.10.41, 2026-11-17)
+Funnel sessioni: init 382 → `game_ready` 226 (59%) → `game_started` 176 (46%) → 30 s 123 (32%) → 60 s 81 (21%) → round 2 43 (11%) → `game_ended` 17 (4%). Mediana sessione 16 s. Sessioni di gioco reali (169, test esclusi): **129 (76%) non superano il round 1**, 84 finiscono entro 15 s; delle 41 partite **riprese** (`restored`) 39 non avanzano e 36 durano < 15 s. Chi arriva al round 2 va avanti (fine partita ai round 6–8). Il 16/11 (128 sessioni, 115 tra le 09 e le 11 UTC, quasi tutte desktop) pesa sul totale.
+
+Eventi nuovi (guida telemetria Playgama: nome stabile, round nei dati — `level_id` `round_N`, `step_index` N):
+- `progression_started` {restored, score} — inizio partita/ripresa e ogni round-up
+- `progression_completed` {result `round_up`|`victory`, duration_sec, launches, score}
+- `progression_failed` {reason `game_over`, duration_sec, game_duration_sec, launches, game_launches, on_track, revive_used, score} — al game over (dopo un REVIVE può arrivarne un secondo)
+- `progression_abandoned` {reason `menu`|`restart`, stessi campi} — uscita dal pannello pausa (la chiusura della scheda non è osservabile)
+- `milestone_reached` {milestone_id `first_launch`|`first_merge`, elapsed_sec} — una volta per partita, anche per le riprese
+- `tutorial_started` / `tutorial_completed` {step_id `aim`|`merge`, step_index 1|2, elapsed_sec} — solo per chi vede gli hint (`OnboardingHints.onStep`)
+`game_started`/`round_reached`/`game_ended` restano per continuità. Test: `npm run pack:playgama && npm run test:telemetry`.
+Lettura: `get_game_telemetry_session_facts` filtrando `game_started` → sessioni senza `milestone_reached first_launch` = chi esce senza aver mai tirato; `progression_failed`/`_abandoned` per `level_id`.
+
 ## 2d. Peso del primo avvio (v0.10.25, 2026-11-11)
 
 Ottimizzato il percorso di caricamento (`scripts/optimize-boot-images.js`, UUID invariati):

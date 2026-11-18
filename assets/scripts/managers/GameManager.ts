@@ -1,4 +1,4 @@
-import { _decorator, Component, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx, game, Game } from 'cc';
+import { _decorator, Component, SpriteFrame, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx, game, Game } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -11,7 +11,7 @@ import { GAME_OVER_LINE_Y, TRACK_W, TRACK_H, TRACK_BOTTOM_Y, LAYOUT_SCALE, WALL_
 import { DebugPanel, IGameManagerDebug } from './DebugPanel';
 import { CoordConverter } from '../utils/CoordConverter';
 import { AudioManager, SFX } from './AudioManager';
-import { VFXManager, SCORE_TIER5_PTS, SCORE_TIER6_PTS } from './VFXManager';
+import { VFXManager, SCORE_TIER5_PTS, SCORE_TIER6_PTS, ROUND_UP_SPECIES_EXTRA_SEC } from './VFXManager';
 import { AuraEffect } from '../entities/AuraEffect';
 import { PsychoForceEffect } from '../entities/PsychoForceEffect';
 import { WildRiverEffect } from '../entities/WildRiverEffect';
@@ -31,8 +31,13 @@ import { PortalProvider } from '../services/PortalProvider';
 import { PORTAL, LEADERBOARD_ALLOWED } from '../config/PortalConfig';
 import { AnalyticsData, RewardedOutcome } from '../services/PortalSdk';
 import { PerformanceSampler } from '../utils/PerformanceSampler';
+import { setPhysicsSpeed } from '../utils/PhysicsSpeed';
 import { BoostOffer } from './BoostOffer';
 import { PowerupInfoPanel } from './PowerupInfoPanel';
+import { TokenCounters } from './TokenCounters';
+import { PowerTokenField } from './PowerTokenField';
+import { PowerToken } from '../entities/PowerToken';
+import { TokenKind, TOKENS, tokenConfig, tokenUnlockedIn, TOKEN_POINTS_PER_ROUND, NEW_SPECIES_TOKENS_UNLOCK, NEW_SPECIES_TOKENS_OTHER } from '../data/PowerTokens';
 import { PowerupTutorialStore, PowerupId } from '../data/PowerupInfo';
 import { VERSION, compareVersions } from '../config/Version';
 const { ccclass, property } = _decorator;
@@ -67,6 +72,9 @@ const TEST_FIRST_LAUNCH_GAMEOVER = false; // TEST: first launch forces game-over
 // 144/165 Hz monitor the same force accumulates ~2.4× per physics step. Multiply every per-frame
 // force by (dt × this) so the integrated force matches 60 fps regardless of refresh rate.
 const FORCE_FPS_REF = 60;
+/** Physics runs this many times faster than real time: same paths and landing points, quicker
+ *  flights and slides (v0.10.42, "faster launches"). 1 = original pace. See utils/PhysicsSpeed. */
+const PHYSICS_SPEED = 1.35;
 // Resize: debounce delay after the last resize signal + hard cap so physics never stays frozen.
 const RESIZE_SETTLE_S = 0.5;
 const RESIZE_MAX_S    = 2.5;
@@ -93,13 +101,8 @@ const GOLDEN_AURA_RANGE      = AURA_REPEL_RANGE * 0.5; // BOOST's Golden Aura: h
 const INTERSTITIAL_EVERY_ROUNDS = 5; // interstitial during the round-up pause of rounds 6, 11, 16… (Bridge still enforces its own min delay)
 const ROUND_UP_PAUSE_SEC     = 2.16; // round-up freeze length (banner on screen, physics off)
 // Rescue powerups (GDD §16-17): one slot, same trigger and cooldown for every form.
-const RESCUE_MIN_ON_TRACK       = 25;
-const RESCUE_COOLDOWN_LAUNCHES  = 10;
-const RESCUE_COOLDOWN_MERGES    = 10;
-const WILDRIVER_FROM_ROUND      = 5;
-const WILDRIVER_MIN_KIND        = 8;   // launcher's kind on track
-const PSYCHO_FROM_ROUND         = 8;
-const PSYCHO_FRAGMENTED_BELOW   = 6;   // no kind with this many on track
+// Brotherhood / Wild River / Psycho Force are charged by power tokens (v0.10.42, data/PowerTokens.ts);
+// the old automatic rescue (>=25 warriors on track, shared cooldown) is gone.
 const BOOST_NO_AD_PAUSE_ROUNDS = 2;   // rounds without the BOOST offer after an ad was unavailable
 const BOOST_OFFER_EXTRA_SEC  = 4;    // BOOST button stays parked above the settings gear this long after the round-up pause ends
 const WRS_PROX_MARGIN        = 60;   // extra design-px beyond touching radius to count as "near"
@@ -125,6 +128,8 @@ const LAUNCH_TIMER       = 15;     // seconds per turn, round 1
 // combinatorics get harder. Min-force is NOT a constraint: a launch that fails to cross
 // the raised line goes through the regular failed-launch malus path.
 const GO_LINE_RAISE_FRAC  = 0.13; // game-start raise, fraction of TRACK_H — tune in playtest
+const GO_LINE_BASE_SPECIES = 3;  // species unlocked before the line starts stepping down (Frog, Cat, Chicken)
+const NEW_SPECIES_TOKEN_GAP_SEC = 0.35;  // tokens dropped by a new species fall one after the other
 const GO_LINE_DESCENT_DUR = 1.4;  // s, fits inside the round-up banner physics freeze (2.16s)
 const NEW_BEST_MIN_SCORE = 10000;  // min score for the "new best" message to appear
 
@@ -143,7 +148,7 @@ const STATE_KEY = 'fw_game_state';
 const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 /** Oldest build whose saved game is still valid here: bump it when the snapshot format or the rules it
  *  depends on change (0.10.37: front-loaded ROUND_THRESHOLDS — an older game would round up twice). */
-const SNAPSHOT_MIN_VERSION = '0.10.37';
+const SNAPSHOT_MIN_VERSION = '0.10.42';  // 0.10.42: new species schedule — older boards hold species not yet unlocked
 
 type PowerupKind = PowerupId;
 
@@ -161,7 +166,7 @@ export interface GameSnapshot {
     score: number;
     round: number;
     totalMerges: number;
-    cooldowns: { wr: number; pf: number; br: number; brMerges: number };
+    cooldowns: { wr: number; pf: number };
     firstLaunchSpecies: number[];
     trackClearedBonusUsed: boolean;
     bestSingle: { score: number; desc: string };
@@ -174,6 +179,8 @@ export interface GameSnapshot {
     warriors: WarriorSnap[];
     /** Date.now() of the save. Missing (builds ≤ v0.10.29) = unknown age → treated as expired. */
     savedAt?: number;
+    /** Power tokens collected per power, and powers charged but not yet on a launcher. */
+    tokens?: { counts: Partial<Record<TokenKind, number>>; ready: TokenKind[]; seen?: TokenKind[]; pending?: (TokenKind | null)[] };
 }
 
 function launchTimerForRound(round: number): number {
@@ -207,6 +214,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     boostOffer: BoostOffer | null = null;
     @property({ type: PowerupInfoPanel, tooltip: 'Powerup tutorial modal (UILayer/PowerupPanel, inactive in editor): shown the first time a powerup appears in a game.' })
     powerupPanel: PowerupInfoPanel | null = null;
+    @property({ type: TokenCounters, tooltip: 'HUD counters of the collected power tokens (HUD/TokenCounters).' })
+    tokenCounters: TokenCounters | null = null;
+    @property({ type: [SpriteFrame], tooltip: 'Token art (coin already in the track perspective, with its thickness), in data/PowerTokens TOKENS order: Brotherhood, Wild River, Psycho Force.' })
+    tokenFaces: SpriteFrame[] = [];
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -261,6 +272,20 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _launcherAtGameOver: Warrior | null = null;
     /** game_ended already sent for this game (with a revive offer it is deferred to Continue). */
     private _gameEndedTracked = false;
+    /** Progression telemetry: performance.now() when the current round started (shifted on engine stop). */
+    private _roundStartedAt = 0;
+    /** Power tokens: the field on the track, collected count per power, powers charged and waiting
+     *  for a launcher (FIFO: one per launcher). */
+    private _tokenField: PowerTokenField | null = null;
+    private _tokenCounts: Record<TokenKind, number> = { brotherhood: 0, wildRiver: 0, psychoForce: 0 };
+    private _tokenReady: TokenKind[] = [];
+    /** Powers with at least one token collected in this game: only their counters are shown. */
+    private _tokenSeen = new Set<TokenKind>();
+    /** Shots fired in this game / in the current round (progression telemetry). */
+    private _launchesInGame = 0;
+    private _launchesInRound = 0;
+    /** First merge of this game already reported (milestone + tutorial merge step). */
+    private _firstMergeTracked = false;
     /** BOOST tapped while a shot was in flight → open the modal on the next launcher. */
     private _boostPanelRequested = false;
     private timerRemaining = LAUNCH_TIMER;
@@ -316,8 +341,6 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _wrsImploding = false;
     wildRiverEnabled = false;
     private _wrCooldownLaunches = 0;
-    private _brCooldownLaunches = 0;
-    private _brCooldownMerges = 0;
     private _nextPowerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood' | null = null;
     private _nextPowerupPending = false;
     private _brotherhoodCarrier:   Warrior | null = null;
@@ -366,9 +389,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         return sy > 0 ? GAME_OVER_LINE_Y / sy : GAME_OVER_LINE_Y; // global already includes the raise
     }
 
-    /** Raise fraction for a round: full at game start, stepping to 0 (editor quota) as species unlock. */
+    /** Raise fraction for a round: full at game start, stepping to 0 (editor quota) as species unlock.
+     *  The base trio (Frog, Cat, Chicken — rounds 1–3) leaves the line up: only Wolf onwards lowers it. */
     private _goLineFracForRound(round: number): number {
-        const extras   = WARRIORS.filter(w => w.introRound > 1);
+        const extras   = WARRIORS.slice(GO_LINE_BASE_SPECIES);
         const unlocked = extras.filter(w => w.introRound <= round).length;
         return extras.length > 0 ? GO_LINE_RAISE_FRAC * (1 - unlocked / extras.length) : 0;
     }
@@ -645,6 +669,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         Warrior.viewYOffset = WARRIOR_VIEW_Y_OFFSET;
         PhysicsSystem2D.instance.enable = true;
         PhysicsSystem2D.instance.gravity = new Vec2(0, 0);
+        setPhysicsSpeed(PHYSICS_SPEED);
+        // Console tuning (QA builds only, QA_E2E_HOOKS): fwPhysicsSpeed(1.2) changes the pace live (reset at
+        // the next Game load). Off in production: it would change the physics of a ranked game.
+        if (QA_E2E_HOOKS && sys.isBrowser) (window as any).fwPhysicsSpeed = (k: number): void => setPhysicsSpeed(k);
         PhysicsSystem2D.instance.debugDrawFlags = DEBUG_ENGINE
             ? EPhysics2DDrawFlags.Shape
             : EPhysics2DDrawFlags.None;
@@ -714,6 +742,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
         this.spawnMgr.getWarriors     = ()      => this.warriors;
 
+        if (this.onboarding) {
+            this.onboarding.onStep = (phase, step) => this._trackEvent(phase === 'started' ? 'tutorial_started' : 'tutorial_completed', {
+                step_id: step,
+                step_index: step === 'aim' ? 1 : 2,
+                elapsed_sec: this._elapsedSec(this._gameStartedAt),
+            });
+        }
+
         const loadingSpinner = this._showLoadingSpinner();
 
         // Fresh game: await only the round-1 species (the rest streams in during play). A restored
@@ -728,13 +764,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._wireOnboardingReplayTap();
             this._wirePanels();
             this._wireBoostOffer();
+            this._initPowerTokens();
             this.debugLabel = DEBUG ? this.createDebugLabel() : null;
             this.bestScore = parseInt(SafeStorage.get('fw_best_score') ?? '0', 10) || 0;
 
             const restoring = willRestore;
             GameManager._pendingRestore = false;
             GameManager._forceNewGame = false;
-            if (!(restoring && this._restoreSnapshot())) {
+            const freshGame = !(restoring && this._restoreSnapshot());
+            if (freshGame) {
                 // Fresh game: clear any leftover snapshot, then start normally.
                 this._clearSnapshot();
                 const prefilled = this.spawnMgr.prefill();
@@ -742,14 +780,18 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.warriors.push(...prefilled);
                 const firstWarrior = this.createWarrior();
                 this.activateWarrior(firstWarrior);
-                this.onboarding?.maybeShowAimHint();  // first-turn "drag & release" gesture hint
             }
             this._gameStartedAt = performance.now();
+            this._roundStartedAt = this._gameStartedAt;
             // End-panel art is lazy-loaded (not a Game-scene dependency): fetch it once play is under way.
             this.scheduleOnce(() => { this.gameOverPanel?.preloadIllustration(); this.victoryPanel?.preloadIllustration(); }, 5);
             SafeStorage.set(LS_PLAYED_ONCE, '1');  // later visits open on the MainMenu
             SafeStorage.remove(LS_MENU_ON_BOOT);    // playing again: a saved game may resume at boot
             this._trackEvent('game_started', { restored: restoring, round: this.currentRound, ...GameManager._telemetryContext() });
+            this._trackProgressionStarted(!freshGame);
+            this._refreshTokenCounters();
+            // After game_started, so the telemetry sees the tutorial step inside the started game.
+            if (freshGame) this.onboarding?.maybeShowAimHint();  // first-turn "drag & release" gesture hint
             if (QA_E2E_HOOKS && sys.isBrowser) {
                 const match = /fwqa=advance(\d+)/.exec(window.location.search);
                 if (match) this.scheduleOnce(() => { this.setDebugRound(Number(match[1])); this.advanceRound(); }, 4);
@@ -846,6 +888,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // pause): still stopped → keep counting from the original stop.
         if (game.isPaused()) return;
         if (this._engineStoppedAt >= 0 && this._gameStartedAt > 0) this._gameStartedAt += performance.now() - this._engineStoppedAt;
+        if (this._engineStoppedAt >= 0 && this._roundStartedAt > 0) this._roundStartedAt += performance.now() - this._engineStoppedAt;
         this._engineStoppedAt = -1;
         this._perfSampler?.tick(false);
     }
@@ -972,10 +1015,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         // this.warriors.push(...this.spawnMgr.prefill());
 
         this._expireBrotherhood();
-        this._brCooldownLaunches = 0;
-        this._brCooldownMerges   = 0;
         this._wrCooldownLaunches = 0;
         this._pfCooldownLaunches = 0;
+        this._tokenField?.clear();
+        for (const t of TOKENS) this._tokenCounts[t.kind] = 0;
+        this._tokenReady = [];
+        this._tokenSeen.clear();
+        this._refreshTokenCounters();
         this.currentRound     = 1;
         this.totalMerges      = 0;
         this.mergesThisLaunch = 0;
@@ -1313,6 +1359,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 }
                 if (this.implosionCenter) this.applyVortexImplosion(dt);
                 this.checkLineLogic(dt);
+                this._tokenField?.tick(dt, this._tokenPlayActive());
             }
             if (this._wrLaunchWarrior?.node?.isValid) {
                 if (this._wrLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
@@ -1392,19 +1439,14 @@ export class GameManager extends Component implements IGameManagerDebug {
     private createWarrior(): Warrior {
         const w = this.spawnMgr.spawnNext();
         this._recordSpawn(w.type, this.currentRound);
-        const isFirstSpecies = this._checkFirstAura(w);
+        if (this._checkNewSpecies(w)) this._newSpeciesTokens(w.type);
         if (w.mapper) w.mapper.animScale = 0;
         // PerspectiveMapper.lateUpdate hasn't run yet for this brand-new component — hide viewNode
         // immediately so it doesn't flash at (0,0) for the first rendered frame.
         if (w.viewNode?.isValid) w.viewNode.setScale(0, 0, 1);
         this.warriors.push(w);
         this.nextLaunchWarrior = w;
-        if (this._nextPowerup) {
-            this._nextPowerupPending = true;
-        } else if (isFirstSpecies) {
-            this._nextPowerup = 'aura';
-            this._nextPowerupPending = true;
-        }
+        if (this._nextPowerup) this._nextPowerupPending = true;
         return w;
     }
 
@@ -1430,10 +1472,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._launcherWildRiverEffect?.detach();
         this._launcherWildRiverEffect = null;
 
-        // Rescue powerup (≥25 warriors on track, shared cooldown 10 launches + 10 merges): the form
-        // fits the board — Wild River / Psycho Force once unlocked by round, else Brotherhood.
-        const rescue = this._nextPowerup === null ? this._pickRescue(w.type) : null;
-        if (rescue) this._trackEvent('rescue_powerup', { powerup: rescue, round: this.currentRound, onTrack: this._onTrackCount() });
+        // Token power (enough tokens of one kind collected): charged onto this launcher, first in first out.
+        const rescue = this._nextPowerup === null ? this._pickRescue() : null;
+        if (rescue) {
+            this._tokenReady.shift();
+            this._trackEvent('rescue_powerup', { powerup: rescue, round: this.currentRound, onTrack: this._onTrackCount(), source: 'tokens' });
+        }
         if (rescue === 'wildRiver') this.wildRiverEnabled = true;   // attached just below
         if (rescue === 'brotherhood') {
             this._expireBrotherhood();
@@ -1488,6 +1532,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             console.error(`[GameManager] LAUNCH ERROR: warrior localY=${launchY.toFixed(1)} >= gameOverLineLocal=${this.gameOverLineLocal.toFixed(1)} — aborting launch`);
             return;
         }
+        this._launchesInRound++;
+        if (++this._launchesInGame === 1) this._trackMilestone('first_launch');
         // Flight trail — self-detaches when the warrior stops, merges or dies
         this._trailEffect?.detach();
         this._trailEffect = TrailEffect.attach(w, this.vfxLayer, this.vfx.sparkleFrame, y => this.coords.physToVisual(y));
@@ -1503,13 +1549,6 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._wrLaunchEffect = WildRiverSparkleEffect.attach(w);
         } else if (this._wrCooldownLaunches > 0) {
             this._wrCooldownLaunches--;
-        }
-        // Shared rescue cooldown: whichever rescue form was launched, the next one waits 10 + 10.
-        if (this._brotherhoodCarrier === w || this.wildRiverEnabled || this.psychoForceEnabled) {
-            this._brCooldownLaunches = RESCUE_COOLDOWN_LAUNCHES;
-            this._brCooldownMerges   = RESCUE_COOLDOWN_MERGES;
-        } else if (this._brCooldownLaunches > 0) {
-            this._brCooldownLaunches--;
         }
         if (this.psychoForceEnabled) {
             this._pfCooldownLaunches = 10;
@@ -1769,14 +1808,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._activeLauncherWarrior = nw;
         this.nextLaunchWarrior = nw;
 
-        const isFirstSpeciesNw = this._checkFirstAura(nw);
+        if (this._checkNewSpecies(nw)) this._newSpeciesTokens(nw.type);
 
         this._launcherWildRiverEffect?.detach();
         this._launcherWildRiverEffect = null;
         if (pendingForNw) {
             this._applyPendingPowerup(nw, pendingForNw, pendingGolden);
-        } else if (isFirstSpeciesNw) {
-            this._applyPendingPowerup(nw, 'aura');
         } else if (this.wildRiverEnabled) {
             this._launcherWildRiverEffect = WildRiverEffect.attach(nw, this.vfx.sparkleFrame, this.vfx.auraFrame);
         }
@@ -1800,6 +1837,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private triggerGameOver(culprit?: Warrior): void {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
+        this._trackProgressionEnded('progression_failed', 'game_over');
+        this._tokenField?.clear();
         this._gameOverCulprit = culprit ?? null;
         this._launcherAtGameOver = this._activeLauncherWarrior;  // reused if the game is revived
         this._slowmoTimer = 0;
@@ -1861,6 +1900,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private triggerVictory(): void {
         if (this.state === GameState.GameOver) return;
         this.state = GameState.GameOver;
+        this._trackProgressionCompleted('victory');
+        this._tokenField?.clear();
         this._clearSnapshot();
         this._slowmoTimer = 0;
         this._slowmoScale = 1.0;
@@ -1993,6 +2034,66 @@ export class GameManager extends Component implements IGameManagerDebug {
         return { platform, test, version: VERSION };
     }
 
+    // Progression funnel (Playgama telemetry guide): stable event names, the round goes in the data.
+    //   progression_started   → a round begins (game start / restore, every round-up)
+    //   progression_completed → a round is cleared (result 'round_up') or the game is won ('victory')
+    //   progression_failed    → game over in that round (a revive may follow: then a 2nd failure can come)
+    //   progression_abandoned → the player left from the pause panel (reason 'menu' | 'restart')
+    // plus milestone_reached (first_launch / first_merge, once per game) and tutorial_started /
+    // tutorial_completed (onboarding steps 'aim' and 'merge', first-time players only).
+
+    private _progressionData(): AnalyticsData {
+        return {
+            level_id: `round_${Math.min(this.currentRound, 99)}`,  // bounded: the game has 8 rounds
+            step_index: this.currentRound,
+        };
+    }
+
+    private _trackProgressionStarted(restored: boolean): void {
+        this._roundStartedAt = performance.now();
+        this._launchesInRound = 0;
+        this._trackEvent('progression_started', { ...this._progressionData(), restored, score: this.score });
+    }
+
+    private _trackProgressionCompleted(result: 'round_up' | 'victory'): void {
+        this._trackEvent('progression_completed', {
+            ...this._progressionData(),
+            result,
+            duration_sec: this._elapsedSec(this._roundStartedAt),
+            launches: this._launchesInRound,
+            score: this.score,
+        });
+    }
+
+    private _trackProgressionEnded(name: 'progression_failed' | 'progression_abandoned', reason: 'game_over' | 'menu' | 'restart'): void {
+        if (name === 'progression_abandoned'
+            && (this.state === GameState.GameOver || this._stateBeforePause === GameState.GameOver)) return;  // already failed/won
+        this._trackEvent(name, {
+            ...this._progressionData(),
+            reason,
+            duration_sec: this._elapsedSec(this._roundStartedAt),
+            game_duration_sec: this._elapsedSec(this._gameStartedAt),
+            launches: this._launchesInRound,
+            game_launches: this._launchesInGame,
+            on_track: this._onTrackCount(),
+            revive_used: this._reviveUsed,
+            score: this.score,
+        });
+    }
+
+    private _trackMilestone(milestone: 'first_launch' | 'first_merge'): void {
+        this._trackEvent('milestone_reached', {
+            milestone_id: milestone,
+            ...this._progressionData(),
+            elapsed_sec: this._elapsedSec(this._gameStartedAt),
+        });
+    }
+
+    /** Whole seconds since `since` (performance.now() stamp); 0 when not started yet. */
+    private _elapsedSec(since: number): number {
+        return since > 0 ? Math.max(0, Math.round((performance.now() - since) / 1000)) : 0;
+    }
+
     private _trackEvent(name: string, data?: AnalyticsData): void {
         try { PortalProvider.get().trackEvent?.(name, data); } catch { /* analytics must never break the game */ }
     }
@@ -2038,9 +2139,14 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         const isEffectMerge = isPsychoMerge ||
             a.wildRiverSparkle != null || b.wildRiverSparkle != null;
+        if (!this._firstMergeTracked) {
+            this._firstMergeTracked = true;
+            this._trackMilestone('first_merge');
+        }
+        // Every merge: a merge hint replayed mid-game (double-tap SCORE) must still complete.
+        this.onboarding?.notifyMerge();
         if (!isEffectMerge) {
             this.totalMerges++;
-            if (this._brCooldownMerges > 0) this._brCooldownMerges--;
             this.checkRoundAdvance();
         }
         this.mergesThisLaunch++;
@@ -2874,12 +2980,20 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._logOnTrack('aura-evolve');
     }
 
-    private _checkFirstAura(w: Warrior): boolean {
-        if (!AuraEffect.isEligible(w.type)) return false;
+    /** First appearance in this game of a species unlocked after round 1 (v0.10.42: it brings a
+     *  burst of power tokens on the track instead of an Aura on the warrior). */
+    private _checkNewSpecies(w: Warrior): boolean {
         if (this._firstLaunchSpecies.has(w.type)) return false;
         this._firstLaunchSpecies.add(w.type);
-        if (DEBUG) console.log(`[AuraEffect] first appearance: type=${w.type}`);
-        return true;
+        return (WARRIORS[w.type]?.introRound ?? 1) > 1;
+    }
+
+    /** A species' first appearance drops a full charge of the power unlocked with it (same round),
+     *  otherwise a single random token. */
+    private _newSpeciesTokens(type: number): void {
+        const unlock = tokenUnlockedIn(WARRIORS[type]?.introRound ?? 1);
+        if (unlock) this._tokenField?.burst(NEW_SPECIES_TOKENS_UNLOCK, NEW_SPECIES_TOKEN_GAP_SEC, unlock.kind);
+        else this._tokenField?.burst(NEW_SPECIES_TOKENS_OTHER, NEW_SPECIES_TOKEN_GAP_SEC);
     }
 
     private checkTrackClearedBonus(x: number, yC: number): void {
@@ -3073,8 +3187,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         const menu   = (): void => this._leaveToMenu();
         if (this.pausePanel) {
             this.pausePanel.onResume  = () => this._exitSettingsPause();
-            this.pausePanel.onRestart = reload;
-            this.pausePanel.onMenu    = menu;
+            this.pausePanel.onRestart = () => { this._trackProgressionEnded('progression_abandoned', 'restart'); reload(); };
+            this.pausePanel.onMenu    = () => { this._trackProgressionEnded('progression_abandoned', 'menu'); menu(); };
         }
         // WIN / GAME OVER: single forward action. Sequence WIN/LOSE → LEADERBOARD (if on) → MENU.
         // Wait for the leaderboard prep (started at end-game, usually already done) so the name-entry
@@ -3184,7 +3298,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 score:       this.score,
                 round:       this.currentRound,
                 totalMerges: this.totalMerges,
-                cooldowns:   { wr: this._wrCooldownLaunches, pf: this._pfCooldownLaunches, br: this._brCooldownLaunches, brMerges: this._brCooldownMerges },
+                cooldowns:   { wr: this._wrCooldownLaunches, pf: this._pfCooldownLaunches },
                 firstLaunchSpecies:    Array.from(this._firstLaunchSpecies),  // not [...set]: downlevel spread breaks Sets
                 trackClearedBonusUsed: this._trackClearedBonusUsed,
                 bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
@@ -3196,6 +3310,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 auraGolden:     this._auraGolden && this._auraWarrior === launcher,
                 nextAuraGolden: this._nextAuraGolden,
                 next:        { type: this.spawnMgr.next.type, level: this.spawnMgr.next.level },
+                tokens:      { counts: { ...this._tokenCounts }, ready: this._tokenReady.slice(), seen: Array.from(this._tokenSeen), pending: this._tokenField?.pending ?? [] },
                 warriors:    this.warriors
                     .filter(w => w.crossedLine && w !== launcher && w.node?.isValid)
                     .map(w => {
@@ -3286,13 +3401,19 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._scoreProxy.val = this.score;
             this._wrCooldownLaunches = snap.cooldowns?.wr ?? 0;
             this._pfCooldownLaunches = snap.cooldowns?.pf ?? 0;
-            this._brCooldownLaunches = snap.cooldowns?.br ?? 0;
-            this._brCooldownMerges   = snap.cooldowns?.brMerges ?? 0;
             this._firstLaunchSpecies    = new Set(snap.firstLaunchSpecies ?? []);
             this._trackClearedBonusUsed = !!snap.trackClearedBonusUsed;
             this._bestSingleScore       = snap.bestSingle?.score ?? 0;
             this._bestSingleScoreDesc   = snap.bestSingle?.desc ?? '';
             this._spawnLog              = this._deserializeSpawnLog(snap.spawnLog);
+            for (const t of TOKENS) this._tokenCounts[t.kind] = Math.max(0, Math.min(t.needed - 1, snap.tokens?.counts?.[t.kind] ?? 0));
+            this._tokenReady = (snap.tokens?.ready ?? []).filter(k => TOKENS.some(t => t.kind === k));
+            this._tokenSeen = new Set((snap.tokens?.seen ?? []).filter(k => TOKENS.some(t => t.kind === k)));
+            for (const t of TOKENS) if (this._tokenCounts[t.kind] > 0) this._tokenSeen.add(t.kind);
+            // Tokens on the track / a new species' drop not yet fallen at save time: drop them again.
+            for (const k of snap.tokens?.pending ?? []) {
+                if (k === null || TOKENS.some(t => t.kind === k)) this._tokenField?.burst(1, NEW_SPECIES_TOKEN_GAP_SEC, k ?? undefined);
+            }
 
             this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
             this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
@@ -3661,8 +3782,11 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     private advanceRound(): void {
+        this._trackProgressionCompleted('round_up');
         this.currentRound++;
         this._trackEvent('round_reached', { round: this.currentRound });
+        this._trackProgressionStarted(false);
+        this._refreshTokenCounters();
         this._trackClearedBonusUsed = false;
         this.spawnMgr.setSpawnTypes(spawnTypesForRound(this.currentRound));
         this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
@@ -3679,20 +3803,21 @@ export class GameManager extends Component implements IGameManagerDebug {
         // enabled, otherwise Box2D's m_moveBuffer holds stale proxies that crash UpdatePairs.
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
-            this.showRoundUpBanner();
+            // The banner lasts longer when it reveals a new species: the freeze and the BOOST follow it.
+            const pauseSec = ROUND_UP_PAUSE_SEC + (this.showRoundUpBanner() ? ROUND_UP_SPECIES_EXTRA_SEC : 0);
             // Mid-session interstitial: Playgama only (Poki / CrazyGames / GD allow ads only between sessions).
             const interstitialRound = PORTAL === 'playgama' && (this.currentRound - 1) % INTERSTITIAL_EVERY_ROUNDS === 0;
             // After a "no ad available" the BOOST sits out BOOST_NO_AD_PAUSE_ROUNDS rounds (no fill now
             // usually means no fill for a while: don't keep promising an ad that won't come).
             if (this._boostPauseRounds > 0) this._boostPauseRounds--;
-            else if (!interstitialRound) this._offerBoost(ROUND_UP_PAUSE_SEC, QA_E2E_HOOKS ? 30 : BOOST_OFFER_EXTRA_SEC);
+            else if (!interstitialRound) this._offerBoost(pauseSec, QA_E2E_HOOKS ? 30 : BOOST_OFFER_EXTRA_SEC);
             // New species unlocked → game-over line steps down as part of the reward.
             // Runs inside the physics freeze: warriors are static while the line moves,
             // and a descending line can only GRANT crossings, never cause game over/malus.
             if (WARRIORS.some(w => w.introRound === this.currentRound)) {
                 this._syncGoLineToRound(this.currentRound, true);
             }
-            this.scheduleOnce(() => { void this._finishRoundUp(interstitialRound); }, ROUND_UP_PAUSE_SEC);
+            this.scheduleOnce(() => { void this._finishRoundUp(interstitialRound); }, pauseSec);
         }, 0.17);
     }
 
@@ -3902,24 +4027,93 @@ export class GameManager extends Component implements IGameManagerDebug {
         return n;
     }
 
-    /** Rescue powerup for a launcher of `launcherType`, or null. Same moment and cooldown as the
-     *  old Brotherhood-only rescue (difficulty unchanged); only its form varies with the board:
-     *  one kind dominating → Wild River (from round 5), a fragmented board → Psycho Force (from
-     *  round 8), otherwise Brotherhood. */
-    private _pickRescue(launcherType: number): PowerupKind | null {
-        if (this._brCooldownLaunches > 0 || this._brCooldownMerges > 0) return null;
+    /** Token power waiting for a launcher (peek, not consumed: activateWarrior shifts it), or null
+     *  while another rescue-form power is still in play. */
+    private _pickRescue(): PowerupKind | null {
         if (this._brotherhoodCarrier || this._wrLaunchWarrior || this._pfLaunchWarrior) return null;
-        const counts = new Map<number, number>();
-        let onTrack = 0;
-        for (const w of this.warriors) {
-            if (!w.crossedLine || !w.node?.isValid) continue;
-            onTrack++;
-            counts.set(w.type, (counts.get(w.type) ?? 0) + 1);
+        return this._tokenReady[0] ?? null;
+    }
+
+    // --- power tokens (data/PowerTokens.ts) ---
+
+    private _initPowerTokens(): void {
+        const faceFor = (kind: TokenKind): SpriteFrame | null => {
+            const i = TOKENS.findIndex(t => t.kind === kind);
+            return this.tokenFaces[i] ?? this.powerupPanel?.iconFor(kind) ?? null;
+        };
+        this._tokenField = new PowerTokenField({
+            // Under every warrior (World/TokenLayer sits right below WarriorsLayer in Game.scene).
+            layer: this.worldNode.getChildByName('TokenLayer') ?? this.vfxLayer,
+            box2dLayer: this.box2dLayer,
+            faceFor,
+            sparkle: () => this.vfx.sparkleFrame,
+            warriors: () => this.warriors,
+            round: () => this.currentRound,
+            onTrack: () => this._onTrackCount(),
+            onSpawn: () => AudioManager.instance.play(SFX.TOKEN_APPEAR, 0.8),
+            onExpire: kind => {
+                AudioManager.instance.play(SFX.TOKEN_VANISH, 0.6);
+                this._trackEvent('token_missed', { power: kind, round: this.currentRound, on_track: this._onTrackCount() });
+            },
+            onCollect: (kind, token, by, ageSec) => this._onTokenCollected(kind, token, by, ageSec),
+        });
+        for (const t of TOKENS) this.tokenCounters?.setIcon(t.kind, faceFor(t.kind));
+        // QA builds only: free tokens = free points and powers in a ranked game.
+        if (QA_E2E_HOOKS && sys.isBrowser) (window as any).fwSpawnToken = (kind?: TokenKind): boolean => this._tokenField?.spawn(kind) ?? false;
+    }
+
+    /** Tokens age and spawn only while the player can actually play. */
+    private _tokenPlayActive(): boolean {
+        return (this.state === GameState.Aiming || this.state === GameState.Inflight || this.state === GameState.Settling)
+            && !this.roundUpPause && !this._adPaused && !this._puInfoOpen && !this._resizeFrozen;
+    }
+
+    private _refreshTokenCounters(): void {
+        for (const t of TOKENS) {
+            this.tokenCounters?.setState(t.kind, this._tokenCounts[t.kind], t.needed, this._tokenSeen.has(t.kind));
         }
-        if (onTrack < RESCUE_MIN_ON_TRACK) return null;
-        if (this.currentRound >= WILDRIVER_FROM_ROUND && (counts.get(launcherType) ?? 0) >= WILDRIVER_MIN_KIND) return 'wildRiver';
-        if (this.currentRound >= PSYCHO_FROM_ROUND && Math.max(...counts.values()) < PSYCHO_FRAGMENTED_BELOW) return 'psychoForce';
-        return 'brotherhood';
+    }
+
+    private _onTokenCollected(kind: TokenKind, token: PowerToken, by: Warrior, ageSec: number): void {
+        const cfg = tokenConfig(kind);
+        const pts = TOKEN_POINTS_PER_ROUND * this.currentRound;
+        this.score += pts;
+        this.updateScoreLabel();
+        // Same floating score as a merge, just above the coin (it flies off from there).
+        this.vfx.spawnFloatingScore(token.x, this.coords.physToVisual(token.y) + 30, pts);
+        AudioManager.instance.play(SFX.TOKEN_COLLECT);
+        const count = this._tokenCounts[kind] + 1;
+        const charged = count >= cfg.needed;
+        this._tokenCounts[kind] = charged ? 0 : count;
+        this._trackEvent('token_collected', { power: kind, round: this.currentRound, count, needed: cfg.needed, by_launched: by === this.inflightWarrior, on_track: this._onTrackCount(), age_sec: Math.round(ageSec * 10) / 10 });
+        // Show the value this token made, not the live total: in a burst several tokens fly at once,
+        // and the first to land must not already show the later ones (or the reset to 0 of a charge).
+        const shown = this._tokenCounts[kind];
+        const land = (): void => {
+            if (!this.isValid) return;
+            this.tokenCounters?.setState(kind, shown, cfg.needed, this._tokenSeen.has(kind));
+            this.tokenCounters?.bump(kind);
+            if (charged) {
+                this.tokenCounters?.flashReady(kind);
+                AudioManager.instance.play(SFX.POWER_READY);
+            }
+        };
+        if (charged) {
+            this._tokenReady.push(kind);
+            this._updateNextPreviewPowerupGlow();
+        }
+        if (!this._tokenSeen.has(kind)) {
+            // First token of this power in the game: its counter pops in (still at the old value),
+            // the flying token lands on it and makes it count.
+            this._tokenSeen.add(kind);
+            this.tokenCounters?.setState(kind, count - 1, cfg.needed, true);
+        }
+        const target = this.tokenCounters?.iconWorldPos(kind);
+        if (target) token.collect(this.uiLayer, target, this.tokenCounters!.iconWorldSize(kind), land);
+        else { token.vanish(); land(); }
+        // The snapshot is the turn-start situation: saving mid-flight would store the fired launcher
+        // as still to launch (a reload replays the shot). Otherwise activateWarrior saves the tokens.
+        if (this.state === GameState.Aiming) this._saveSnapshot();
     }
 
     /** First appearance of a powerup in this game (launcher ready, nothing else on screen): after a
@@ -4049,12 +4243,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    private showRoundUpBanner(): void {
+    /** Returns true when the banner reveals a new species (it then lasts ROUND_UP_SPECIES_EXTRA_SEC longer). */
+    private showRoundUpBanner(): boolean {
         const newSpeciesIdx = WARRIORS.findIndex(w => w.introRound === this.currentRound);
         const silhouetteFrame = newSpeciesIdx >= 0
             ? WarriorSpriteCache.get(WARRIORS[newSpeciesIdx].type, 1)
             : null;
         this.vfx.showRoundUpBanner(this.currentRound, silhouetteFrame);
+        return !!silhouetteFrame;
     }
 
     private updateNextPreview(animate = false): void {
@@ -4090,7 +4286,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         let powerup: 'aura' | 'psychoForce' | 'wildRiver' | 'brotherhood' | null = this._nextPowerup;
         if (!powerup && this.wildRiverEnabled) powerup = 'wildRiver';
-        if (!powerup) powerup = this._pickRescue(this.spawnMgr.next.type);
+        if (!powerup) powerup = this._pickRescue();
 
         if (!powerup) {
             if (this._nextPreviewGlowNode?.isValid) {

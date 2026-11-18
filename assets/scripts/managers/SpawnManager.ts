@@ -73,17 +73,22 @@ export class SpawnManager extends Component {
         return w;
     }
 
+    /** Three level-1 warriors of the first species at the far end of the track, in a triangle (middle
+     *  one closer to the launcher): same-species neighbours in one row would sit inside the merge
+     *  magnet's reach (MAGNET_GAP) and pull together before the first shot. */
     prefill(): Warrior[] {
-        const py = Math.round(this._canvasToLocal(WALL_RB.y + (WALL_LT.y - WALL_RB.y) * 0.92));
+        const span = WALL_LT.y - WALL_RB.y;
+        const py   = Math.round(this._canvasToLocal(WALL_RB.y + span * 0.92));
+        const pyMid = Math.round(this._canvasToLocal(WALL_RB.y + span * 0.80));
         const px = Math.round((WALL_RB.x - WALL_LT.x) * 0.3);
-        const n  = this._activeSpecies.length;
+        const species = this._activeSpecies[0] ?? 0;
         const positions = [
             { x: -px, y: py },
-            { x:   0, y: py },
+            { x:   0, y: pyMid },
             { x:  px, y: py },
         ];
-        return positions.map(({ x, y }, i) => {
-            const w = Warrior.spawn(this._parent!, this._visualParent!, i % n, 1, x, y);
+        return positions.map(({ x, y }) => {
+            const w = Warrior.spawn(this._parent!, this._visualParent!, species, 1, x, y);
             w.crossedLine = true;
             w.fired       = true;
             w.onMergeReady = this.onMergeReady;

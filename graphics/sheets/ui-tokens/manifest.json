@@ -1,0 +1,11 @@
+{
+ "title": "Tokens",
+ "use": "gettoni dei poteri sulla pista, gia' in prospettiva e con lo spessore (SIMPLE, sizeMode CUSTOM); stessa immagine sull'icona del contatore HUD",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-18, progetto FunWarriors, chat \"Generate Game Sprite Sheet\" (2a versione: monete semplici, in prospettiva). Pezzi 427x315 nel sorgente. La v1 (faccia dritta + bordo separato) e' in v1/.",
+ "pieces": [
+  { "name": "token-wildriver",   "src": [62, 363, 509, 698],    "size": [72, 53], "slice": [0, 0, 0, 0] },
+  { "name": "token-brotherhood", "src": [543, 363, 990, 698],   "size": [72, 53], "slice": [0, 0, 0, 0] },
+  { "name": "token-psychoforce", "src": [1025, 363, 1472, 698], "size": [72, 53], "slice": [0, 0, 0, 0] }
+ ]
+}

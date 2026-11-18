@@ -6,6 +6,9 @@ const { ccclass, property } = _decorator;
 const LS_HINT_AIM   = 'fw_hint_aim_seen';
 const LS_HINT_MERGE = 'fw_hint_merge_seen';
 
+export type TutorialStep = 'aim' | 'merge';
+export type TutorialPhase = 'started' | 'completed';
+
 /**
  * In-gameplay onboarding hints (CrazyGames: land in gameplay, teach via visuals, skippable).
  * This component only DRIVES nodes authored in the editor — it never creates UI. Wire the hint
@@ -26,7 +29,13 @@ export class OnboardingHints extends Component {
     @property({ tooltip: 'Seconds after the shot is launched before the merge-goal hint fades out.' })
     mergeHoldSec = 1.5;
 
+    /** Telemetry hook (set by GameManager): a tutorial step was shown ('started') or done ('completed'). */
+    onStep: ((phase: TutorialPhase, step: TutorialStep) => void) | null = null;
+
     private _aimShown = false;
+    private _aimDone = false;
+    private _mergeShown = false;
+    private _mergeDone = false;
     private _handStart: Vec3 | null = null;
 
     start(): void {
@@ -50,6 +59,9 @@ export class OnboardingHints extends Component {
         SafeStorage.set(LS_HINT_AIM, '');
         SafeStorage.set(LS_HINT_MERGE, '');
         this._aimShown = false;
+        this._aimDone = false;
+        this._mergeShown = false;
+        this._mergeDone = false;
         this.maybeShowAimHint();  // MergeHint re-arms on the next merge (its flag is cleared too)
     }
 
@@ -62,12 +74,14 @@ export class OnboardingHints extends Component {
         op.opacity = 0;
         tween(op).to(0.3, { opacity: 255 }).start();
         this._startHandBob();
+        this._emit('started', 'aim');
     }
 
     /** Hide the aim hint (on first drag / launch) and remember it so it never shows again. */
     hideAimHint(): void {
         if (!this.aimHint || !this.aimHint.active) return;
         SafeStorage.set(LS_HINT_AIM, '1');
+        if (this._aimShown && !this._aimDone) { this._aimDone = true; this._emit('completed', 'aim'); }
         if (this.aimHand) {
             Tween.stopAllByTarget(this.aimHand);
             if (this._handStart) this.aimHand.setPosition(this._handStart);
@@ -88,6 +102,19 @@ export class OnboardingHints extends Component {
         Tween.stopAllByTarget(op);
         op.opacity = 0;
         tween(op).to(0.3, { opacity: 255 }).start();
+        this._mergeShown = true;
+        this._emit('started', 'merge');
+    }
+
+    /** First merge of the game: completes the merge step if its hint was shown in this game. */
+    notifyMerge(): void {
+        if (!this._mergeShown || this._mergeDone) return;
+        this._mergeDone = true;
+        this._emit('completed', 'merge');
+    }
+
+    private _emit(phase: TutorialPhase, step: TutorialStep): void {
+        try { this.onStep?.(phase, step); } catch { /* telemetry must never break the hints */ }
     }
 
     /** Fade the merge-goal hint out a few seconds after the shot is launched. */

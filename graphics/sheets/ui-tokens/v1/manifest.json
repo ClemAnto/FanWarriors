@@ -1,0 +1,12 @@
+{
+ "title": "Tokens",
+ "use": "gettoni dei poteri sulla pista (faccia dritta, il gioco la schiaccia come la pista) e bordo che fa da spessore sotto la faccia (SIMPLE, sizeMode CUSTOM)",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-18, progetto FunWarriors, chat \"Generate Game Sprite Sheet\". Pezzi 334x338 nel sorgente, tutti della stessa misura. size = misura in gioco prima dello schiacciamento.",
+ "pieces": [
+  { "name": "token-wildriver",   "src": [50, 339, 391, 684],   "size": [84, 85], "slice": [0, 0, 0, 0] },
+  { "name": "token-brotherhood", "src": [413, 339, 754, 684],  "size": [84, 85], "slice": [0, 0, 0, 0] },
+  { "name": "token-psychoforce", "src": [778, 339, 1120, 684], "size": [84, 85], "slice": [0, 0, 0, 0] },
+  { "name": "token-edge",        "src": [1142, 339, 1484, 684], "size": [84, 85], "slice": [0, 0, 0, 0] }
+ ]
+}

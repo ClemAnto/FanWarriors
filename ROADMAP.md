@@ -358,6 +358,21 @@
 
 - [ ] **Playtest con 5–10 persone esterne** (non saltare — è il test più importante)
 - [ ] Raccogliere feedback su: difficoltà, leggibilità, feel della fionda, chiarezza merge, timer
+
+#### Feedback playtester esterno (2026-11-17) — da tenere a mente, non ancora pianificato
+In ordine di importanza secondo il tester. Tra parentesi lo stato nel codice al 2026-11-17.
+- [ ] **Primo tiro → "Game Over" con 0 punti.** Da riprodurre: capire che cosa chiude la partita al primo lancio (timer? malus linea rossa?). Priorità massima.
+- [ ] **Tutorial guidato di 2-3 tiri** ("trascina per lanciare", "unisci uguali", "non fermarti sotto la linea rossa"). *(Esistono AimHint/MergeHint di `OnboardingHints.ts`, ma il tester non li ha percepiti; manca del tutto la linea rossa.)*
+- [ ] **Scambio col warrior "next" non scopribile** (tap su `nextPreviewNode` → `swapNextWithLauncher`): icona a due frecce o hint alla prima occasione.
+- [ ] **Livello del warrior poco leggibile** (numero piccolo, differenze spada/armatura sottili nella mischia): bollino colorato più grande.
+- [ ] **Linea rossa non spiegata** (malus −50 senza capire perché).
+- [ ] **Timer piccolo e in basso**: barra che si svuota sull'arco o lampeggio negli ultimi 3 s.
+- [ ] **Warrior speciali (bomba, aquila) senza spiegazione** *(la modale tutorial powerup esiste dalla v0.10.33: verificare quali non coprono e quale versione ha giocato il tester)*.
+- [ ] **Traiettoria tratteggiata** durante la mira.
+- [ ] **Tiri durante la ricarica ignorati in silenzio** (`InputController.handleDragStart` con `launchEnabled=false`): bufferizzare il tiro o far tremare l'arco.
+- [ ] **Trascinamento troppo corto ignorato in silenzio** (`len < MIN_DRAG_BASE` → solo `showCrossbowDefault`): dare un segnale.
+- [ ] **Bottone impostazioni vicino alla zona di tiro** (clic accidentali). *(La pausa all'apertura c'è già: `_enterSettingsPause`.)*
+- [ ] **"Sure?" incomprensibile** (`Settings.ts`, conferma a due passi del Quit): testo esplicito tipo "Quit game?" (UI in inglese).
 - [ ] Iterare su:
   - Curva soglie punteggio per avanzare di round
   - Timer di lancio per round (15s → 3s, forma della curva)

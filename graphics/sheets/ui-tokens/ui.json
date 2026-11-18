@@ -1,0 +1,52 @@
+{
+ "width": 1616,
+ "height": 675,
+ "scale": 2,
+ "pieces": [
+  {
+   "name": "token-wildriver",
+   "slot": {
+    "x": 24,
+    "y": 137,
+    "w": 144,
+    "h": 106
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "token-brotherhood",
+   "slot": {
+    "x": 24,
+    "y": 325,
+    "w": 144,
+    "h": 106
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "token-psychoforce",
+   "slot": {
+    "x": 24,
+    "y": 513,
+    "w": 144,
+    "h": 106
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ]
+}

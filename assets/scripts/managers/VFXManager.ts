@@ -1,5 +1,8 @@
 import { Node, Graphics, Color, Label, UIOpacity, Vec2, Vec3, tween, Tween, UITransform, SpriteFrame, Sprite, resources, Texture2D, Rect, gfx, Font, assetManager } from 'cc';
 
+/** Extra seconds the round-up banner (and the round-up freeze) lasts when a new species is revealed. */
+export const ROUND_UP_SPECIES_EXTRA_SEC = 0.8;
+
 // Scratch objects riusati negli onUpdate dei tween (per-frame) — i setter CC3
 // (Label.color, Sprite.color, Graphics.fillColor, UITransform.anchorPoint) copiano
 // il valore, quindi condividere l'istanza è sicuro. Mai trattenerli oltre la chiamata.
@@ -452,9 +455,12 @@ export class VFXManager {
         const T_CUR      = 0.30;
         const T_EXIT     = 0.84;  // old number starts flying up
         const T_ENTER    = 0.96;  // new number starts rising from below
-        const T_SPECIES  = 1.50;
-        const T_FADEOUT  = 1.74;
-        const T_DESTROY  = 2.10;
+        // A new species: its silhouette shows right away (with the ROUND word) and the banner stays
+        // ROUND_UP_SPECIES_EXTRA_SEC longer, so there is time to look at it.
+        const extra      = silhouetteFrame ? ROUND_UP_SPECIES_EXTRA_SEC : 0;
+        const T_SPECIES  = 0.36;
+        const T_FADEOUT  = 1.74 + extra;
+        const T_DESTROY  = 2.10 + extra;
         const T_FO_DUR   = T_DESTROY - T_FADEOUT;  // 0.36
 
         const root = new Node('RoundUpBanner');
@@ -574,12 +580,16 @@ export class VFXManager {
             // Dark violet instead of pure black + a gentle breathing pulse: reads as an
             // intentional "mystery creature" teaser rather than a stray shadow.
             silSp.color       = new Color(38, 22, 56, 255);
-            // Single breath — the row is only visible for ~0.6s and the root gets destroyed
-            // at T_DESTROY (no repeatForever on soon-to-die nodes).
+            // Pops in, then breathes gently until the banner fades (counted repeats: the root is
+            // destroyed at T_DESTROY, no repeatForever on soon-to-die nodes).
+            silNode.setScale(0.6, 0.6, 1);
+            const breaths = Math.max(1, Math.floor((T_FADEOUT - T_SPECIES - 0.3) / 0.7));
             tween(silNode)
                 .delay(T_SPECIES)
-                .to(0.30, { scale: new Vec3(1.07, 1.07, 1) }, { easing: 'sineInOut' })
-                .to(0.30, { scale: new Vec3(1, 1, 1) },       { easing: 'sineInOut' })
+                .to(0.30, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+                .repeat(breaths, tween<Node>()
+                    .to(0.35, { scale: new Vec3(1.07, 1.07, 1) }, { easing: 'sineInOut' })
+                    .to(0.35, { scale: new Vec3(1, 1, 1) },       { easing: 'sineInOut' }))
                 .start();
 
             const textNode = new Node('SpeciesText');

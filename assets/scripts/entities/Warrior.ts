@@ -183,6 +183,8 @@ export class Warrior extends Component {
         if (!rb) return;
         rb.linearDamping  = Warrior.settledDamping;
         rb.angularDamping = 5;
+        // Keep `bullet` on (set in buildPhysics): a settled warrior knocked by a shot moves fast too,
+        // and with the longer physics step (utils/PhysicsSpeed) it could pass through a neighbour.
         this.settled = true;
     }
 

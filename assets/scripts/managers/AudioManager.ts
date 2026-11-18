@@ -30,6 +30,11 @@ export enum SFX {
     DRAW               = 'audio/sfx/draw',
     WIN                = 'audio/sfx/win',
     SPAWN              = 'audio/sfx/spawn',
+    // Power tokens — PLACEHOLDERS on existing clips until the chosen files land (audio/listen.html)
+    TOKEN_APPEAR       = 'audio/sfx/token_appear',
+    TOKEN_VANISH       = 'audio/sfx/token_vanish',
+    TOKEN_COLLECT      = 'audio/sfx/token_collect',
+    POWER_READY        = 'audio/sfx/power_ready',
     MUSIC_MAIN         = 'audio/music/main',
     MUSIC_MENU         = 'audio/music/menu',
 }

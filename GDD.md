@@ -29,7 +29,7 @@ Un puzzle-arcade ibrido tra Suika Game e curling: lanci animaletti-guerrieri su 
 
 ## 5. Loop di gioco
 
-1. La partita inizia con **3 warrior prefill** già posizionati nella parte alta della pista (tipi 0, 1, 2 — un warrior per tipo), dando al giocatore targets immediati per il merge
+1. La partita inizia con **3 Rane di livello 1** già posizionate in fondo alla pista, a triangolo (quella centrale più vicina al giocatore) e abbastanza distanti da non attirarsi: ogni tiro può dare subito un merge (v0.10.42)
 2. Il giocatore vede un personaggio in attesa di lancio (bottom center) e l'anteprima del prossimo (NEXT)
 3. Mira con drag (angolo + forza visualizzati come freccia)
 4. Rilascia → il personaggio scivola sulla pista
@@ -63,9 +63,9 @@ Ogni specie ha una catena evolutiva a **4 livelli base**. Leone e Drago proseguo
 | # | Specie | Colore | Stile | Arma | Livello max 💥 | Introdotta al round |
 |---|--------|--------|-------|------|----------------|---------------------|
 | 1 | Rana | Verde | Agile | Pugnale | 3 — Soldato | 1 |
-| 2 | Gatto | Arancione | Agile | Spada | 3 — Soldato | 1 |
-| 3 | Gallina | Bianca | Comica | Lancia | 3 — Soldato | 1 |
-| 4 | Lupo | Grigio | Robusto | Ascia | 4 — Guerriero | 3 |
+| 2 | Gatto | Arancione | Agile | Spada | 3 — Soldato | 2 |
+| 3 | Gallina | Bianca | Comica | Lancia | 3 — Soldato | 3 |
+| 4 | Lupo | Grigio | Robusto | Ascia | 4 — Guerriero | 4 |
 | 5 | Aquila | Marrone | Fiera | Arco | 4 — Guerriero | 5 |
 | 6 | Leone | Dorato | Regale | Mazza | 5 | 7 |
 | 7 | Drago | Viola | Maestoso | Scettro di fuoco | 6 (vittoria) | 9 |
@@ -86,8 +86,10 @@ Stile Tetris: il gioco è endless ma diviso in **round di difficoltà crescente*
 
 | Round | Specie disponibili | Personaggi lanciabili | Timer lancio | Note |
 |-------|---------------------|------------------------|--------------|------|
-| 1-2 | 3 specie (Rana, Gatto, Gallina) | Solo livello 1 | ~15s | Tutorial implicito, pace lento |
-| 3-4 | 4 specie (+ Lupo) | Livello 1-2 | ~10s | Aumenta varietà |
+| 1 | 1 specie (Rana) | Solo livello 1 | ~15s | Tutorial implicito: ogni tiro può fondersi |
+| 2 | 2 specie (+ Gatto) | Livello 1-2 | ~15s | Una specie nuova per round (v0.10.42) |
+| 3 | 3 specie (+ Gallina) | Livello 1-2 | ~10s | |
+| 4 | 4 specie (+ Lupo) | Livello 1-2 | ~10s | Da qui la linea rossa scende a ogni specie nuova |
 | 5-6 | 5 specie (+ Aquila) | Livello 1-2 | ~8s | Drop più frequenti |
 | 7-8 | 6 specie (+ Leone) | Livello 1-3 | ~5s | Difficoltà media-alta |
 | 9-10 | 7 specie (+ Drago) | Livello 1-3 | ~4s | Tutte le specie attive |
@@ -483,7 +485,33 @@ livelloFinale   = floor(log₂(energiaFinale)) + 1
 
 ---
 
-## 15b. Powerup di soccorso e scoperta (2026-11-11)
+## 15a. Gettoni dei poteri (v0.10.42, 2026-11-18)
+
+Sostituiscono il soccorso automatico della §15b. Dal round 2 compare sulla pista (anche prima della linea rossa, mai sopra un warrior) **un gettone alla volta** con l'effige di un potere. La frequenza dipende da quanti warrior ci sono in pista (secondi di gioco attivo da una comparsa alla successiva; se il gettone precedente è ancora in pista il nuovo lo aspetta):
+
+| Warrior in pista | Un gettone ogni |
+|---|---|
+| meno di 15 | 20 s |
+| 15–24 | 12 s |
+| 25 o più (dove scattava il vecchio soccorso) | 8 s |
+
+Il gettone resta **8 s** (il tempo per due tiri mirati), **12 s** il primo della partita (nessuno lo spiega); lampeggia nell'ultimo secondo e mezzo e sparisce se nessuno lo tocca. Un warrior **in movimento** che ci passa sopra lo raccoglie: **+25 × round** punti e il gettone vola al suo contatore in alto al centro (HUD "n/soglia", solo per i poteri già sbloccati). Raggiunta la soglia, il potere si carica sul prossimo personaggio da lanciare (glow sul NEXT, medaglione sopra la testa; alla prima volta nella partita la modale tutorial) e il contatore riparte da 0.
+
+| Gettone | Dal round | Gettoni per attivare |
+|---|---|---|
+| Brotherhood | 2 | 3 |
+| WildRiver | 5 | 4 |
+| PsychoForce | 7 | 4 |
+
+**Nuova creatura:** la prima volta che una specie nuova (dal Gatto in poi) compare nella partita, invece dell'Aura sul warrior cadono gettoni, a 0,35 s l'uno dall'altro: **3 del potere sbloccato nello stesso round** (Gatto → Brotherhood, Aquila → WildRiver, Leone → PsychoForce), altrimenti **1** a caso (Gallina, Lupo, Drago).
+
+Taratura del 2026-11-18 sulla telemetria v0.10.40 (round 2 a ~0:35, round 5 a ~4:00, round 7 a ~7:30, fine partita al round 6–8): primo potere entro 1–2 minuti, poi pochi poteri con la pista vuota e uno ogni ~40–60 s con la pista piena. Da verificare con `token_collected` (`on_track`, `age_sec`) / `token_missed` (`on_track`): obiettivo ≥ 40% di gettoni raccolti anche con 25+ warrior.
+
+**Aspetto:** monetina piccola (50 px) disegnata già inclinata come la pista, con il suo spessore, sotto tutti i warrior (World/TokenLayer), niente alone: qualche luccichio ogni 1–2 s. Compare con uno zoom-in gommoso; alla raccolta mostra il punteggio bonus come un merge e vola al contatore con una curva continua (l'icona del contatore è la stessa moneta). Il contatore di un potere compare solo dal primo gettone di quel potere raccolto nella partita.
+
+Aura e REVIVE restano legati ai video rewarded (BOOST → Aura, REVIVE → Brotherhood): niente gettoni Aura. Gettoni e conteggi si fermano in pausa, nel cambio round e con le modali aperte; i conteggi sono salvati nella partita. Parametri in `data/PowerTokens.ts`; telemetria `token_collected` / `token_missed` / `rescue_powerup` (source `tokens`). Grafica: foglio `graphics/sheets/ui-tokens` (gettoni disegnati dritti, l'inclinazione la applica il gioco).
+
+## 15b. Powerup di soccorso e scoperta (2026-11-11) — *superata dalla §15a*
 
 Un solo **slot di soccorso** automatico, con lo stesso momento e la stessa frequenza del vecchio Brotherhood: **≥ 25 warrior in pista**, cooldown **condiviso** 10 lanci **e** 10 merge dopo qualunque soccorso. Cambia solo la **forma**, scelta in base alla pista e al round (sblocco progressivo = qualcosa da scoprire, difficoltà invariata):
 
