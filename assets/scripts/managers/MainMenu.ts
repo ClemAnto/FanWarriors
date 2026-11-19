@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, Button, director, view, ResolutionPolicy, resources, SpriteFrame, Sprite, UIOpacity, tween, find, Graphics, Color } from 'cc';
 import { AudioManager, SFX } from './AudioManager';
-import { VERSION, LS_PLAYED_ONCE, LS_MENU_ON_BOOT, GameManager } from './GameManager';
+import { VERSION, LS_PLAYED_ONCE, LS_MENU_ON_BOOT, LS_START_ROUND, GameManager, maxRoundReached } from './GameManager';
 import { SafeStorage } from '../utils/SafeStorage';
 import { PortalProvider } from '../services/PortalProvider';
 import { LEADERBOARD_ALLOWED, PORTAL } from '../config/PortalConfig';
@@ -35,6 +35,17 @@ export class MainMenu extends Component {
     powerupsButton: Node | null = null;
     @property({ type: PowerupInfoPanel, tooltip: 'Powerup tutorial modal (inactive in editor), catalog mode.' })
     powerupPanel: PowerupInfoPanel | null = null;
+    @property({ type: Node, tooltip: 'Round picker above PLAY (Center/StartRound, inactive in editor): shown once a game got past round 1.' })
+    startRoundRoot: Node | null = null;
+    @property({ type: Label, tooltip: 'Round picker value ("ROUND N").' })
+    startRoundLabel: Label | null = null;
+    @property({ type: Node, tooltip: 'Round picker ◀ button.' })
+    startRoundPrev: Node | null = null;
+    @property({ type: Node, tooltip: 'Round picker ▶ button.' })
+    startRoundNext: Node | null = null;
+
+    private _startRound = 1;
+    private _maxRound = 1;
 
     /** True once the MainMenu has run in this page session (first-visit skip applies only at boot). */
     private static _entered = false;
@@ -63,6 +74,7 @@ export class MainMenu extends Component {
         // Audio: shared singleton, mute state persisted in localStorage. Menu uses the tavern loop.
         AudioManager.instance.playMusic(SFX.MUSIC_MENU);
         AudioManager.instance.ensureMusic();
+        AudioManager.instance.startLoading();   // the menu is the first playable frame here
 
         // Portal SDK (no-op on standalone builds): entry scene = game loaded.
         const portal = PortalProvider.get();
@@ -81,6 +93,7 @@ export class MainMenu extends Component {
         if (this.versionLabel) this.versionLabel.string = `v${VERSION}`;
 
         this.playButton?.on(Button.EventType.CLICK, this.onPlay, this);
+        this._initRoundPicker();
         if (this.powerupsButton) {
             // Shown once at least one powerup has been discovered (nothing to browse before).
             this.powerupsButton.active = POWERUP_CATALOG.some(id => PowerupTutorialStore.isSeen(id));
@@ -108,12 +121,55 @@ export class MainMenu extends Component {
         }
     }
 
+    /**
+     * Round picker: after a game got past round 1, the next game can start from any round between 1
+     * and the highest ever reached (default: the last choice, else the highest). Hidden while a saved
+     * game is waiting (PLAY resumes it) and before any game got past round 1.
+     */
+    private _initRoundPicker(): void {
+        this._maxRound = maxRoundReached();
+        const stored = parseInt(SafeStorage.get(LS_START_ROUND) ?? '', 10);
+        this._startRound = Math.max(1, Math.min(this._maxRound, Number.isFinite(stored) ? stored : this._maxRound));
+        const show = this._maxRound > 1 && !GameManager.hasResumableGame();
+        if (!show) this._startRound = 1;
+        if (this.startRoundRoot) this.startRoundRoot.active = show;
+        if (!show) return;
+        this.startRoundPrev?.on(Button.EventType.CLICK, () => this._stepRound(-1), this);
+        this.startRoundNext?.on(Button.EventType.CLICK, () => this._stepRound(+1), this);
+        this._refreshRoundPicker();
+    }
+
+    private _stepRound(delta: number): void {
+        const r = Math.max(1, Math.min(this._maxRound, this._startRound + delta));
+        if (r === this._startRound) return;
+        this._startRound = r;
+        AudioManager.instance.play(SFX.UI_CLICK);
+        this._refreshRoundPicker();
+    }
+
+    private _refreshRoundPicker(): void {
+        if (this.startRoundLabel) this.startRoundLabel.string = `ROUND ${this._startRound}`;
+        const prev = this.startRoundPrev?.getComponent(Button);
+        const next = this.startRoundNext?.getComponent(Button);
+        if (prev) prev.interactable = this._startRound > 1;
+        if (next) next.interactable = this._startRound < this._maxRound;
+        const dim = (n: Node | null, on: boolean): void => {
+            if (!n) return;
+            const op = n.getComponent(UIOpacity) ?? n.addComponent(UIOpacity);
+            op.opacity = on ? 255 : 110;
+        };
+        dim(this.startRoundPrev, this._startRound > 1);
+        dim(this.startRoundNext, this._startRound < this._maxRound);
+    }
+
     private _playing = false;
 
     /** Public so it can also be wired via the editor's clickEvents if preferred. */
     onPlay(): void {
         if (this._playing) return;
         this._playing = true;
+        GameManager.requestedStartRound = this._startRound;
+        if (this.startRoundRoot?.active) SafeStorage.set(LS_START_ROUND, String(this._startRound));
         // No commercial break here: portals forbid ads before the first gameplay. PLAY goes straight
         // to the Game (single click into gameplay); onboarding is handled in-game.
         const target = GAME_SCENE;

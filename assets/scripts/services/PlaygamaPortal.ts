@@ -74,6 +74,10 @@ export class PlaygamaPortal implements PortalSdk {
     private _loadingFinishedSent = false;
     private _gameplayActive = false;
     private _stateHandlers: PlatformStateHandler[] = [];
+    /** An ad is on screen, and whether the Bridge pause seen meanwhile came with it (see _releaseAdPause). */
+    private _adActive = false;
+    private _pauseFromAd = false;
+    private _bridgePaused = false;   // last PAUSE_STATE_CHANGED value from the Bridge
     private _breakListener: ((state: string) => void) | null = null;
 
     init(): Promise<void> {
@@ -160,6 +164,7 @@ export class PlaygamaPortal implements PortalSdk {
                 this._detachBreakListener(bridge, ev);
                 this._breakListener = listener;
                 bridge.advertisement.on(ev, listener);
+                this._adActive = true;
                 bridge.advertisement.showInterstitial();
             } catch (e) {
                 console.warn('[Portal] Playgama showInterstitial threw (ignored):', e);
@@ -206,6 +211,7 @@ export class PlaygamaPortal implements PortalSdk {
             const safetyTimer = setTimeout(finish, REWARDED_TIMEOUT_MS);
             try {
                 bridge.advertisement.on(ev, listener);
+                this._adActive = true;
                 bridge.advertisement.showRewarded(REWARDED_PLACEMENT);
             } catch (e) {
                 console.warn('[Portal] Playgama showRewarded threw (ignored):', e);
@@ -229,6 +235,11 @@ export class PlaygamaPortal implements PortalSdk {
             });
             bridge.platform.on(bridge.EVENT_NAME.PAUSE_STATE_CHANGED, (paused: boolean) => {
                 if (paused) SafeStorage.flush();  // page may be about to close — persist now
+                // Only a pause that STARTS during an ad is the ad's: a repeated pause(true) while a real
+                // platform pause is already on must not turn it into a releasable one.
+                if (!paused) this._pauseFromAd = false;
+                else if (!this._bridgePaused) this._pauseFromAd = this._adActive;
+                this._bridgePaused = paused;
                 for (const h of this._stateHandlers) { try { h.pause(paused); } catch { /* ignore */ } }
             });
         } catch (e) {
@@ -240,9 +251,24 @@ export class PlaygamaPortal implements PortalSdk {
      * The Bridge raises PAUSE_STATE_CHANGED(true) while an ad is on screen, which stops the engine
      * (PlatformPause). The matching "resume" can arrive seconds late — or only on the next tap —
      * leaving the game frozen after the ad. The ad is over: resume now (handlers dedupe a later
-     * resume from the Bridge).
+     * resume from the Bridge). Only a pause that came WITH the ad is released: a real platform pause
+     * (app in background, host overlay) that started before the ad, or a hidden page, stays paused.
      */
     private _releaseAdPause(): void {
+        this._adActive = false;
+        if (!this._pauseFromAd) return;
+        if (typeof document !== 'undefined' && document.hidden) {
+            // Ad ended on a hidden page: release once the page is back, unless the Bridge resumed meanwhile
+            // (the release exists because that resume can arrive late or never).
+            const onVisible = (): void => {
+                if (document.hidden) return;
+                document.removeEventListener('visibilitychange', onVisible);
+                if (this._pauseFromAd && !this._adActive) this._releaseAdPause();
+            };
+            document.addEventListener('visibilitychange', onVisible);
+            return;
+        }
+        this._pauseFromAd = false;
         for (const h of this._stateHandlers) { try { h.pause(false); } catch { /* ignore */ } }
     }
 

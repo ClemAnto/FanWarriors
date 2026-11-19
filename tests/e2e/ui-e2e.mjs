@@ -22,6 +22,9 @@ const outArg = process.argv.indexOf('--out');
 const OUT = outArg > 0 ? process.argv[outArg + 1] : path.join(os.tmpdir(), 'funwarriors-ui-e2e');
 // --url <page>: test a published build (e.g. GitHub Pages) instead of the local build/web-mobile.
 const urlArg = process.argv.indexOf('--url');
+// Saved values: on the Playgama build SafeStorage keeps them in window.__fwStore (bridge.storage), not in localStorage.
+const STORE_GET = key => `(window.__fwStore && ('${key}' in window.__fwStore) ? window.__fwStore['${key}'] : cc.sys.localStorage.getItem('${key}'))`;
+const STORE_DEL = key => `(window.__fwStore && delete window.__fwStore['${key}'], cc.sys.localStorage.removeItem('${key}'), true)`;
 const PAGE_URL = urlArg > 0 ? process.argv[urlArg + 1] : null;
 const PORT = 8125, DEBUG_PORT = 9335;
 fs.mkdirSync(OUT, { recursive: true });
@@ -348,8 +351,8 @@ try {
         await tapNode('Card/DontShow', vp); await sleep(300);
         await expect(`${p} don't-show checkbox ticks`, `(() => { let m = null; const w = n => { if (n.name === 'Checkmark' && n.parent?.name === 'Box') m = n; n.children.forEach(w); }; w(cc.director.getScene()); return m && m.active; })()`);
         await tapNode('Card/Close', vp); await sleep(600);
-        await expect(`${p} closing with the box ticked mutes it`, `(cc.sys.localStorage.getItem('fw_pu_mute_brotherhood') === '1')`);
-        await evaluate(`cc.sys.localStorage.removeItem('fw_pu_mute_brotherhood'), true`);
+        await expect(`${p} closing with the box ticked mutes it`, `(${STORE_GET('fw_pu_mute_brotherhood')} === '1')`);
+        await evaluate(STORE_DEL('fw_pu_mute_brotherhood'));
 
         // End panels: GameOver with REVIVE, GameOver without, Victory with a new best.
         const showEnd = (illu, args) => `(() => { const s = cc.director.getScene(); const ps = []; const walk = n => { const c = n.getComponent('EndPanel'); if (c) ps.push(c); n.children.forEach(walk); }; walk(s);
@@ -415,8 +418,11 @@ try {
         await tapNode('Layout/Sfx', vp); await sleep(400);
         await tapNode('wood/CloseButton', vp); await sleep(700);
         await expect(`${p} Close hides settings`, `(() => { let d = null; const w = n => { if (n.name === 'Dialog') d = n; n.children.forEach(w); }; w(cc.director.getScene()); return !d.activeInHierarchy; })()`);
-        await pressCheck('Center/Ranking', vp, `${p} pressed button shrinks`);
-        await waitFor(`cc.director.getScene()?.name === 'Ranking'`).then(() => ok(`${p} menu Ranking → ranking`), () => fail(`${p} menu Ranking → ranking`));
+        // The LEADERBOARD button is hidden on portals that show their own leaderboard (Playgama Bridge).
+        if (await evaluate(`(() => { let b = null; const w = n => { if (n.name === 'Ranking' && n.parent?.name === 'Center') b = n; n.children.forEach(w); }; w(cc.director.getScene()); return !!b && b.activeInHierarchy; })()`)) {
+            await pressCheck('Center/Ranking', vp, `${p} pressed button shrinks`);
+            await waitFor(`cc.director.getScene()?.name === 'Ranking'`).then(() => ok(`${p} menu Ranking → ranking`), () => fail(`${p} menu Ranking → ranking`));
+        } else ok(`${p} menu Ranking hidden on this portal (platform leaderboard)`);
         await load('MainMenu'); await sleep(800);
         await tapNode('Center/PlayButton', vp);
         await waitFor(`cc.director.getScene()?.name === 'Game'`, 30000).then(() => ok(`${p} PLAY → game`), () => fail(`${p} PLAY → game`));
@@ -438,7 +444,7 @@ try {
     await sleep(2500); await evaluate(HELPERS);
     await evaluate(`__fw.comp('Settings').onQuit(), true`);
     await waitFor(`cc.director.getScene()?.name === 'MainMenu'`, 30000).then(() => ok('Quit → menu'), () => fail('Quit → menu'));
-    await expect('Quit deletes the saved game (PLAY starts a new one)', `localStorage.getItem('fw_game_state') === null`);
+    await expect('Quit deletes the saved game (PLAY starts a new one)', `${STORE_GET('fw_game_state')} == null`);
     await sleep(4000);
     await expect('menu stays after Quit (no bounce into the game)', `cc.director.getScene()?.name === 'MainMenu'`);
     await send('Page.navigate', { url: home });

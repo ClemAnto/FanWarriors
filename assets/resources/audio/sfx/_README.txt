@@ -25,3 +25,12 @@ Gettoni dei poteri (2026-11-18, scelti da audio/library, crediti completi in aud
   token_collect.mp3  CC0  Fupicat, Freesound #538146 "Plingy Coin"
   token_vanish.mp3   CC0  Kenney, "Interface Sounds" minimize_004
   power_ready.mp3    CC0  colorsCrimsonTears, Freesound #577965 "rpgPowerup"
+
+Powerup (2026-11-19, scelti da Claude su richiesta dell'utente in base ad attacco/durata: il suono deve partire subito, in sincrono con l'effetto; alternative in audio/listen.html; tagliati e normalizzati a -18 LUFS):
+  thunder_strike.mp3  CC0  loganzsound, Freesound #840628 "Closeup Thunder Strike 01"
+  lightning_zap.mp3   CC0  Kenney, "Digital Audio" zap1
+  aura_zap.mp3        CC0  Mr._Fritz_, Freesound #545238 "Item Sparkle"
+  energy_absorb.mp3   CC0  MLaudio, Freesound #511484 "success_bell"
+  implode.mp3         CC0  qubodup, Freesound #814047 "Fantasy Implosion"
+  psycho_force.mp3    CC0  LilMati, Freesound #441225 "Teleport"
+  shrink_embers.mp3   CC0  alienistcog, Freesound #123711 "burner-sizzle-short"

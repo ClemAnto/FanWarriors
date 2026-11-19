@@ -1,0 +1,16 @@
+{
+ "title": "Arena hazards",
+ "use": "difficoltà delle arene (ArenaHazards): lastra di ghiaccio, corsia di fango, crepa di lava, masso e scheggia di lava, teschio e buca delle segrete; SIMPLE, sizeMode CUSTOM, dimensionati da codice",
+ "scale": 2,
+ "outDir": "assets/resources/hazards",
+ "note": "ChatGPT 2026-11-19, progetto FunWarriors, chat \"Generate Hazard Sprite Sheet\" (allegati game-desktop.png e ui-tokens/source.png). Caricati con resources.load solo nell'arena che li usa.",
+ "pieces": [
+  { "name": "ice-patch",  "src": [36, 128, 639, 373],   "size": [220, 86],  "slice": [0, 0, 0, 0] },
+  { "name": "mud-pool",   "src": [661, 42, 977, 1042],  "size": [110, 360], "slice": [0, 0, 0, 0] },
+  { "name": "lava-crack", "src": [35, 441, 640, 666],   "size": [220, 78],  "slice": [0, 0, 0, 0] },
+  { "name": "lava-rock",  "src": [1034, 74, 1403, 415], "size": [130, 120], "slice": [0, 0, 0, 0] },
+  { "name": "lava-shard", "src": [1115, 469, 1292, 621], "size": [56, 47],  "slice": [0, 0, 0, 0] },
+  { "name": "skull-head", "src": [1035, 658, 1369, 1019], "size": [120, 130], "slice": [0, 0, 0, 0] },
+  { "name": "floor-hole", "src": [34, 754, 618, 1020],  "size": [200, 88],  "slice": [0, 0, 0, 0] }
+ ]
+}

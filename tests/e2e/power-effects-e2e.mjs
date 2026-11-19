@@ -108,6 +108,23 @@ try {
     await evaluate(HELPERS);
     check('lightning prefabs loaded', await waitFor(() => evaluate(`(() => { const l = __fx.gm._lightning; return !!(l && l.segmentPrefab && l.flashPrefab && l.impactSparkPrefab); })()`), 8000));
 
+    const POWER_SFX = ['thunder_strike', 'lightning_zap', 'aura_zap', 'energy_absorb', 'implode', 'psycho_force', 'shrink_embers'];
+    const sfxOk = await waitFor(() => evaluate(`(() => { const n = cc.director.getScene().getChildByName('AudioManager'); const am = n && n.getComponent('AudioManager'); if (!am) return false;
+        return ${JSON.stringify(POWER_SFX)}.every(id => !!am._clips.get('audio/sfx/' + id)); })()`), 10000);
+    check('powerup sounds loaded (thunder, zap, aura, absorb, implode, psycho, shrink)', sfxOk);
+    await waitFor(() => evaluate(`!!cc.director.getScene().getChildByName('AudioManager').getComponent('AudioManager')._clips.get('audio/sfx/round_up')`), 10000);
+    const pile = await evaluate(`(() => { const am = cc.director.getScene().getChildByName('AudioManager').getComponent('AudioManager');
+        const burst = [...Array(10)].map(() => am.play('audio/sfx/thunder_strike', 0)).filter(Boolean).length;
+        const mixed = ['hit', 'bounce', 'merge_1', 'merge_2', 'implode', 'aura_zap', 'energy_absorb', 'lightning_zap', 'explosion_1', 'spawn', 'land']
+            .map(id => am.play('audio/sfx/' + id, 0)).filter(Boolean).length;
+        const always = am.play('audio/sfx/round_up', 0);
+        return { burst, mixed, voices: am._voices.length, always }; })()`);
+    check('sounds: a burst of the same sound plays once', pile.burst === 1, pile);
+    check('sounds: at most 7 ringing at once, game-info sounds always play', pile.mixed <= 6 && pile.always === true, pile);
+    await sleep(2500);
+    // Count the powerup sounds actually played from here on.
+    await evaluate(`(() => { const am = cc.director.getScene().getChildByName('AudioManager').getComponent('AudioManager'); window.__sfx = {}; const orig = am.play.bind(am); am.play = (s, v) => { __sfx[s] = (__sfx[s] || 0) + 1; return orig(s, v); }; return true; })()`);
+
     // ---------------- AURA: dissolve burst + spark back to the carrier
     await evaluate(`__fx.quiet()`);
     await evaluate(`(() => {
@@ -222,6 +239,7 @@ try {
         const lonely = __fx.spawn(5, 4, 0, 150);                                   // nothing of its kind or level near
         window.__tr = { carrier, kin, close, lonely, bolts: 0, orbs: 0 };
         __tr.predicted = [...kin, ...close, lonely].filter(w => gm._isIsolated(w, carrier)).length;
+        __tr.targets = gm._thunderTargets(carrier);
         gm._attachThunder(carrier);
         carrier.launched = true;                 // stands in for the launched warrior, at rest on the track
         __tr.timer = setInterval(() => {
@@ -232,19 +250,74 @@ try {
         return true;
     })()`);
     check('thunder rain: only the lonely warrior counts as isolated', await evaluate(`__tr.predicted === 1`), await evaluate(`__tr.predicted`));
+    check('thunder rain: fewer than 3 isolated → topped up with the most isolated others (3 bolts, the lonely one first)', await evaluate(`__tr.targets.length === 3 && __tr.targets[0] === __tr.lonely`), await evaluate(`__tr.targets.map(w => w.type + ':' + w.level)`));
     check('thunder rain: the turn waits for the storm', await evaluate(`__fx.gm._thunderPending()`));
     await waitFor(() => evaluate(`__tr.bolts > 0`), 2500, 30);
     await sleep(120);
     await shot('thunder-1-bolt');
     check('thunder rain: a golden bolt falls from the sky', await evaluate(`__tr.bolts > 0`), await evaluate(`__tr.bolts`));
-    check('thunder rain: the isolated warrior is destroyed', await waitFor(() => evaluate(`!__fx.alive(__tr.lonely)`), 3000));
-    check('thunder rain: its energy sphere flies to the carrier', await waitFor(() => evaluate(`__tr.orbs > 0`), 2000, 30));
-    check('thunder rain: same-species and similar-level neighbours survive', await evaluate(`[...__tr.kin, ...__tr.close].every(w => __fx.alive(w))`));
-    const trEvolved = await waitFor(() => evaluate(`__fx.gm.warriors.some(w => w.type === 0 && w.level === 2 && w.node.isValid)`), 5000);
-    check('thunder rain: the carrier gains a level (Σ levels 4 → +1)', trEvolved, await evaluate(`__fx.gm.warriors.map(w => w.type + ':' + w.level)`));
+    check('thunder rain: the struck warriors are destroyed', await waitFor(() => evaluate(`__tr.targets.every(w => !__fx.alive(w))`), 3000));
+    check('thunder rain: energy spheres fly to the carrier', await waitFor(() => evaluate(`__tr.orbs > 0`), 2000, 30));
+    check('thunder rain: the others survive', await evaluate(`[...__tr.kin, ...__tr.close].filter(w => !__tr.targets.includes(w)).every(w => __fx.alive(w))`));
+    const trEvolved = await waitFor(() => evaluate(`__fx.gm.warriors.some(w => w.type === 0 && w.level >= 2 && w.node.isValid)`), 5000);
+    check('thunder rain: the carrier gains levels', trEvolved, await evaluate(`__fx.gm.warriors.map(w => w.type + ':' + w.level)`));
     check('thunder rain: storm over, the turn can go on', await waitFor(() => evaluate(`!__fx.gm._thunderPending()`), 3000));
     await evaluate(`clearInterval(__tr.timer), true`);
     await shot('thunder-2-after');
+
+    // ---------------- THUNDER RAIN, crowded track: nobody isolated, and the carrier merges on its way
+    await sleep(800);
+    await evaluate(`__fx.quiet()`);
+    await waitFor(() => evaluate(`__fx.gm.state === 1 && !!__fx.gm.inputCtrl.warrior`), 10000);
+    await evaluate(`(() => {
+        const gm = __fx.gm;
+        const carrier = __fx.spawn(0, 1, 0, -130);
+        const twin = __fx.spawn(0, 1, 0, -130);                     // same frog right on it: they merge
+        twin.node.setPosition(carrier.node.position.x + carrier.radius * 0.5 / gm.box2dLayer.scale.x, carrier.node.position.y, 0);
+        const flock = [[-70, 40, 1], [-10, 40, 2], [50, 40, 1], [110, 40, 2], [20, 110, 1]].map(([x, y, lv]) => __fx.spawn(2, lv, x, y));
+        window.__tc = { carrier, flock, bolts: 0, carriers: [] };
+        __tc.isolated = flock.filter(w => gm._isIsolated(w, carrier)).length;
+        gm._attachThunder(carrier);
+        carrier.launched = true;
+        __tc.timer = setInterval(() => {
+            const c = gm._thunderCarrier; if (c && !__tc.carriers.includes(c)) __tc.carriers.push(c);
+            const fx = gm._thunderLightning && gm._thunderLightning.node.getChildByName('ManaLightningFX');
+            if (fx) __tc.bolts = Math.max(__tc.bolts, fx.children.filter(c => c.active).length);
+        }, 16);
+        return true;
+    })()`);
+    check('thunder rain (crowded): nobody is isolated', await evaluate(`__tc.isolated === 0`), await evaluate(`__tc.isolated`));
+    check('thunder rain (crowded): the carrier merges and the merged warrior keeps the storm', await waitFor(() => evaluate(`__tc.carriers.length >= 2 && __tc.carriers[1].level === 2`), 4000, 30), await evaluate(`__tc.carriers.map(w => w.type + ':' + w.level)`));
+    check('thunder rain (crowded): bolts still fall', await waitFor(() => evaluate(`__tc.bolts > 0`), 4000, 30));
+    check('thunder rain (crowded): 3 of the least connected warriors struck', await waitFor(() => evaluate(`__tc.flock.filter(w => !__fx.alive(w)).length === 3`), 4000), await evaluate(`__tc.flock.filter(w => !__fx.alive(w)).length`));
+    check('thunder rain (crowded): storm over', await waitFor(() => evaluate(`!__fx.gm._thunderPending()`), 5000));
+    await evaluate(`clearInterval(__tc.timer), true`);
+
+    // ---------------- THUNDER RAIN, real turn: charged by tokens onto the launcher, launched, lands, strikes
+    await sleep(800);
+    await evaluate(`__fx.quiet()`);
+    await waitFor(() => evaluate(`__fx.gm.state === 1 && !!__fx.gm.inputCtrl.warrior`), 10000);
+    await evaluate(`(() => {
+        const gm = __fx.gm;
+        window.__tl = { flock: [[-110, 120, 3], [110, 120, 1], [0, 200, 2]].map(([x, y, lv]) => __fx.spawn([1, 3, 4][Math.abs(x) % 3], lv, x, y)), bolts: 0, events: [] };
+        const te = gm._trackEvent.bind(gm); gm._trackEvent = (n, d) => { __tl.events.push(n); return te(n, d); };
+        gm._tokenReady.push('thunderRain');
+        gm.activateWarrior(gm.inputCtrl.warrior);
+        __tl.charged = gm._thunderCarrier === gm.inputCtrl.warrior;
+        __tl.timer = setInterval(() => {
+            const fx = gm._thunderLightning && gm._thunderLightning.node.getChildByName('ManaLightningFX');
+            if (fx) __tl.bolts = Math.max(__tl.bolts, fx.children.filter(c => c.active).length);
+        }, 16);
+        gm.inputCtrl.autoLaunch();
+        return true;
+    })()`);
+    check('thunder rain (real turn): the token charge lands on the launcher', await evaluate(`__tl.charged`));
+    check('thunder rain (real turn): after the launch the storm breaks', await waitFor(() => evaluate(`__tl.bolts > 0 && __tl.events.includes('thunder_rain')`), 12000, 50), await evaluate(`({ bolts: __tl.bolts, events: __tl.events })`));
+    check('thunder rain (real turn): the game goes on to the next launcher', await waitFor(() => evaluate(`__fx.gm.state === 1 && !__fx.gm._thunderPending()`), 10000));
+    await evaluate(`clearInterval(__tl.timer), true`);
+
+    const played = await evaluate(`__sfx`);
+    check('sounds: aura zap, energy absorb, implosion, river zap, thunder strike played', ['aura_zap', 'energy_absorb', 'implode', 'lightning_zap', 'thunder_strike'].every(id => played['audio/sfx/' + id] > 0), played);
 
     // ---------------- NEW SPECIES: spotlight the first time a species shows up in the game
     await sleep(1000);
@@ -309,6 +382,23 @@ try {
     const flightMs = await evaluate(`Math.round(performance.now() - __tk.t0)`);
     check('token: it leaves after the hover and lands on the counter (2.2–3.6 s after the pickup)', landed && flightMs >= 2200 && flightMs <= 3600, flightMs);
 
+    // ---------------- MERGE TIMING: equal warriors merge right away, even after a hard hit that bounces them apart
+    const mergeAfter = async setup => {
+        await evaluate(`__fx.quiet()`);
+        await sleep(300);
+        return evaluate(`new Promise(res => { const gm = __fx.gm; ${setup}
+            const t0 = performance.now(); let merge = null;
+            const om = gm.mergeWarriors.bind(gm); gm.mergeWarriors = (x, y) => { if (merge === null) merge = Math.round(performance.now() - t0); return om(x, y); };
+            setTimeout(() => { gm.mergeWarriors = om; res(merge); }, 3000);
+        })`);
+    };
+    const mHard = await mergeAfter(`const a = __fx.spawn(0, 1, -45, 40), b = __fx.spawn(0, 1, 45, 40); a.velocity = new cc.Vec2(25, 0);`);
+    check('merge: a hard hit merges at once (no bounce-apart cancel)', mHard !== null && mHard < 900, mHard);
+    const mRest = await mergeAfter(`const a = __fx.spawn(0, 1, 0, 40), b = __fx.spawn(0, 1, 0, 40); b.node.setPosition(a.node.position.x + a.radius * 2.03 / gm.box2dLayer.scale.x, a.node.position.y, 0);`);
+    check('merge: two equal warriors resting side by side merge within half a second', mRest !== null && mRest < 600, mRest);
+    const mGuard = await mergeAfter(`const a = __fx.spawn(0, 1, 0, 40), b = __fx.spawn(0, 1, 0, 40); b.node.setPosition(a.node.position.x + a.radius * 2.03 / gm.box2dLayer.scale.x, a.node.position.y, 0); b.brotherhoodInfected = true;`);
+    check('merge: a warrior held by a power (Brotherhood) is not merged by the proximity check', mGuard === null, mGuard);
+
     // ---------------- SHRINK: the round-ups that lower the game-over line shrink every warrior, burning off embers
     await sleep(1200);
     await evaluate(`__fx.quiet()`);
@@ -331,6 +421,7 @@ try {
     check('shrink: the sprite eases down from the old size', step.anim > 1.0 && step.anim < 1.08, step.anim);
     await sleep(1600);
     check('shrink: sprite settled at the new size', await evaluate(`Math.abs(__sh.probe.mapper.animScale - 1) < 1e-3`));
+    check('sounds: the shrink sizzles', await evaluate(`(__sfx['audio/sfx/shrink_embers'] || 0) > 0`));
     const roundUp = async round => { await evaluate(`(() => { const gm = __fx.gm; gm.currentRound = ${round}; gm._shrinkWarriors(); return true; })()`); return evaluate(`${W}.sizeScale`); };
     const f9 = await roundUp(9), f12 = await roundUp(12);
     check('shrink: 0.75 when the Dragon arrives (round 9), never below after', Math.abs(f9 - 0.75) < 1e-9 && Math.abs(f12 - 0.75) < 1e-9, { f9, f12 });

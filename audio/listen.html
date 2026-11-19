@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FunWarriors · Suoni gettoni</title>
+<title>FunWarriors · Suoni powerup</title>
 <style>
 :root{--bg:#f6f1e7;--card:#fffaf0;--ink:#3b2f2a;--muted:#8a7b70;--accent:#c8643b;--ok:#4f8a3c;--pick:#e6f1dc;--line:#e3d8c6}
 *{box-sizing:border-box}body{background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif;padding:16px;max-width:1100px;margin:auto}
@@ -18,136 +18,226 @@ button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .meta{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cand.chosen .choose{background:var(--ok);color:#fff;border-color:var(--ok)}
 #out{width:100%;font:12px ui-monospace,monospace;margin-top:8px}
 </style></head><body>
-<h1>FunWarriors · Suoni dei gettoni</h1>
-<p class="hint">Ascolta con ▶, scegli un candidato per ogni suono, poi <b>Copia scelte</b> e incolla il JSON in chat. In fondo, per confrontare stile e volume, alcuni suoni già nel gioco. I candidati sono solo tagliati, non normalizzati: il volume finale lo uniforma l'import.</p>
+<h1>FunWarriors · Suoni dei powerup</h1>
+<p class="hint">Ascolta con ▶, scegli un candidato per ogni suono, poi <b>Copia scelte</b> e incolla il JSON in chat. In fondo, per confrontare stile e volume, alcuni suoni già nel gioco. I candidati sono già tagliati e normalizzati (−18 LUFS). Nel gioco ora c'è una scelta provvisoria per ogni suono (vedi <code>assets/resources/audio/sfx/_README.txt</code>): quella che scegli qui la sostituisce.</p>
 <div id="ids"></div>
 <div class="card"><h2>Riferimento: suoni già nel gioco</h2><p>Per confrontare stile e volume.</p><div class="grid" id="refs"></div></div>
 <div class="card"><button class="primary" id="copy">Copia scelte</button> <span id="msg" class="hint"></span><textarea id="out" rows="6" readonly></textarea></div>
 <script>
 const DATA = {
- "token_appear": {
-  "desc": "Il gettone compare sulla pista: pop/chime magico leggero",
+ "thunder_strike": {
+  "desc": "THUNDER RAIN: un fulmine dal cielo colpisce un warrior isolato (tuono secco, breve; ne cadono fino a 8 di fila)",
   "cands": [
    {
-    "file": "library/token_appear/fs-511485-wink-sparkle.mp3",
-    "name": "fs-511485-wink-sparkle.mp3",
-    "meta": "Freesound #511485 · MLaudio · CC0 · \"cartoon_wink_magic_sparkle.wav\""
+    "file": "library/thunder_strike/fs-200990-rayjensen-thunder-crack-.mp3",
+    "name": "fs-200990-rayjensen-thunder-crack-.mp3",
+    "meta": "Freesound #200990 · rayjensen · CC0 · \"rayjensen - thunder-crack 41k 16bit mono.wav\""
    },
    {
-    "file": "library/token_appear/fs-714257-puff.mp3",
-    "name": "fs-714257-puff.mp3",
-    "meta": "Freesound #714257 · qubodup · CC0 · \"Puff of Smoke\""
+    "file": "library/thunder_strike/fs-242048-lightning-strike.mp3",
+    "name": "fs-242048-lightning-strike.mp3",
+    "meta": "Freesound #242048 · Turrus · CC0 · \"Lightning Strike\""
    },
    {
-    "file": "library/token_appear/funkoolkan-spawn.mp3",
-    "name": "funkoolkan-spawn.mp3",
-    "meta": "FunKoolkan (progetto dell'utente) · spawn.mp3, già nel gioco come \"spawn\""
+    "file": "library/thunder_strike/fs-361772-2016-10-06-thunder-crack.mp3",
+    "name": "fs-361772-2016-10-06-thunder-crack.mp3",
+    "meta": "Freesound #361772 · kingsrow · CC0 · \"2016-10-06 Thunder Crack.wav\""
    },
    {
-    "file": "library/token_appear/kenney-jingles_NES02.mp3",
-    "name": "kenney-jingles_NES02.mp3",
-    "meta": "Kenney Music Jingles · jingles_NES02 · CC0"
+    "file": "library/thunder_strike/fs-646912-lightning-strike-2.mp3",
+    "name": "fs-646912-lightning-strike-2.mp3",
+    "meta": "Freesound #646912 · alexdarek · CC0 · \"Lightning strike 2\""
    },
    {
-    "file": "library/token_appear/kenney-maximize_004.mp3",
-    "name": "kenney-maximize_004.mp3",
-    "meta": "Kenney Interface Sounds · maximize_004 · CC0"
+    "file": "library/thunder_strike/fs-840628-closeup-thunder-strike-0.mp3",
+    "name": "fs-840628-closeup-thunder-strike-0.mp3",
+    "meta": "Freesound #840628 · loganzsound · CC0 · \"Closeup Thunder Strike 01\""
    }
   ]
  },
- "token_vanish": {
-  "desc": "Il gettone sparisce senza essere preso: fizz/whoosh morbido discendente",
+ "lightning_zap": {
+  "desc": "WILD RIVER: il contagio salta da un warrior al successivo con un fulmine (scarica elettrica corta, suona ogni 0,15 s)",
   "cands": [
    {
-    "file": "library/token_vanish/fs-512217-poof-cloud.mp3",
-    "name": "fs-512217-poof-cloud.mp3",
+    "file": "library/lightning_zap/fs-136542-electric-zap-001.mp3",
+    "name": "fs-136542-electric-zap-001.mp3",
+    "meta": "Freesound #136542 · JoelAudio · CC0 · \"ELECTRIC_ZAP_001.wav\""
+   },
+   {
+    "file": "library/lightning_zap/fs-512471-electric-zap.mp3",
+    "name": "fs-512471-electric-zap.mp3",
+    "meta": "Freesound #512471 · michael_grinnell · CC0 · \"Electric zap.wav\""
+   },
+   {
+    "file": "library/lightning_zap/fs-536741-zap.mp3",
+    "name": "fs-536741-zap.mp3",
+    "meta": "Freesound #536741 · egomassive · CC0 · \"Zap.ogg\""
+   },
+   {
+    "file": "library/lightning_zap/fs-853286-tesla-tower-zap-electric.mp3",
+    "name": "fs-853286-tesla-tower-zap-electric.mp3",
+    "meta": "Freesound #853286 · el_boss · CC0 · \"Tesla Tower Zap - Electric Zap Short - Game SFX\""
+   },
+   {
+    "file": "library/lightning_zap/kenney-zap1.mp3",
+    "name": "kenney-zap1.mp3",
+    "meta": "Kenney Digital Audio · zap1 · CC0"
+   },
+   {
+    "file": "library/lightning_zap/kenney-zapTwoTone.mp3",
+    "name": "kenney-zapTwoTone.mp3",
+    "meta": "Kenney Digital Audio · zapTwoTone · CC0"
+   }
+  ]
+ },
+ "aura_zap": {
+  "desc": "AURA: un warrior respinto si dissolve in una scintilla (sparkle magico)",
+  "cands": [
+   {
+    "file": "library/aura_zap/fs-211624-magic-wand-glitter.mp3",
+    "name": "fs-211624-magic-wand-glitter.mp3",
+    "meta": "Freesound #211624 · qubodup · CC0 · \"Magic Wand Glitter\""
+   },
+   {
+    "file": "library/aura_zap/fs-545238-item-sparkle.mp3",
+    "name": "fs-545238-item-sparkle.mp3",
+    "meta": "Freesound #545238 · Mr._Fritz_ · CC0 · \"Item Sparkle\""
+   },
+   {
+    "file": "library/aura_zap/fs-584244-magic-stars-retro-sparkl.mp3",
+    "name": "fs-584244-magic-stars-retro-sparkl.mp3",
+    "meta": "Freesound #584244 · smokinghotdog · CC0 · \"Magic Stars Retro Sparkle\""
+   },
+   {
+    "file": "library/aura_zap/kenney-phaserUp3.mp3",
+    "name": "kenney-phaserUp3.mp3",
+    "meta": "Kenney Digital Audio · phaserUp3 · CC0"
+   },
+   {
+    "file": "library/aura_zap/kenney-powerUp4.mp3",
+    "name": "kenney-powerUp4.mp3",
+    "meta": "Kenney Digital Audio · powerUp4 · CC0"
+   }
+  ]
+ },
+ "energy_absorb": {
+  "desc": "Scintilla / sfera di energia che arriva al warrior lanciato (Aura, Brotherhood, Thunder Rain): chime di assorbimento",
+  "cands": [
+   {
+    "file": "library/energy_absorb/fs-351408-gleam-glow-sfx-chime.mp3",
+    "name": "fs-351408-gleam-glow-sfx-chime.mp3",
+    "meta": "Freesound #351408 · newagesoup · CC0 · \"GLEAM-GLOW-SFX-CHIME.wav\""
+   },
+   {
+    "file": "library/energy_absorb/fs-399294-synth-sparkle.mp3",
+    "name": "fs-399294-synth-sparkle.mp3",
+    "meta": "Freesound #399294 · komit.wav · CC0 · \"Synth Sparkle\""
+   },
+   {
+    "file": "library/energy_absorb/fs-511484-success-bell.mp3",
+    "name": "fs-511484-success-bell.mp3",
+    "meta": "Freesound #511484 · MLaudio · CC0 · \"success_bell\""
+   },
+   {
+    "file": "library/energy_absorb/kenney-highUp.mp3",
+    "name": "kenney-highUp.mp3",
+    "meta": "Kenney Digital Audio · highUp · CC0"
+   },
+   {
+    "file": "library/energy_absorb/kenney-powerUp2.mp3",
+    "name": "kenney-powerUp2.mp3",
+    "meta": "Kenney Digital Audio · powerUp2 · CC0"
+   }
+  ]
+ },
+ "implode": {
+  "desc": "BROTHERHOOD / WILD RIVER: un warrior implode (risucchio magico breve)",
+  "cands": [
+   {
+    "file": "library/implode/fs-121942-implosion-near.mp3",
+    "name": "fs-121942-implosion-near.mp3",
+    "meta": "Freesound #121942 · Klerrp · CC0 · \"implosion_near.WAV\""
+   },
+   {
+    "file": "library/implode/fs-512217-poof-in-cloud.mp3",
+    "name": "fs-512217-poof-in-cloud.mp3",
     "meta": "Freesound #512217 · Mateusz_Chenc · CC0 · \"Poof in cloud\""
    },
    {
-    "file": "library/token_vanish/fs-802472-magic-disappear.mp3",
-    "name": "fs-802472-magic-disappear.mp3",
+    "file": "library/implode/fs-802472-whoosh-magic-disappear.mp3",
+    "name": "fs-802472-whoosh-magic-disappear.mp3",
     "meta": "Freesound #802472 · Sadiquecat · CC0 · \"Whoosh - Magic disappear\""
    },
    {
-    "file": "library/token_vanish/fs-879801-celesta-descending.mp3",
-    "name": "fs-879801-celesta-descending.mp3",
-    "meta": "Freesound #879801 · Qvantor · CC0 · \"Celesta Chime Descending\""
+    "file": "library/implode/fs-814047-fantasy-implosion.mp3",
+    "name": "fs-814047-fantasy-implosion.mp3",
+    "meta": "Freesound #814047 · qubodup · CC0 · \"Fantasy Implosion\""
    },
    {
-    "file": "library/token_vanish/kenney-minimize_004.mp3",
-    "name": "kenney-minimize_004.mp3",
-    "meta": "Kenney Interface Sounds · minimize_004 · CC0"
-   },
-   {
-    "file": "library/token_vanish/kenney-phaserDown3.mp3",
-    "name": "kenney-phaserDown3.mp3",
-    "meta": "Kenney Digital Audio · phaserDown3 · CC0"
+    "file": "library/implode/kenney-phaserDown1.mp3",
+    "name": "kenney-phaserDown1.mp3",
+    "meta": "Kenney Digital Audio · phaserDown1 · CC0"
    }
   ]
  },
- "token_collect": {
-  "desc": "Un personaggio raccoglie il gettone: moneta brillante + scintilla",
+ "psycho_force": {
+  "desc": "PSYCHO FORCE: la fascia psichica parte e unisce warrior di specie diverse (suono \"mentale\")",
   "cands": [
    {
-    "file": "library/token_collect/fs-347174-coin-v02.mp3",
-    "name": "fs-347174-coin-v02.mp3",
-    "meta": "Freesound #347174 · Davidsraba · CC0 · \"Coin Pickup Sound V 0.2\""
+    "file": "library/psycho_force/fs-264981-sfx-magic.mp3",
+    "name": "fs-264981-sfx-magic.mp3",
+    "meta": "Freesound #264981 · renatalmar · CC0 · \"SFX Magic\""
    },
    {
-    "file": "library/token_collect/fs-538146-plingy-coin.mp3",
-    "name": "fs-538146-plingy-coin.mp3",
-    "meta": "Freesound #538146 · Fupicat · CC0 · \"Plingy Coin\""
+    "file": "library/psycho_force/fs-395442-danny-phantom-transform.mp3",
+    "name": "fs-395442-danny-phantom-transform.mp3",
+    "meta": "Freesound #395442 · plasterbrain · CC0 · \"Danny Phantom Transform\""
    },
    {
-    "file": "library/token_collect/fs-876168-coin-loot.mp3",
-    "name": "fs-876168-coin-loot.mp3",
-    "meta": "Freesound #876168 · Assetsmith · CC0 · \"Coin Pickup Loot Sound (Fantasy RPG)\""
+    "file": "library/psycho_force/fs-441225-teleport.mp3",
+    "name": "fs-441225-teleport.mp3",
+    "meta": "Freesound #441225 · LilMati · CC0 · \"Teleport\""
    },
    {
-    "file": "library/token_collect/kenney-handleCoins2.mp3",
-    "name": "kenney-handleCoins2.mp3",
-    "meta": "Kenney RPG Audio · handleCoins2 · CC0"
+    "file": "library/psycho_force/kenney-phaseJump1.mp3",
+    "name": "kenney-phaseJump1.mp3",
+    "meta": "Kenney Digital Audio · phaseJump1 · CC0"
    },
    {
-    "file": "library/token_collect/kenney-powerUp10.mp3",
-    "name": "kenney-powerUp10.mp3",
-    "meta": "Kenney Digital Audio · powerUp10 · CC0"
+    "file": "library/psycho_force/kenney-zapThreeToneUp.mp3",
+    "name": "kenney-zapThreeToneUp.mp3",
+    "meta": "Kenney Digital Audio · zapThreeToneUp · CC0"
    }
   ]
  },
- "power_ready": {
-  "desc": "Raccolti abbastanza gettoni, il potere si carica sul lanciatore: jingle magico breve (~1 s)",
+ "shrink_embers": {
+  "desc": "Cambio round: tutti i warrior si rimpiccioliscono bruciando scintille (sfrigolio / brillio discendente)",
   "cands": [
    {
-    "file": "library/power_ready/fs-577965-rpg-powerup.mp3",
-    "name": "fs-577965-rpg-powerup.mp3",
-    "meta": "Freesound #577965 · colorsCrimsonTears · CC0 · \"rpgPowerup.wav\""
+    "file": "library/shrink_embers/fs-123711-burner-sizzle-short.mp3",
+    "name": "fs-123711-burner-sizzle-short.mp3",
+    "meta": "Freesound #123711 · alienistcog · CC0 · \"burner-sizzle-short.AIF\""
    },
    {
-    "file": "library/power_ready/fs-683185-power-up.mp3",
-    "name": "fs-683185-power-up.mp3",
-    "meta": "Freesound #683185 · NearTheAtmoshphere · CC0 · \"Power Up\""
+    "file": "library/shrink_embers/fs-211624-magic-wand-glitter.mp3",
+    "name": "fs-211624-magic-wand-glitter.mp3",
+    "meta": "Freesound #211624 · qubodup · CC0 · \"Magic Wand Glitter\""
    },
    {
-    "file": "library/power_ready/fs-878312-8bit-heal.mp3",
-    "name": "fs-878312-8bit-heal.mp3",
-    "meta": "Freesound #878312 · Qvantor · CC0 · \"8-Bit Heal\""
+    "file": "library/shrink_embers/kenney-lowDown.mp3",
+    "name": "kenney-lowDown.mp3",
+    "meta": "Kenney Digital Audio · lowDown · CC0"
    },
    {
-    "file": "library/power_ready/kenney-jingles_STEEL00.mp3",
-    "name": "kenney-jingles_STEEL00.mp3",
-    "meta": "Kenney Music Jingles · jingles_STEEL00 · CC0"
-   },
-   {
-    "file": "library/power_ready/kenney-powerUp1.mp3",
-    "name": "kenney-powerUp1.mp3",
-    "meta": "Kenney Digital Audio · powerUp1 · CC0"
+    "file": "library/shrink_embers/kenney-phaserDown2.mp3",
+    "name": "kenney-phaserDown2.mp3",
+    "meta": "Kenney Digital Audio · phaserDown2 · CC0"
    }
   ]
  }
 };
-const REFS = [{"file":"../assets/resources/audio/sfx/merge_1.mp3","name":"merge_1"},{"file":"../assets/resources/audio/sfx/spawn.mp3","name":"spawn"},{"file":"../assets/resources/audio/sfx/land.mp3","name":"land"},{"file":"../assets/resources/audio/sfx/round_up.mp3","name":"round_up"}];
-const KEY = 'fw-token-sfx-picks';
+const REFS = [{"file":"../assets/resources/audio/sfx/merge_1.mp3","name":"merge_1"},{"file":"../assets/resources/audio/sfx/explosion_1.mp3","name":"explosion_1"},{"file":"../assets/resources/audio/sfx/token_collect.mp3","name":"token_collect"},{"file":"../assets/resources/audio/sfx/power_ready.mp3","name":"power_ready"},{"file":"../assets/resources/audio/sfx/round_up.mp3","name":"round_up"}];
+const KEY = 'fw-power-sfx-picks';
 let picks = {};
 try { picks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { picks = {}; }
 const audio = new Audio();

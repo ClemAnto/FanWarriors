@@ -74,6 +74,7 @@ export class PowerupInfoPanel extends Component {
     private _intro = false;   // spotlight intro running: the card is not interactive yet
     private _dimAlpha = -1;   // the backdrop's editor alpha (restored after the darker intro)
     private _cardScale = -1;  // the card's editor scale (the intro scales it in from 0.9× of it)
+    private _captionScale: Vec3 | null = null;  // the caption's editor scale (its pop lands back on it)
 
     get isOpen(): boolean { return this.node.active && !this._closing; }
 
@@ -256,13 +257,13 @@ export class PowerupInfoPanel extends Component {
             cap.node.active = true;
             const capOp = this._fade(cap.node)!;
             capOp.opacity = 0;
-            // Above the warrior, but kept on screen when the launcher sits low.
-            const ut = this.node.getComponent(UITransform)!;
-            const top = ut.height * (1 - ut.anchorY) - 90;
-            cap.node.setPosition(0, Math.min(190, top - home.y), 0);
-            cap.node.setScale(0.6, 0.6, 1);
+            // Position and scale are the editor's (CLAUDE.md): only a pop that lands back on the editor scale.
+            if (!this._captionScale) this._captionScale = cap.node.scale.clone();
+            const base = this._captionScale;
+            Tween.stopAllByTarget(cap.node);
+            cap.node.setScale(base.x * 0.6, base.y * 0.6, base.z);
             tween(capOp).delay(popAt + 0.15).to(0.2, { opacity: 255 }).start();
-            tween(cap.node).delay(popAt + 0.15).to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+            tween(cap.node).delay(popAt + 0.15).to(0.3, { scale: base.clone() }, { easing: 'backOut' }).start();
         }
     }
 

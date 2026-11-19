@@ -35,9 +35,49 @@ export enum SFX {
     TOKEN_VANISH       = 'audio/sfx/token_vanish',
     TOKEN_COLLECT      = 'audio/sfx/token_collect',
     POWER_READY        = 'audio/sfx/power_ready',
+    // Powerup effects (2026-11-19): picked from audio/library (alternatives in audio/listen.html)
+    THUNDER_STRIKE     = 'audio/sfx/thunder_strike',
+    LIGHTNING_ZAP      = 'audio/sfx/lightning_zap',
+    AURA_ZAP           = 'audio/sfx/aura_zap',
+    ENERGY_ABSORB      = 'audio/sfx/energy_absorb',
+    IMPLODE            = 'audio/sfx/implode',
+    PSYCHO_FORCE       = 'audio/sfx/psycho_force',
+    SHRINK_EMBERS      = 'audio/sfx/shrink_embers',
     MUSIC_MAIN         = 'audio/music/main',
     MUSIC_MENU         = 'audio/music/menu',
 }
+
+/**
+ * Anti-overlap (2026-11-19): power effects fire the same sound in bursts (8 bolts, a river of zaps, a
+ * stream of energy spheres, a pile of bounces). Each sound gets a minimum gap between two starts and a
+ * cap on copies still ringing; on top of that, at most MAX_VOICES one-shots ring at once. Sounds that
+ * carry game information (ALWAYS) skip every limit.
+ */
+const MAX_VOICES       = 7;    // one-shots ringing at once (the music is apart)
+const DEFAULT_GAP_MS   = 45;   // the same sound never restarts sooner than this
+const DEFAULT_MAX_COPIES = 3;  // copies of the same sound ringing at once
+const SFX_LIMITS: Partial<Record<SFX, { gap?: number; max?: number }>> = {
+    [SFX.HIT]:            { gap: 70,  max: 3 },
+    [SFX.BOUNCE]:         { gap: 70,  max: 3 },
+    [SFX.MERGE_1]:        { gap: 60,  max: 2 },
+    [SFX.MERGE_2]:        { gap: 60,  max: 2 },
+    [SFX.MERGE_3]:        { gap: 60,  max: 2 },
+    [SFX.MERGE_4]:        { gap: 60,  max: 2 },
+    [SFX.EXPLOSION_1]:    { gap: 150, max: 2 },
+    [SFX.EXPLOSION_2]:    { gap: 150, max: 2 },
+    [SFX.EXPLOSION_3]:    { gap: 150, max: 2 },
+    [SFX.TOKEN_APPEAR]:   { gap: 150, max: 1 },
+    [SFX.TOKEN_VANISH]:   { gap: 150, max: 1 },
+    [SFX.THUNDER_STRIKE]: { gap: 100, max: 3 },
+    [SFX.LIGHTNING_ZAP]:  { gap: 120, max: 2 },
+    [SFX.AURA_ZAP]:       { gap: 90,  max: 2 },
+    [SFX.ENERGY_ABSORB]:  { gap: 110, max: 2 },
+    [SFX.IMPLODE]:        { gap: 100, max: 2 },
+    [SFX.PSYCHO_FORCE]:   { gap: 400, max: 1 },
+    [SFX.SHRINK_EMBERS]:  { gap: 400, max: 1 },
+};
+/** Never dropped: they tell the player something happened (and are rare by nature). */
+const ALWAYS = new Set<SFX>([SFX.LAUNCH, SFX.MALUS, SFX.GAME_OVER, SFX.WIN, SFX.ROUND_UP, SFX.POWER_READY, SFX.TOKEN_COLLECT, SFX.UI_CLICK, SFX.DANGER, SFX.TIMER_TICK]);
 
 const LS_SFX_MUTED   = 'fw_sfx_muted';
 const LS_MUSIC_MUTED = 'fw_music_muted';
@@ -59,6 +99,9 @@ export class AudioManager extends Component {
     private _sfxSource!: AudioSource;
     private _musicSource!: AudioSource;
     private _clips = new Map<SFX, AudioClip | null>();
+    /** One-shots still ringing (end time, ms) and the last start of each sound: the anti-overlap limits. */
+    private _voices: { sfx: SFX; end: number }[] = [];
+    private _lastStart = new Map<SFX, number>();
 
     sfxVolume    = 1.0;
     musicVolume  = 0.6;
@@ -82,7 +125,9 @@ export class AudioManager extends Component {
         this._musicSource.loop = true;
         this.sfxMuted   = SafeStorage.get(LS_SFX_MUTED)   === '1';
         this.musicMuted = SafeStorage.get(LS_MUSIC_MUTED) === '1';
-        this._preloadAll();
+        // No audio download before the first playable frame (Playgama: initial download < 5 MB): the scene
+        // that becomes playable calls startLoading(); the timer is a safety net for any other entry.
+        this.scheduleOnce(() => this.startLoading(), 8);
         // Platform audio/pause signals (only Playgama implements this; no-op elsewhere).
         PortalProvider.get().onPlatformState?.({
             audio: (enabled) => { this._platformAudioOff = !enabled; this._applyMusicVolume(); },
@@ -102,6 +147,22 @@ export class AudioManager extends Component {
     private _applyMusicVolume(): void {
         if (this._musicSource) this._musicSource.volume = this._effectiveMusicVolume();
     }
+
+    private _loadsStarted = false;
+
+    /**
+     * Start downloading the sounds (and the requested music): called once the game is playable
+     * (Game scene ready / MainMenu shown), so audio never competes with the first-frame download.
+     * Sounds played before then are simply skipped; a music request is kept and starts when loaded.
+     */
+    startLoading(): void {
+        if (this._loadsStarted) return;
+        this._loadsStarted = true;
+        this._preloadAll();
+        if (this._musicWanted) this.playMusic(this._currentMusic);
+    }
+
+    private _musicWanted = false;
 
     private _preloadAll(): void {
         // SFX only. Music tracks (the biggest assets) are NOT preloaded — they'd compete with the
@@ -138,11 +199,27 @@ export class AudioManager extends Component {
         this._applyMusicVolume();
     }
 
-    play(sfx: SFX, relVolume = 1): void {
-        if (this.sfxMuted || this._pauseMuted || this._platformSilenced) return;
+    /** Play a sound effect. False when it was not played (muted, missing, or dropped not to pile up). */
+    play(sfx: SFX, relVolume = 1): boolean {
+        if (this.sfxMuted || this._pauseMuted || this._platformSilenced) return false;
         const clip = this._clips.get(sfx);
-        if (!clip) { console.warn(`[Audio] NO CLIP — ${sfx}`); return; }
+        // undefined = not downloaded yet (startLoading not called / still loading): skipped silently.
+        if (!clip) { if (clip === null) console.warn(`[Audio] NO CLIP — ${sfx}`); return false; }
+        const now = performance.now();
+        if (this._voices.length > 0) this._voices = this._voices.filter(v => v.end > now);
+        if (!ALWAYS.has(sfx)) {
+            const lim = SFX_LIMITS[sfx];
+            if (now - (this._lastStart.get(sfx) ?? -Infinity) < (lim?.gap ?? DEFAULT_GAP_MS)) return false;
+            let copies = 0;
+            for (const v of this._voices) if (v.sfx === sfx) copies++;
+            if (copies >= (lim?.max ?? DEFAULT_MAX_COPIES)) return false;
+            if (this._voices.length >= MAX_VOICES) return false;
+        }
+        this._lastStart.set(sfx, now);
+        const dur = clip.getDuration();
+        this._voices.push({ sfx, end: now + (dur > 0 ? dur : 0.5) * 1000 });
         this._sfxSource.playOneShot(clip, relVolume * this.sfxVolume);
+        return true;
     }
 
     /** Play a music track (default main). Lazy-loads it if needed; switching tracks interrupts the
@@ -153,6 +230,8 @@ export class AudioManager extends Component {
         const clip = this._clips.get(track);
         if (clip && this._musicSource.clip === clip && this._musicSource.playing) return; // same → keep
         this._musicSource.stop();  // interrupt whatever is playing (menu loop) before switching
+        this._musicWanted = true;
+        if (!this._loadsStarted) return;                  // before the first playable frame: started by startLoading()
         if (!clip) { this._loadMusic(track); return; }  // not loaded yet → play in the load callback
         this._musicSource.clip   = clip;
         this._musicSource.volume = this._effectiveMusicVolume();

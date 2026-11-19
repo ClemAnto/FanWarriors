@@ -17,7 +17,10 @@ const path = require('path');
 const sharp = require('sharp');
 
 const ROOT = path.join(__dirname, '..');
-const SCAN_DIRS = ['assets', 'build-templates'];
+// --dir <folder> [--quality N]: only that folder (e.g. after npm run ui:export, which writes truecolor PNGs).
+const argOf = k => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
+const SCAN_DIRS = argOf('--dir') ? [argOf('--dir')] : ['assets', 'build-templates'];
+const QUALITY_OVERRIDE = argOf('--quality') ? Number(argOf('--quality')) : null;
 
 // dir substring → options (first match wins)
 const RULES = [
@@ -52,7 +55,7 @@ function* walk(dir) {
                 if (rule.resizeMax && Math.max(meta.width, meta.height) > rule.resizeMax) {
                     img = img.resize({ width: rule.resizeMax, height: rule.resizeMax, fit: 'inside' });
                 }
-                const buf = await img.png({ palette: true, quality: rule.quality, effort: 10, compressionLevel: 9 }).toBuffer();
+                const buf = await img.png({ palette: true, quality: QUALITY_OVERRIDE ?? rule.quality, dither: 0.8, effort: 10, compressionLevel: 9 }).toBuffer();
                 totBefore += before;
                 if (buf.length < before * 0.9) {
                     fs.writeFileSync(file, buf);

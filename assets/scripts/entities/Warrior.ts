@@ -15,7 +15,11 @@ export interface IPsychoForce {
     resetTimer(): void;
 }
 
-const MERGE_DELAY      = 0.3;
+// Contact → merge. Short, and the merge no longer waits for the two to stay in contact: a fast hit used
+// to bounce them apart within the old 0.3 s, the end of contact cancelled the merge and they ended up
+// side by side waiting for the 2 s proximity fallback (2026-11-19). Now it only needs them still close.
+const MERGE_DELAY      = 0.08;
+const MERGE_KEEP_GAP   = 0.6;   // the merge still happens if, after the delay, the gap is under this × the sum of radii
 const WRS_CONTACT_DELAY = 0;
 const BOUNCE_VOL_MAX   = 280;  // velocity at which wall-bounce volume reaches 1.0
 const HIT_VOL_MAX      = 80;   // velocity at which warrior-hit volume reaches 1.0
@@ -234,6 +238,18 @@ export class Warrior extends Component {
         rb.angularVelocity = 0;
     }
 
+    /** Same level, same species (or Psycho Force on either), and no power holding either of them. Shared
+     *  by the contact merge and GameManager's proximity merge, so both obey the same rules. */
+    canMergeWith(o: Warrior): boolean {
+        if (o === this || o.level !== this.level) return false;
+        if (o.type !== this.type && !this.psychoForce && !o.psychoForce) return false;
+        if (this.wildRiverSparkle || o.wildRiverSparkle) return false;
+        if (this.onWildRiverContact || o.onWildRiverContact) return false;
+        if (this.onBrotherhoodContact || o.onBrotherhoodContact) return false;
+        if (this.brotherhoodInfected || o.brotherhoodInfected) return false;
+        return !this.merging && !o.merging;
+    }
+
     private onBeginContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
         const speed  = this._rb!.linearVelocity.length();
@@ -294,13 +310,7 @@ export class Warrior extends Component {
             this.scheduleOnce(cb, 0);
         }
 
-        if (otherW.level !== this.level) return;
-        if (otherW.type !== this.type && !this.psychoForce && !otherW.psychoForce) return;
-        if (this.wildRiverSparkle || otherW.wildRiverSparkle) return;
-        if (this.onWildRiverContact || otherW.onWildRiverContact) return;
-        if (this.onBrotherhoodContact || otherW.onBrotherhoodContact) return;
-        if (this.brotherhoodInfected    || otherW.brotherhoodInfected)    return;
-        if (this.merging || otherW.merging || this.mergeCallbacks.has(otherW)) return;
+        if (!this.canMergeWith(otherW) || this.mergeCallbacks.has(otherW)) return;
 
         // Snap: equalize velocities so they don't bounce apart
         const rbA = this._rb!;
@@ -312,9 +322,13 @@ export class Warrior extends Component {
 
 
         const cb = () => {
+            this.mergeCallbacks.delete(otherW);
             if (!this.node.isValid || !otherW.node.isValid) return;
-            if (this.merging || otherW.merging) return;
+            if (!this.canMergeWith(otherW)) return;   // a power (or a bolt) may have taken one of them meanwhile
             if (!this.onMergeReady) return;
+            // Bounced apart too far in the meantime: no merge (a later contact or the proximity check retries).
+            const p = this.node.position, q = otherW.node.position;
+            if (Math.hypot(p.x - q.x, p.y - q.y) > (this.radius + otherW.radius) * (1 + MERGE_KEEP_GAP)) return;
             this.merging = true;
             otherW.merging = true;
             this.onMergeReady(this, otherW);
@@ -326,11 +340,7 @@ export class Warrior extends Component {
     private onEndContact(_self: Collider2D, other: Collider2D): void {
         const otherW = other.node.getComponent(Warrior);
         if (!otherW) return;
-        const cb = this.mergeCallbacks.get(otherW);
-        if (cb) {
-            this.unschedule(cb);
-            this.mergeCallbacks.delete(otherW);
-        }
+        // A pending merge is NOT cancelled here: see MERGE_DELAY.
         const wrsCb = this._wrsContactCbs.get(otherW);
         if (wrsCb) {
             this.unschedule(wrsCb);

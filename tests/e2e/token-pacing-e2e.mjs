@@ -169,14 +169,16 @@ try {
     await drop(1, 'Cat (round 2)', ['brotherhood', 'brotherhood', 'brotherhood']);
     await toRound(3);
     await drop(2, 'Chicken (round 3)', ['*']);
+    await toRound(4);
+    await drop(3, 'Wolf (round 4)', ['thunderRain', 'thunderRain', 'thunderRain']);
     await toRound(5);
     await drop(4, 'Eagle (round 5)', ['wildRiver', 'wildRiver', 'wildRiver']);
 
-    // ---- round 6: still no PsychoForce in the random pool
+    // ---- round 6: still no PsychoForce in the random pool (Brotherhood, Thunder Rain, Wild River)
     await toRound(6);
     const pool6 = new Set();
     for (let i = 0; i < 20; i++) { await evaluate(`(() => { ${F}.clear(); return ${F}.spawn(); })()`); (await kindsOnTrack()).forEach(k => pool6.add(k)); }
-    check('round 6: random tokens never PsychoForce', !pool6.has('psychoForce') && pool6.size === 2, [...pool6]);
+    check('round 6: random tokens never PsychoForce', !pool6.has('psychoForce') && pool6.size === 3, [...pool6]);
 
     // ---- round 7: PsychoForce unlocked, Lion drops 3, needs 4
     await toRound(7);
@@ -194,7 +196,7 @@ try {
     const pc = events('token_collected').at(-1);
     check('PsychoForce needs 4 tokens', pc?.power === 'psychoForce' && pc?.needed === 4 && pc?.round === 7, pc);
     check('token_collected carries on_track and age_sec', typeof pc?.on_track === 'number' && typeof pc?.age_sec === 'number' && pc.age_sec >= 0 && pc.age_sec <= 8, pc);
-    await sleep(1000);
+    await sleep(3200);   // the collected coin hovers ~2 s as a star before it lands on its counter
     check('PsychoForce counter 1/4', (await counterText('psychoForce')) === '1/4', await counterText('psychoForce'));
 
     // ---- a drop not yet fallen survives a reload (snapshot tokens.pending)

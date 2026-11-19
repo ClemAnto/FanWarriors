@@ -1,0 +1,26 @@
+{
+ "width": 1440,
+ "height": 1763,
+ "pieces": [
+  {
+   "name": "background",
+   "slot": {
+    "x": 0,
+    "y": 0,
+    "w": 1440,
+    "h": 768
+   },
+   "format": "jpg"
+  },
+  {
+   "name": "track",
+   "slot": {
+    "x": 208,
+    "y": 808,
+    "w": 1024,
+    "h": 955
+   },
+   "format": "png"
+  }
+ ]
+}

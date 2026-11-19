@@ -1,6 +1,6 @@
 {
   "name": "FunWarriors",
-  "version": "0.10.43",
+  "version": "0.10.46",
   "uuid": "3f284ae4-2410-4ccb-bc82-facc197de96e",
   "creator": {
     "version": "3.8.8"
@@ -16,7 +16,9 @@
     "seed:leaderboard": "node scripts/seed-leaderboard.js",
     "optimize:images": "node scripts/optimize-images.js",
     "ui:prep": "node tools/art/ui-sheet.mjs",
-    "ui:export": "node tools/art/ui-sheet.mjs --export",
+    "ui:export": "node tools/art/ui-sheet.mjs --export && node scripts/optimize-images.js --dir assets/ui --quality 92",
+    "arena:prep": "node tools/art/arena-sheet.mjs",
+    "arena:export": "node tools/art/arena-sheet.mjs --export",
     "ui:apply": "node tools/ui/apply-ui.mjs",
     "test:ui": "node tests/e2e/ui-e2e.mjs",
     "record:powerup": "node tests/e2e/record-powerup.mjs",
@@ -26,7 +28,10 @@
     "test:early": "node tests/e2e/early-progression-e2e.mjs",
     "test:tokens": "node tests/e2e/power-tokens-e2e.mjs",
     "test:token-pacing": "node tests/e2e/token-pacing-e2e.mjs",
-    "test:effects": "node tests/e2e/power-effects-e2e.mjs"
+    "test:effects": "node tests/e2e/power-effects-e2e.mjs",
+    "test:arenas": "node tests/e2e/arenas-e2e.mjs",
+    "test:load": "node tests/e2e/load-budget-e2e.mjs",
+    "record:arena": "node tests/e2e/record-arena.mjs"
   },
   "devDependencies": {
     "ag-psd": "^34.1.0",

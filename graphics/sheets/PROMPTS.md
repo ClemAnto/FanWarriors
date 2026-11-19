@@ -292,3 +292,35 @@ Rain" nello stesso progetto, allegati `graphics/powerups/brotherhood.png` e `psy
 stile illustrazioni in una riga, poi "Power: THUNDER RAIN, highlight color bright golden yellow" e i tre schizzi
 (rana con nuvoletta che sale verso due gatti vicini, un lupo e una gallina soli; due fulmini dorati sul lupo e
 sulla gallina, i gatti intatti; due sfere dorate tornano alla rana, che cresce).
+
+## 8. ARENE e icona POWERUPS (2026-11-19)
+
+**Sfondi** (`graphics/arenas/<arena>/background-source.png`, 1717x916 → 1440x768), un'unica chat "Generate ice arena
+background" del progetto FunWarriors, allegati `graphics/arenas/reference/castle-background.jpg` e `game-desktop.png`
+(screenshot del gioco con la pista). Primo prompt (ICE): stessa misura, camera, composizione (pavimento libero al centro
+in basso, edificio simbolo in alto al centro, spalti con tifosi ai lati, scenografia negli angoli alti), stesso stile
+piatto da libro illustrato; poi nella stessa chat "Now the <ARENA>, EXACTLY the same size … as the previous
+backgrounds" con l'ambientazione (palude con fortino su palafitte; fortezza ai piedi di un vulcano "cheerful, not
+scary"; sotterranei con arco e saracinesca "lit by warm golden torchlight"). Regole volti: no big shiny eyes, no spiky
+anime hair, five fingers. Tutti al primo colpo.
+
+**Piste** (`graphics/arenas/<arena>/track-source.png`), chat "Generate Ice Track Skin", allegati
+`reference/castle-track.png` e `game-desktop.png`: "Repaint the attached track keeping EXACTLY the same silhouette, size
+(1024x955), perspective, outline, position and thickness of the side walls and back wall, position of the posts … Change
+ONLY the material", pavimento "calm and low contrast" perché i guerrieri restino leggibili. Ghiaccio e palude con alfa
+vero (sagoma 99%); vulcano su fondo bianco e sotterranei su fondo nero: fondo tolto con un riempimento dai bordi
+(originali in `track-source-raw.png`). `npm run arena:prep -- <arena>` adatta la sagoma a quella originale e fa il PSD;
+`npm run arena:export -- <arena>` → `assets/resources/arenas/<arena>/`.
+
+**Icona POWERUPS** (`graphics/sheets/ui-icon-powerups`), chat "Generate Game Sprite Sheet", allegato
+`ui-icons/source.png`: fulmine dorato davanti a una sfera viola con tre stelline color crema, "same size as the trophy
+icon … readable at 40 px". Alfa vero al primo colpo.
+
+**Pista FROZEN LAKE v2** (le lastre di ghiaccio ora compaiono a tempo): stessa chat delle piste, allegata la versione
+ghiacciata: "change ONLY the floor: dark brown wooden planks … lightly dusted with snow … no ice". La versione col
+pavimento di ghiaccio resta in `graphics/arenas/ice/track-source-icefloor.png`.
+
+**Ostacoli delle arene** (`graphics/sheets/hazards`, → `assets/resources/hazards/`), chat "Generate Hazard Sprite
+Sheet", allegati `game-desktop.png` e `ui-tokens/source.png` (prospettiva degli oggetti a terra): un foglio con lastra
+di ghiaccio, striscia di fango 1:4, crepa di lava, masso di lava, scheggia, teschio con elmo "big friendly grin" e buca
+nel pavimento. Alfa vero al primo colpo.

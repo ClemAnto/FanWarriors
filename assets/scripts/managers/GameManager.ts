@@ -1,4 +1,4 @@
-import { _decorator, Component, SpriteFrame, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx, game, Game, resources } from 'cc';
+import { _decorator, Component, SpriteFrame, BoxCollider2D, PhysicsSystem2D, EPhysics2DDrawFlags, Vec2, Vec3, tween, Tween, Node, Label, Graphics, Color, UITransform, UIOpacity, Widget, director, sys, view, ResolutionPolicy, Sprite, ProgressBar, Prefab, instantiate, gfx, game, Game, resources } from 'cc';
 import { Warrior } from '../entities/Warrior';
 import { WARRIORS, LEVEL_CONFIG, spawnTypesForRound } from '../data/WarriorConfig';
 import { WarriorSpriteCache } from '../utils/WarriorSpriteCache';
@@ -45,6 +45,9 @@ import { PowerToken } from '../entities/PowerToken';
 import { TokenKind, TOKENS, tokenConfig, tokenUnlockedIn, TOKEN_POINTS_PER_ROUND, NEW_SPECIES_TOKENS_UNLOCK, NEW_SPECIES_TOKENS_OTHER } from '../data/PowerTokens';
 import { PowerupTutorialStore, PowerupId } from '../data/PowerupInfo';
 import { VERSION, compareVersions } from '../config/Version';
+import { ArenaManager, ARENA_CHANGE_SEC } from './ArenaManager';
+import { ARENAS, ARENA_ROUNDS, arenaIndexForRound, isArenaChangeRound, scoreMultiplierForRound, formatMultiplier } from '../data/Arenas';
+import { ArenaHazards } from './ArenaHazards';
 const { ccclass, property } = _decorator;
 
 /** Effective online-leaderboard switch: configured ON *and* allowed on this portal build
@@ -58,6 +61,15 @@ export const LS_PLAYED_ONCE = 'fw_played_once';
 /** Set when the player leaves a game for the menu (Quit / Menu): the next boots open on the
  *  MainMenu instead of jumping into a game (first visit or resumable save), until PLAY again. */
 export const LS_MENU_ON_BOOT = 'fw_menu_on_boot';
+/** Highest round ever reached (any game): the MainMenu lets the next game start from 1 up to it. */
+export const LS_MAX_ROUND = 'fw_max_round';
+/** Round chosen last time in the MainMenu picker (default for the next visit). */
+export const LS_START_ROUND = 'fw_start_round';
+
+/** Highest round ever reached (1 if none recorded). */
+export function maxRoundReached(): number {
+    return Math.max(1, parseInt(SafeStorage.get(LS_MAX_ROUND) ?? '1', 10) || 1);
+}
 /** Dedicated leaderboard scene; the game-over flow hands the score off to it. */
 const RANKING_SCENE      = 'Ranking';
 /** Main menu scene — target of the Menu buttons on the pause/end panels. */
@@ -108,6 +120,7 @@ const ROUND_UP_PAUSE_SEC     = 2.16; // round-up freeze length (banner on screen
 // Brotherhood / Wild River / Psycho Force are charged by power tokens (v0.10.42, data/PowerTokens.ts);
 // the old automatic rescue (>=25 warriors on track, shared cooldown) is gone.
 const BOOST_NO_AD_PAUSE_ROUNDS = 2;   // rounds without the BOOST offer after an ad was unavailable
+const BOOST_FROM_ROUND = 3;          // no BOOST offer at the round-up into round 2 (the game has just started)
 const BOOST_COOLDOWN_MS = 5 * 60_000;  // no BOOST offer for 5 minutes after one was used (same game)
 const AD_RESUME_LOADING_SEC = 0.6;     // loading spinner between the end of a rewarded ad and the game resuming
 const BOOST_OFFER_EXTRA_SEC  = 4;    // BOOST button stays parked above the settings gear this long after the round-up pause ends
@@ -121,12 +134,15 @@ const WR_RIVER_DRY_SEC       = 0.45; // river dry (no hop possible) for this lon
 const POWER_UP_PUSH_VY       = 3.2;  // Box2D velocity units added on Y (track "up" = away from the line)
 // Brotherhood energy: the launched warrior gains max(1, floor(Σ imploded levels / this)) levels.
 const BROTHERHOOD_LEVELS_PER_GAIN = 5;
+// Two equal warriors resting side by side (no new contact event) merge after this long (was 2 s).
+const PROXIMITY_MERGE_SEC = 0.4;
 // Thunder Rain (2026-11-19): once its carrier has landed on the track and stopped, lightning falls on every
 // ISOLATED warrior (none of the same species or of a similar level near it: it can hardly ever merge),
 // destroys it and sends its energy to the carrier (same gain rule as Brotherhood).
 const THUNDER_ISOLATION_GAP  = 120;  // design-px gap (beyond the two radii) within which a neighbour counts as "near"
 const THUNDER_SIMILAR_LEVEL  = 1;    // |level difference| <= this = similar level
 const THUNDER_MAX_TARGETS    = 8;    // at most this many bolts per storm (the ones closest to the game-over line first)
+const THUNDER_MIN_TARGETS    = 3;    // fewer isolated warriors than this: the most isolated of the others are struck too
 const THUNDER_STRIKE_GAP     = 0.13; // s between two bolts (a rain, not a single flash)
 const THUNDER_HIT_DELAY      = 0.26; // s from a bolt's start to its impact (ManaLightning CHARGE + CONNECT)
 const THUNDER_SKY_PX         = 620;  // design px above the warrior where the bolt starts
@@ -211,6 +227,8 @@ export interface GameSnapshot {
     cooldowns: { wr: number; pf: number };
     /** Warrior.sizeScale at save time (missing = 1). */
     sizeScale?: number;
+    /** Round the game was started from (MainMenu picker; missing = 1): Restart keeps it. */
+    startRound?: number;
     firstLaunchSpecies: number[];
     trackClearedBonusUsed: boolean;
     bestSingle: { score: number; desc: string };
@@ -262,6 +280,17 @@ export class GameManager extends Component implements IGameManagerDebug {
     tokenCounters: TokenCounters | null = null;
     @property({ type: [SpriteFrame], tooltip: 'Token art (coin already in the track perspective, with its thickness), in data/PowerTokens TOKENS order: Brotherhood, Wild River, Psycho Force.' })
     tokenFaces: SpriteFrame[] = [];
+    @property({ type: ArenaManager, tooltip: 'Arena look (background + track skin) of the current round; "NEW ARENA..." change every 5 rounds.' })
+    arenaMgr: ArenaManager | null = null;
+    @property({ type: ArenaHazards, tooltip: 'Difficulties of the arena on screen (ice patches, mud, skulls, lava).' })
+    arenaHazards: ArenaHazards | null = null;
+    @property({ type: Label, tooltip: 'HUD/ScoreSec/Multiplier — arena score multiplier ("×1.5"), hidden at ×1.' })
+    scoreMultiplierLabel: Label | null = null;
+
+    /** Round the next fresh game starts from (MainMenu round picker); consumed by start(). */
+    static requestedStartRound = 1;
+    /** Round this game started from (Restart keeps it). */
+    private _startRound = 1;
     private inputCtrl!: InputController;
     private spawnMgr!: SpawnManager;
     private warriors: Warrior[] = [];
@@ -292,9 +321,9 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _puInfoHold  = 0;                       // s the launcher's powerup has been visible
     private _puInfoOpen  = false;
     private _boostPauseRounds = 0;  // BOOST offers still to skip after a "no ad available"
-    private _boostCooldownUntil = 0;
+    private _boostCooldownUntil = 0;  // performance.now() before which no BOOST is offered (set when one is used)
     private _gameAbandoned = false;  // Settings → Quit: the saved game was deleted, never save it again
-    private _speciesShown = new Set<number>();  // species already spotlighted ("NEW WARRIOR") in this game  // a launch from round 3 happened: shrink every warrior one step  // performance.now() before which no BOOST is offered (set when one is used)
+    private _speciesShown = new Set<number>();  // species already spotlighted ("NEW WARRIOR") in this game
     private _auraGolden     = false;   // the active Aura is the BOOST's Golden Aura (full range, longer)
     private _nextAuraGolden = false;   // same for the Aura pending on the next launcher (swap)
     private _puBadges    = new Map<Warrior, { kind: PowerupKind; fx: PowerupBadgeEffect }>();
@@ -385,6 +414,8 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _thunderEffect: ThunderRainEffect | null = null;
     private _thunderCalm = 0;                         // seconds the launched carrier has been at rest
     private _thunderStorm = false;                    // bolts falling / spheres flying: the turn waits
+    private _thunderStormId = 0;                      // the safety net only clears its own storm
+    private _gathers = new Set<EnergyGather>();       // energy spheres still flying to a carrier
     private _pfActive       = new Map<Warrior, Sprite | null>();
     private _pfOrder:         Warrior[] = [];
     private _pfProxTimer    = 0;
@@ -772,6 +803,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.vfx.preloadSparkle();
         this._initLightning();
 
+        // Fresh game from the MainMenu round picker: set the round before anything reads it (game-over
+        // line, spawn set, species preload). A restored game takes its round from the snapshot instead.
+        const willRestore = !GameManager._forceNewGame && (GameManager._pendingRestore || GameManager.readSnapshot() !== null);
+        this._startRound = willRestore ? 1 : Math.max(1, Math.min(maxRoundReached(), Math.floor(GameManager.requestedStartRound) || 1));
+        this.currentRound = this._startRound;
+
         // Track.start() ran before this (higher in hierarchy) with wrong viewport — rebuild walls now
         this.track = this.worldNode.getChildByName('Track')?.getComponent(Track) ?? null;
         if (this.track) this.track.showDebugLine = DEBUG_ENGINE;
@@ -789,14 +826,18 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.inputCtrl.getWarriors  = () => this.warriors;
         this.inputCtrl.showBounds   = DEBUG_ENGINE;
         this.nextPreviewNode?.on(Node.EventType.TOUCH_END, () => this.swapNextWithLauncher(), this);
+        this._applyNextSide();
+        Settings.onLeftHandedChanged = () => this._applyNextSide();
         this.inputCtrl.initialScale = LAYOUT_SCALE;
         this.syncInputBounds();
 
         this.spawnMgr = this.node.addComponent(SpawnManager);
-        this.spawnMgr.init(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(1), this.box2dLayer.scale.y);
+        this.spawnMgr.init(this.box2dLayer, this.warriorsLayer, spawnTypesForRound(this.currentRound), this.box2dLayer.scale.y);
+        if (this.currentRound > 1) this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(this.currentRound));
         this.spawnMgr.onMergeReady    = (a, b) => this.mergeWarriors(a, b);
         this.spawnMgr.onNextGenerated = ()      => this.animateNextTransition();
         this.spawnMgr.getWarriors     = ()      => this.warriors;
+        this._initArenaHazards();
 
         if (this.onboarding) {
             this.onboarding.onStep = (phase, step) => this._trackEvent(phase === 'started' ? 'tutorial_started' : 'tutorial_completed', {
@@ -810,10 +851,9 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Fresh game: await only the round-1 species (the rest streams in during play). A restored
         // mid-game board → await every species of the saved round (see _snapshotSpecies).
-        const willRestore = !GameManager._forceNewGame && (GameManager._pendingRestore || GameManager.readSnapshot() !== null);
         const firstSpecies = willRestore
             ? GameManager._snapshotSpecies()  // board + saved-round species (undefined → all)
-            : WARRIORS.filter(w => w.introRound <= 1).map(w => w.type);
+            : WARRIORS.filter(w => w.introRound <= this._startRound).map(w => w.type);
         WarriorSpriteCache.preload(() => {
             if (loadingSpinner.isValid) loadingSpinner.destroy();
             this.initHud();
@@ -832,6 +872,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (freshGame) {
                 // Fresh game: clear any leftover snapshot, then start normally.
                 this._clearSnapshot();
+                if (this._startRound > 1) this._applyStartRound(this._startRound);
                 const prefilled = this.spawnMgr.prefill();
                 prefilled.forEach(w => this._recordSpawn(w.type, this.currentRound));
                 this.warriors.push(...prefilled);
@@ -844,7 +885,11 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.scheduleOnce(() => { this.gameOverPanel?.preloadIllustration(); this.victoryPanel?.preloadIllustration(); }, 5);
             SafeStorage.set(LS_PLAYED_ONCE, '1');  // later visits open on the MainMenu
             SafeStorage.remove(LS_MENU_ON_BOOT);    // playing again: a saved game may resume at boot
-            this._trackEvent('game_started', { restored: restoring, round: this.currentRound, ...GameManager._telemetryContext() });
+            // A board saved before the round picker existed: its round counts as reached.
+            if (this.currentRound > maxRoundReached()) SafeStorage.set(LS_MAX_ROUND, String(this.currentRound));
+            this.arenaMgr?.applyImmediate(this.currentRound);   // arena of the start / restored round (castle: no-op)
+            this.arenaHazards?.setArena(arenaIndexForRound(this.currentRound));
+            this._trackEvent('game_started', { restored: restoring, round: this.currentRound, start_round: this._startRound, max_round: maxRoundReached(), ...GameManager._telemetryContext() });
             this._trackProgressionStarted(!freshGame);
             this._refreshTokenCounters();
             // After game_started, so the telemetry sees the tutorial step inside the started game.
@@ -898,6 +943,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             // Portal SDK: active play starts here (init is idempotent — covers the
             // dev-preview case where the Game scene loads without passing by MainMenu)
             const portal = PortalProvider.get();
+            AudioManager.instance.startLoading();   // first frame is playable: sounds and music may download now
             void portal.init().then(async () => {
                 portal.gameLoadingFinished();
                 // GameDistribution §2.1.1 mandates a PREROLL ad before gameplay begins.
@@ -914,6 +960,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     }
 
     onDestroy() {
+        Settings.onLeftHandedChanged = null;
         director.getScheduler().setTimeScale(1.0);
         if (LIVE_RESIZE && sys.isBrowser) {
             window.removeEventListener('resize', this.onBrowserResize);
@@ -988,6 +1035,60 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.timerRemaining = launchTimerForRound(this.currentRound);
         this._syncGoLineToRound(this.currentRound, false);
         this.updateRoundLabel();
+        this.arenaMgr?.applyImmediate(this.currentRound);
+        this.arenaHazards?.setArena(arenaIndexForRound(this.currentRound));
+    }
+
+    /** Arena difficulties: hand the hazard manager the game's layers and track geometry (physics space). */
+    private _initArenaHazards(): void {
+        const hz = this.arenaHazards;
+        if (!hz) return;
+        const trackNode = this.track?.node ?? null;
+        // Track-local point (the wall geometry) → Box2DLayer local (where the warriors live)
+        const toPhys = (x: number, y: number): Vec3 => {
+            const world = new Vec3(x, y, 0);
+            if (trackNode) Vec3.transformMat4(world, world, trackNode.worldMatrix);
+            return this.box2dLayer.inverseTransformPoint(new Vec3(), world);
+        };
+        hz.init({
+            box2dLayer: this.box2dLayer,
+            warriorsLayer: this.warriorsLayer,
+            warriors: () => this.warriors,
+            lineY: () => this.gameOverLineLocal,
+            topY: () => {
+                const top = trackNode?.getChildByName('WallTop');
+                const box = top?.getComponent(BoxCollider2D);
+                const innerY = top && box ? top.position.y - box.size.height / 2 : WALL_LT.y;
+                return toPhys(0, innerY).y;
+            },
+            wallX: (y: number) => {
+                const lb = toPhys(WALL_LB.x, WALL_LB.y), lt = toPhys(WALL_LT.x, WALL_LT.y);
+                const rb = toPhys(WALL_RB.x, WALL_RB.y), rt = toPhys(WALL_RT.x, WALL_RT.y);
+                const k = lt.y !== lb.y ? Math.max(0, Math.min(1, (y - lb.y) / (lt.y - lb.y))) : 0;
+                return [lb.x + (lt.x - lb.x) * k, rb.x + (rt.x - rb.x) * k];
+            },
+            shake: (a, d) => this.vfx.screenShake(a, d),
+            sfx: (id, v) => { AudioManager.instance.play(id, v); },
+            obstacleRadius: () => (LEVEL_CONFIG[2]?.radius ?? 30) * LAYOUT_SCALE * Warrior.sizeScale,
+        });
+        if (QA_E2E_HOOKS && sys.isBrowser) (window as any).fwHazard = (): number => hz.spawnNow();
+    }
+
+    /**
+     * Fresh game started from round `round` (MainMenu picker): the state a game would have on entering
+     * that round — merges at the round's threshold, spawn set and max level, launch timer, game-over
+     * line, warrior scale — with an empty board (prefill follows). Species of the earlier rounds are
+     * not spotlighted again: the player met them in the game that got this far.
+     */
+    private _applyStartRound(round: number): void {
+        this.currentRound = round;
+        this.totalMerges = this._roundThreshold(round - 1);
+        this.spawnMgr.setSpawnTypes(spawnTypesForRound(round));
+        this.spawnMgr.setMaxLevel(spawnMaxLevelForRound(round));
+        this.timerRemaining = launchTimerForRound(round);
+        Warrior.sizeScale = warriorScaleFloor(round);   // before any warrior is spawned
+        WARRIORS.forEach((w, i) => { if (w.introRound <= round) this._speciesShown.add(i); });
+        this.updateRoundLabel();   // (the game-over line was already synced to this round in start())
     }
 
     getTotalMerges(): number { return this.totalMerges; }
@@ -1287,6 +1388,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // Every imploded warrior sends an energy sphere back to the launched warrior; when the last one
         // has landed it gains levels from the sum of the imploded levels (see _finishGather).
         const gather: EnergyGather = { carrier, implodesLeft: targets.length, orbsLeft: targets.length, levelSum: 0, color: new Color(190, 120, 255, 255), tag: 'Brotherhood' };
+        if (targets.length > 0) this._gathers.add(gather);
         for (let i = 0; i < targets.length; i++) {
             const w = targets[i];
             w.brotherhoodInfected = true;
@@ -1312,6 +1414,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (--gather.implodesLeft === 0) this._pushTrackUp();  // every warrior has imploded: small push up
     }
 
+    /** The carrier merged / evolved while spheres were flying to it: they go to the new warrior. */
+    private _retargetGathers(from: Warrior | null, to: Warrior): void {
+        for (const g of this._gathers) if (from && g.carrier === from) g.carrier = to;
+    }
+
     /** The carrier still able to receive energy (on the track, not merging). */
     private _gatherReceiver(gather: EnergyGather): Warrior | null {
         const c = gather.carrier;
@@ -1327,7 +1434,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (arrived) {
                 gather.levelSum += level;
                 const c = this._gatherReceiver(gather);
-                if (c) this._vibrateWarrior(c);
+                if (c) { this._vibrateWarrior(c); AudioManager.instance.play(SFX.ENERGY_ABSORB, 0.5); }
             }
             if (--gather.orbsLeft <= 0) this._finishGather(gather);
         };
@@ -1339,6 +1446,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     /** Last sphere landed: the launched warrior gains max(1, floor(Σ levels / BROTHERHOOD_LEVELS_PER_GAIN)) levels. */
     private _finishGather(gather: EnergyGather): void {
+        this._gathers.delete(gather);
         const done = gather.onDone;
         gather.onDone = undefined;
         done?.();
@@ -1365,9 +1473,10 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _implodeBrotherhoodWarrior(w: Warrior, brs: BrotherhoodSparkleEffect, gather: EnergyGather): void {
         if (!w.node?.isValid) { this._gatherSkip(gather); return; }
         brs.detach();
+        AudioManager.instance.play(SFX.IMPLODE, 0.55);
         this._sendGatherOrb(w, gather);
         this._gatherImplodeDone(gather);
-        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));
+        const pts = this._pts(12 * this.currentRound * Math.pow(2, w.level - 1));
         this.score += pts;
         this.updateScoreLabel();
         this.updateRoundProgress();
@@ -1489,6 +1598,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 if (this.implosionCenter) this.applyVortexImplosion(dt);
                 this.checkLineLogic(dt);
                 this._tokenField?.tick(dt, this._tokenPlayActive());
+                if (PhysicsSystem2D.instance.enable) this.arenaHazards?.tick(dt);   // frozen under modals / ads too
             }
             if (this._wrLaunchWarrior?.node?.isValid) {
                 if (this._wrLaunchWarrior.velocity.length() < SETTLE_VELOCITY) {
@@ -1593,8 +1703,6 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private activateWarrior(w: Warrior): void {
         this._activeLauncherWarrior = w;
-        // Shrink step for the last launch, applied with the next launcher (the board has settled) and outside
-        // any physics callback (collider fixtures are rebuilt).
         if (this._pendingBoostAura) this.scheduleOnce(() => this._grantBoostAura(), 0);  // after the launcher setup below
         if (this._boostPanelRequested) this.scheduleOnce(() => { if (this._boostPanelRequested) this._requestBoostPanel(); }, 0);
         this.inputCtrl.setWarrior(w);
@@ -2073,7 +2181,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const toExplode = this.warriors.filter(w => w.node?.isValid && w.crossedLine);
         let bonus = 0;
         toExplode.forEach((w, i) => {
-            bonus += 50 * w.level;
+            bonus += this._pts(50 * w.level);
             this.scheduleOnce(() => {
                 if (!w.node?.isValid) return;
                 const wx  = w.node.position.x;
@@ -2301,7 +2409,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.checkRoundAdvance();
         }
         this.mergesThisLaunch++;
-        const points = 10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1));
+        const points = this._pts(10 * (1 << (newLevel - 1)) * this.currentRound * (1 << (this.mergesThisLaunch - 1)));
         this.score += points;
         this._trackBestSingle(points, this.mergesThisLaunch > 1
             ? `×${this.mergesThisLaunch} combo`
@@ -2327,6 +2435,8 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._cleanupPF(a);
             this._cleanupPF(b);
             const auraInvolved = a === this._auraWarrior || b === this._auraWarrior;
+            const thunderInvolved = a === this._thunderCarrier || b === this._thunderCarrier;
+            if (thunderInvolved) { this._thunderEffect?.detach(); this._thunderEffect = null; }
             if (auraInvolved) {
                 this._auraEffect?.detach();
                 this._auraEffect = null;
@@ -2342,7 +2452,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 // Both at max level — blackhole, no new warrior spawned
                 const lvConf  = LEVEL_CONFIG[maxLevel];
                 const color   = lvConf?.vfxColor ?? new Color(255, 200, 50, 255);
-                const bonus   = lvConf?.bonus ?? 0;
+                const bonus   = this._pts(lvConf?.bonus ?? 0);
                 const tier    = Math.max(1, Math.min(3, maxLevel - 2)) as 1 | 2 | 3;
 
                 const wrSfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4, SFX.MERGE_5, SFX.MERGE_6];
@@ -2378,6 +2488,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.checkTrackClearedBonus(midX, midYC);
                 this._logOnTrack('explosion');
                 if (auraInvolved) { this._restoreAuraScales(); this._auraWarrior = null; }
+                if (thunderInvolved) this._clearThunder();   // exploded at max level: the storm has no carrier left
                 if (inflightMerged) this.activateAfterInflightMerge();
                 return;
             }
@@ -2392,6 +2503,14 @@ export class GameManager extends Component implements IGameManagerDebug {
             if (merged.mapper) merged.mapper.animScale = 0;
             merged.playMergeInEffect(0.35);
             if (parentWasPsycho) this._applyPF(merged);
+            this._retargetGathers(a, merged);
+            this._retargetGathers(b, merged);
+            if (thunderInvolved) {
+                // The charge survives a merge in flight: the merged warrior carries the storm.
+                this._thunderCarrier = merged;
+                this._thunderEffect = ThunderRainEffect.attach(merged, this.vfx.auraFrame);
+                this._thunderCalm = 0;
+            }
             if (auraInvolved) {
                 this._restoreAuraScales();
                 this._auraEffect = this._attachAura(merged);
@@ -2456,6 +2575,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _spawnPFLaser(canvasY: number): void {
         if (!this.psychoSparklePrefab || !this.warriorsLayer?.isValid) return;
+        AudioManager.instance.play(SFX.PSYCHO_FORCE, 0.7);
         const n = instantiate(this.psychoSparklePrefab);
         n.setParent(this.warriorsLayer);
         n.layer = this.warriorsLayer.layer;
@@ -2556,7 +2676,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _implodePFWarrior(w: Warrior): void {
         if (!w.node?.isValid || !this._pfActive.has(w)) return;
         this._cleanupPF(w);
-        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));  // = Brotherhood
+        const pts = this._pts(12 * this.currentRound * Math.pow(2, w.level - 1));  // = Brotherhood
         this.score += pts;
         this.updateScoreLabel();
         this.updateRoundProgress();
@@ -2680,6 +2800,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const lit = this._lightning;
         if (!lit?.isValid || !lit.segmentPrefab) return;
         lit.strike(from.viewNode.worldPosition, to.viewNode.worldPosition);
+        AudioManager.instance.play(SFX.LIGHTNING_ZAP, 0.45);
     }
 
     /** Lightning VFX (ManaLightning, from FunKoolkan): nodes on top of the warriors, prefabs from resources/prefabs.
@@ -2735,34 +2856,60 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     /** The launched carrier has not struck yet, or the storm is still falling: the next turn waits. */
     private _thunderPending(): boolean {
-        return this._thunderStorm || !!(this._thunderCarrier?.node?.isValid && this._thunderCarrier.launched);
+        const c = this._thunderCarrier;
+        return this._thunderStorm || !!(c?.node?.isValid && (c.launched || c.crossedLine));
     }
 
     private _tickThunder(dt: number): void {
         const c = this._thunderCarrier!;
         if (!c.node?.isValid) { this._clearThunder(); return; }
-        if (!c.launched || !c.crossedLine || c.merging || c.velocity.length() >= SETTLE_VELOCITY) { this._thunderCalm = 0; return; }
+        // crossedLine, not `launched`: a carrier that merged in flight hands the charge to the merged
+        // warrior, which was never launched itself (mergeWarriors).
+        if (!c.crossedLine || c.merging || c.velocity.length() >= SETTLE_VELOCITY) { this._thunderCalm = 0; return; }
         this._thunderCalm += dt;
         if (this._thunderCalm >= THUNDER_CALM_SEC) this._triggerThunderRain();
     }
 
     /**
-     * Isolated = no warrior of the same species, nor of a similar level, within THUNDER_ISOLATION_GAP
-     * (edge to edge, canvas space): it can hardly ever merge where it is. The carrier does not count.
+     * How isolated a warrior is: the gap (edge to edge, canvas space, design px) to its nearest possible
+     * partner, i.e. a warrior of the same species or of a similar level. Infinity = no partner at all.
+     * Isolated = this gap is beyond THUNDER_ISOLATION_GAP: it can hardly ever merge where it is.
+     * The carrier does not count as a partner.
      */
-    private _isIsolated(w: Warrior, carrier: Warrior | null): boolean {
+    private _isolationGap(w: Warrior, carrier: Warrior | null): number {
         const sx = this.box2dLayer.scale.x;
         const sy = this.box2dLayer.scale.y;
-        const gap = THUNDER_ISOLATION_GAP * LAYOUT_SCALE;
         const wp = w.node.position;
+        let best = Infinity;
         for (const o of this.warriors) {
             if (o === w || o === carrier || !o.node?.isValid || !o.crossedLine) continue;
             if (o.type !== w.type && Math.abs(o.level - w.level) > THUNDER_SIMILAR_LEVEL) continue;
             const op = o.node.position;
             const d = Math.hypot((op.x - wp.x) * sx, (op.y - wp.y) * sy) - w.radius - o.radius;
-            if (d <= gap) return false;
+            if (d < best) best = d;
         }
-        return true;
+        return best / LAYOUT_SCALE;
+    }
+
+    private _isIsolated(w: Warrior, carrier: Warrior | null): boolean {
+        return this._isolationGap(w, carrier) > THUNDER_ISOLATION_GAP;
+    }
+
+    /**
+     * Who the bolts hit: the isolated warriors (at most THUNDER_MAX_TARGETS, closest to the game-over line
+     * first). With fewer than THUNDER_MIN_TARGETS isolated ones, the storm still strikes: it tops up with
+     * the most isolated of the others (largest gap to a partner), so the power always does something.
+     */
+    private _thunderTargets(carrier: Warrior): Warrior[] {
+        const all = this.warriors
+            .filter(w => w !== carrier && w.node?.isValid && w.crossedLine && !w.merging)
+            .map(w => ({ w, gap: this._isolationGap(w, carrier) }));
+        const isolated = all.filter(e => e.gap > THUNDER_ISOLATION_GAP)
+            .sort((a, b) => a.w.node.position.y - b.w.node.position.y)
+            .slice(0, THUNDER_MAX_TARGETS);
+        if (isolated.length >= THUNDER_MIN_TARGETS) return isolated.map(e => e.w);
+        const rest = all.filter(e => e.gap <= THUNDER_ISOLATION_GAP).sort((a, b) => b.gap - a.gap);
+        return [...isolated, ...rest.slice(0, THUNDER_MIN_TARGETS - isolated.length)].map(e => e.w);
     }
 
     /** The carrier is at rest on the track: bolts fall on the isolated warriors, one after the other. */
@@ -2770,13 +2917,10 @@ export class GameManager extends Component implements IGameManagerDebug {
         const carrier = this._thunderCarrier;
         this._clearThunder();
         if (!carrier?.node?.isValid) return;
-        let targets = this.warriors.filter(w =>
-            w !== carrier && w.node?.isValid && w.crossedLine && !w.merging && this._isIsolated(w, carrier));
-        // Too many: the ones closest to the game-over line (the most dangerous) first.
-        targets.sort((a, b) => a.node.position.y - b.node.position.y);
-        targets = targets.slice(0, THUNDER_MAX_TARGETS);
-        this._trackEvent('thunder_rain', { round: this.currentRound, targets: targets.length, on_track: this._onTrackCount() });
-        if (DEBUG) console.log(`[ThunderRain] ${targets.length} isolated warriors struck`);
+        const targets = this._thunderTargets(carrier);
+        const isolated = targets.filter(w => this._isIsolated(w, carrier)).length;
+        this._trackEvent('thunder_rain', { round: this.currentRound, targets: targets.length, isolated, on_track: this._onTrackCount() });
+        if (DEBUG) console.log(`[ThunderRain] ${targets.length} warriors struck (${isolated} isolated)`);
         if (targets.length === 0) { this._vibrateWarrior(carrier); return; }
         // A rain: random order among the chosen ones.
         for (let i = targets.length - 1; i > 0; i--) {
@@ -2784,15 +2928,18 @@ export class GameManager extends Component implements IGameManagerDebug {
             [targets[i], targets[j]] = [targets[j], targets[i]];
         }
         this._thunderStorm = true;
+        const stormId = ++this._thunderStormId;
+        const endStorm = (): void => { if (this._thunderStormId === stormId) this._thunderStorm = false; };
         const gather: EnergyGather = {
             carrier, implodesLeft: targets.length, orbsLeft: targets.length, levelSum: 0,
             color: new Color(255, 220, 70, 255), tag: 'ThunderRain',
-            onDone: () => { this._thunderStorm = false; },
+            onDone: endStorm,
         };
+        this._gathers.add(gather);
         for (const w of targets) w.merging = true;   // doomed: no merge may take it before its bolt lands
         targets.forEach((w, i) => this.scheduleOnce(() => this._strikeThunder(w, gather), i * THUNDER_STRIKE_GAP));
         // Safety net: a lost callback must never hold the turn forever.
-        this.scheduleOnce(() => { this._thunderStorm = false; }, targets.length * THUNDER_STRIKE_GAP + 6);
+        this.scheduleOnce(endStorm, targets.length * THUNDER_STRIKE_GAP + 6);
     }
 
     private _strikeThunder(w: Warrior, gather: EnergyGather): void {
@@ -2809,10 +2956,14 @@ export class GameManager extends Component implements IGameManagerDebug {
     /** The bolt lands: the warrior bursts and its energy sphere flies to the carrier. */
     private _destroyByThunder(w: Warrior, gather: EnergyGather): void {
         if (!w.node?.isValid) { this._gatherSkip(gather); return; }
+        this._cleanupWRS(w);
+        this._cleanupPF(w);
+        if (w === this._auraWarrior) this._dropAura();
         this._sendGatherOrb(w, gather);
         this._gatherImplodeDone(gather);
         this.vfx.screenShake(3, 0.1);
-        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));
+        AudioManager.instance.play(SFX.THUNDER_STRIKE, 0.8);
+        const pts = this._pts(12 * this.currentRound * Math.pow(2, w.level - 1));
         this.score += pts;
         this.updateScoreLabel();
         this.updateRoundProgress();
@@ -2858,10 +3009,14 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (next >= prev - 1e-6) return;
         Warrior.sizeScale = next;
         const ratio = prev / next;
+        AudioManager.instance.play(SFX.SHRINK_EMBERS, 0.6);
         const frame = this.vfx.sparkleFrame;
         for (const w of this.warriors) {
             if (!w.node?.isValid) continue;
             w.rescaleToLayout();
+            // A warrior on its way out (merge, implosion, bolt, spark) keeps its tween: stopping it would
+            // skip the .call() that removes it — a frozen ghost left on the track.
+            if (w.merging) continue;
             const m = w.mapper;
             if (m?.node?.isValid) {
                 Tween.stopAllByTarget(m);
@@ -2902,8 +3057,9 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (!w.node?.isValid || !this._wrsActive.has(w)) return;
         this._cleanupWRS(w);
         this._wrsOrder = this._wrsOrder.filter(x => x !== w);
+        AudioManager.instance.play(SFX.IMPLODE, 0.5);
         // Same points as a Brotherhood implosion (rescue forms stay equivalent for the leaderboard).
-        const pts = Math.round(12 * this.currentRound * Math.pow(2, w.level - 1));
+        const pts = this._pts(12 * this.currentRound * Math.pow(2, w.level - 1));
         this.score += pts;
         this.updateScoreLabel();
         const wx  = w.node.position.x;
@@ -2956,6 +3112,15 @@ export class GameManager extends Component implements IGameManagerDebug {
         //   Frog≈2% Cat≈8% Chicken≈18% Wolf≈33% Eagle≈51% Lion≈73% Dragon=100%.
         const k = (type + 1) / WARRIORS.length;
         return Math.max(AURA_MIN_RANGE, AURA_REPEL_RANGE * k * k);
+    }
+
+    /** End the Aura of its carrier now (carrier leaving the track or turning into another warrior). */
+    private _dropAura(): void {
+        this._restoreAuraScales();
+        this._auraEffect?.detach();
+        this._auraEffect = null;
+        this._auraWarrior = null;
+        this._auraProxTimers.clear();
     }
 
     private _restoreAuraScales(): void {
@@ -3018,6 +3183,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         w.merging = true;
         w.forceStop();
         w.setDragMode(true);
+        AudioManager.instance.play(SFX.AURA_ZAP, 0.6);
 
         const wType   = w.type;
         const wEnergy = 1 << (w.level - 1);
@@ -3257,6 +3423,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _onSparkHit(target: Warrior, energy: number): void {
         const rec = this._zapTargetEnergy.get(target);
         if (!rec) return;
+        AudioManager.instance.play(SFX.ENERGY_ABSORB, 0.5);
 
         // Yellow tint flash + visual hop
         if (target.node?.isValid) {
@@ -3282,7 +3449,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Zap score: 5 × round × 2^(level−1), assegnato all'impatto sul target
         if (target.node?.isValid) {
-            const zapPts = 5 * this.currentRound * energy;
+            const zapPts = this._pts(5 * this.currentRound * energy);
             this.score += zapPts;
             this.updateScoreLabel();
             const tx = target.node.position.x;
@@ -3318,11 +3485,11 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         this._cleanupWRS(target);
         this._cleanupPF(target);
-        // The Aura carrier itself evolved (sparks with no same-species target came back to it):
-        // its Aura goes with the old node.
-        if (target === this._auraWarrior) {
-            this._auraWarrior = null; this._auraEffect = null; this._auraProxTimers.clear();
-        }
+        // The Aura carrier itself evolved (sparks with no same-species target came back to it): its Aura
+        // moves onto the evolved warrior below (like a merge), or ends if it explodes past the max level.
+        const wasAura = target === this._auraWarrior;
+        const auraLeft = wasAura ? (this._auraEffect?.remainingSec ?? 0) : 0;   // it keeps only the time it had left
+        if (wasAura) this._dropAura();
         this.warriors =this.warriors.filter(w => w !== target);
         this.framesAboveLine.delete(target);
         this.framesBelowLine.delete(target);
@@ -3345,7 +3512,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this.implosionPeakForce = (200 + tier * 60) * LAYOUT_SCALE;
             if (lvConf?.label) this.vfx.spawnExplosionLabel(posX, posYC + 10, lvConf.label, color);
             this._vibrate(120);
-            const evoPts = 20 * this.currentRound * Math.max(0, finalLevel - initLevel);
+            const evoPts = this._pts(20 * this.currentRound * Math.max(0, finalLevel - initLevel));
             if (evoPts > 0) {
                 this.score += evoPts;
                 this.updateScoreLabel();
@@ -3356,7 +3523,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             return;
         }
 
-        const evoPts = 20 * this.currentRound * Math.max(0, finalLevel - initLevel);
+        const evoPts = this._pts(20 * this.currentRound * Math.max(0, finalLevel - initLevel));
         if (evoPts > 0) {
             this.score += evoPts;
             this.updateScoreLabel();
@@ -3370,6 +3537,12 @@ export class GameManager extends Component implements IGameManagerDebug {
         evolved.settle();
         evolved.onMergeReady = (x, y) => this.mergeWarriors(x, y);
         this.warriors.push(evolved);
+        if (wasAura && auraLeft !== 0) {
+            this._auraEffect = this._attachAura(evolved);
+            if (auraLeft > 0) this._auraEffect.startTimer(auraLeft);
+            this._auraWarrior = evolved;
+        }
+        this._retargetGathers(target, evolved);
         if (evolved.mapper) evolved.mapper.animScale = 0;
         evolved.playMergeInEffect(0.35);
         const sfxs = [SFX.MERGE_1, SFX.MERGE_2, SFX.MERGE_3, SFX.MERGE_4];
@@ -3409,7 +3582,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         const onTrack = this.warriors.filter(w => w.crossedLine && w.node?.isValid);
         if (onTrack.length > 0) return;
         this._trackClearedBonusUsed = true;
-        const bonus = 1000 * this.currentRound;
+        const bonus = this._pts(1000 * this.currentRound);
         this.score += bonus;
         this._trackBestSingle(bonus, `Track Cleared ×${this.currentRound}`);
         this.updateScoreLabel();
@@ -3590,6 +3763,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         // on standalone builds). Never called during gameplay — Poki requirement.
         const reload = (): void => {
             GameManager._forceNewGame = true;  // Restart = new game, not a resume of the saved turn
+            GameManager.requestedStartRound = this._startRound;  // …from the same start round
             void this._withCommercialBreak(() => director.loadScene(this.sceneName));
         };
         const menu   = (): void => this._leaveToMenu();
@@ -3618,8 +3792,6 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
-    /** Quit / Menu: the player chose the menu — treat the first access as complete and never bounce
-     *  them back into the game, now or at the next boots (until they press PLAY again). */
     /** Settings → Quit: the game is abandoned — its saved board is deleted (PLAY then starts a new one). */
     private _quitGame(): void {
         this._gameAbandoned = true;   // no snapshot may be written again on the way out
@@ -3627,6 +3799,8 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._leaveToMenu();
     }
 
+    /** Quit / Menu: the player chose the menu — treat the first access as complete and never bounce
+     *  them back into the game, now or at the next boots (until they press PLAY again). */
     private _leaveToMenu(): void {
         SafeStorage.set(LS_PLAYED_ONCE, '1');
         SafeStorage.set(LS_MENU_ON_BOOT, '1');
@@ -3716,6 +3890,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 totalMerges: this.totalMerges,
                 cooldowns:   { wr: this._wrCooldownLaunches, pf: this._pfCooldownLaunches },
                 sizeScale:   Warrior.sizeScale,
+                startRound:  this._startRound,
                 firstLaunchSpecies:    Array.from(this._firstLaunchSpecies),  // not [...set]: downlevel spread breaks Sets
                 trackClearedBonusUsed: this._trackClearedBonusUsed,
                 bestSingle:  { score: this._bestSingleScore, desc: this._bestSingleScoreDesc },
@@ -3819,6 +3994,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             this._wrCooldownLaunches = snap.cooldowns?.wr ?? 0;
             this._pfCooldownLaunches = snap.cooldowns?.pf ?? 0;
             Warrior.sizeScale = Math.max(WARRIOR_MIN_SCALE, Math.min(1, snap.sizeScale ?? 1));  // before any warrior is spawned
+            this._startRound = Math.max(1, Math.floor(snap.startRound ?? 1));
             this._firstLaunchSpecies    = new Set(snap.firstLaunchSpecies ?? []);
             this._trackClearedBonusUsed = !!snap.trackClearedBonusUsed;
             this._bestSingleScore       = snap.bestSingle?.score ?? 0;
@@ -3993,7 +4169,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             for (let j = i + 1; j < this.warriors.length; j++) {
                 const b = this.warriors[j];
                 if (!b.node?.isValid || !(b.launched || b.crossedLine) || b.merging) continue;
-                if (a.type !== b.type || a.level !== b.level) continue;
+                if (a.type !== b.type || !a.canMergeWith(b)) continue;
                 const dx   = a.node.position.x - b.node.position.x;
                 const dy   = a.node.position.y - b.node.position.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -4012,7 +4188,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                     activePairs.add(key);
                     const elapsed = (this._proximityTimers.get(key) ?? 0) + dt;
                     this._proximityTimers.set(key, elapsed);
-                    if (elapsed >= 2.0) {
+                    if (elapsed >= PROXIMITY_MERGE_SEC) {
                         a.merging = true;
                         b.merging = true;
                         this._proximityTimers.delete(key);
@@ -4173,8 +4349,18 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
+    /** Points of a score event, times the arena multiplier (data/Arenas scoreMultiplierForRound). */
+    private _pts(base: number): number {
+        return Math.round(base * scoreMultiplierForRound(this.currentRound));
+    }
+
     private updateRoundLabel(): void {
         if (this.roundLabel) this.roundLabel.string = String(this.currentRound);
+        const k = scoreMultiplierForRound(this.currentRound);
+        if (this.scoreMultiplierLabel) {
+            this.scoreMultiplierLabel.node.active = k > 1;
+            this.scoreMultiplierLabel.string = formatMultiplier(k);
+        }
         this.updateRoundProgress();
     }
 
@@ -4203,6 +4389,13 @@ export class GameManager extends Component implements IGameManagerDebug {
         this._trackProgressionCompleted('round_up');
         this.currentRound++;
         this._trackEvent('round_reached', { round: this.currentRound });
+        if (this.currentRound > maxRoundReached()) SafeStorage.set(LS_MAX_ROUND, String(this.currentRound));
+        const arenaChange = isArenaChangeRound(this.currentRound) && !!this.arenaMgr;
+        if (arenaChange) this._trackEvent('arena_reached', { arena: ARENAS[arenaIndexForRound(this.currentRound)].id, round: this.currentRound, start_round: this._startRound });
+        else {
+            this.arenaMgr?.preloadAround(this.currentRound);
+            if ((this.currentRound - 1) % ARENA_ROUNDS >= 2) this.arenaHazards?.preload((arenaIndexForRound(this.currentRound) + 1) % ARENAS.length);
+        }
         this._trackProgressionStarted(false);
         this._refreshTokenCounters();
         this._trackClearedBonusUsed = false;
@@ -4222,7 +4415,15 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
             this.vfx.showRoundUpBanner(this.currentRound);
-            const pauseSec = ROUND_UP_PAUSE_SEC;
+            // New arena (round 6, 11, 16…): "NEW ARENA..." + background cross-fade + track wipe, with a longer pause.
+            if (arenaChange) {
+                this.arenaMgr!.playChange(this.currentRound);
+                // the old arena's hazards go now, the new ones once the new track is in place
+                const idx = arenaIndexForRound(this.currentRound);
+                this.arenaHazards?.clear();
+                this.scheduleOnce(() => { if (arenaIndexForRound(this.currentRound) === idx) this.arenaHazards?.setArena(idx); }, ARENA_CHANGE_SEC * 0.85);
+            }
+            const pauseSec = arenaChange ? Math.max(ROUND_UP_PAUSE_SEC, ARENA_CHANGE_SEC) : ROUND_UP_PAUSE_SEC;
             // Mid-session interstitial: Playgama only (Poki / CrazyGames / GD allow ads only between sessions).
             const interstitialRound = PORTAL === 'playgama' && (this.currentRound - 1) % INTERSTITIAL_EVERY_ROUNDS === 0;
             // After a "no ad available" the BOOST sits out BOOST_NO_AD_PAUSE_ROUNDS rounds (no fill now
@@ -4353,6 +4554,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private _offerBoost(centerSeconds: number, parkSeconds: number): void {
         const portal = PortalProvider.get();
         if (!this.boostOffer || !portal.showRewarded || !portal.isRewardedSupported?.()) return;
+        if (this.currentRound < BOOST_FROM_ROUND) return;
         if (performance.now() < this._boostCooldownUntil) return;  // a BOOST was used less than 5 minutes ago
         this.boostOffer.offer(centerSeconds, parkSeconds);
     }
@@ -4509,7 +4711,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _onTokenCollected(kind: TokenKind, token: PowerToken, by: Warrior, ageSec: number): void {
         const cfg = tokenConfig(kind);
-        const pts = TOKEN_POINTS_PER_ROUND * this.currentRound;
+        const pts = this._pts(TOKEN_POINTS_PER_ROUND * this.currentRound);
         this.score += pts;
         this.updateScoreLabel();
         // Same floating score as a merge, just above the coin (it flies off from there).
@@ -4669,7 +4871,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private applyCohesion(dtScale: number): void {
         const COHESION_RANGE  = 120 * LAYOUT_SCALE;
         const COHESION_FORCE  = 12  * LAYOUT_SCALE * dtScale;
-        const r1sq = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE * Warrior.sizeScale) ** 2;
+        const r1sq = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
         const sx = this.box2dLayer.scale.x;
         const sy = this.box2dLayer.scale.y;
 
@@ -4698,6 +4900,24 @@ export class GameManager extends Component implements IGameManagerDebug {
             }
         }
     }
+
+    /**
+     * NEXT preview side (Settings › Left-handed): on the left wall by default, mirrored onto the right wall
+     * for left-handed players, so the dragging thumb never covers it. The editor Widget (LEFT | BOTTOM,
+     * left offset) is authoritative: left-handed only mirrors it to RIGHT with the same offset.
+     */
+    private _applyNextSide(): void {
+        const w = this.nextPreviewNode?.getComponent(Widget);
+        if (!w) return;
+        if (this._nextEditorSide === null) this._nextEditorSide = { offset: w.isAlignLeft ? w.left : w.right, abs: w.isAlignLeft ? w.isAbsoluteLeft : w.isAbsoluteRight };
+        const onLeft = !Settings.leftHanded;
+        const { offset, abs } = this._nextEditorSide;
+        w.isAlignLeft = onLeft;
+        w.isAlignRight = !onLeft;
+        if (onLeft) { w.isAbsoluteLeft = abs; w.left = offset; } else { w.isAbsoluteRight = abs; w.right = offset; }
+        w.updateAlignment();
+    }
+    private _nextEditorSide: { offset: number; abs: boolean } | null = null;
 
     private updateNextPreview(animate = false): void {
         if (!this.nextPreviewNode?.isValid) return;
@@ -4827,7 +5047,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private applyUpwardDrift(dtScale: number): void {
         const force = UPWARD_DRIFT_BASE * LAYOUT_SCALE * dtScale;
-        const r1sq  = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE * Warrior.sizeScale) ** 2;
+        const r1sq  = ((LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE) ** 2;
         for (const w of this.warriors) {
             if (!w.node?.isValid || w.merging || !w.crossedLine) continue;
             const massScale = (w.radius * w.radius) / r1sq;
@@ -4838,7 +5058,7 @@ export class GameManager extends Component implements IGameManagerDebug {
     private applyMagnetism(dtScale: number): void {
         const magnetGap   = MAGNET_GAP_BASE   * LAYOUT_SCALE;
         const magnetForce = MAGNET_FORCE_BASE  * LAYOUT_SCALE;
-        const r1    = (LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE * Warrior.sizeScale;
+        const r1    = (LEVEL_CONFIG[1]?.radius ?? 20) * LAYOUT_SCALE;
         const r1sq  = r1 * r1;
         // box2dLayer has non-uniform scale (scaleY=0.5): node.position is local, not canvas.
         // Convert to canvas space for gap comparison (radius and magnetGap are in canvas pixels).

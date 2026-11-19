@@ -40,10 +40,25 @@ export class AuraEffect extends Component {
         return ae;
     }
 
-    // Call when the warrior is launched to begin the countdown.
-    startTimer(): void {
+    /** Game-time seconds left (same clock as scheduleOnce: slow-mo and pauses included); -1 = not started. */
+    private _left = -1;
+
+    /** Call when the warrior is launched to begin the countdown (`seconds`: what is left of an Aura
+     *  moving to another warrior; default the full duration). */
+    startTimer(seconds?: number): void {
+        const d = seconds ?? (this._golden ? GOLDEN_AURA_DURATION : AURA_DURATION);
+        this._left = d;
         this.unschedule(this._expireCb);
-        this.scheduleOnce(this._expireCb, this._golden ? GOLDEN_AURA_DURATION : AURA_DURATION);
+        this.scheduleOnce(this._expireCb, d);
+    }
+
+    update(dt: number): void {
+        if (this._left > 0) this._left = Math.max(0, this._left - dt);
+    }
+
+    /** Seconds before it expires; -1 while the countdown has not started. */
+    get remainingSec(): number {
+        return this._left;
     }
 
     detach(): void {

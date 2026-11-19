@@ -6,6 +6,8 @@ import { PORTAL } from '../config/PortalConfig';
 const { ccclass, property } = _decorator;
 
 const LS_VIBRATION = 'fw_vibration';
+/** Left-handed play: the NEXT preview moves to the right wall (2026-11-19). */
+const LS_LEFT_HANDED = 'fw_left_handed';
 
 /**
  * Centralized settings dialog — shared by MainMenu and Game scenes.
@@ -41,6 +43,16 @@ export class Settings extends Component {
     musicToggle: Toggle | null = null;
     @property({ type: Toggle, tooltip: 'Fullscreen on/off.' })
     fsToggle: Toggle | null = null;
+    @property({ type: Toggle, tooltip: 'Left-handed: NEXT preview on the right wall instead of the left one.' })
+    leftHandToggle: Toggle | null = null;
+
+    /** Called when the left-handed preference changes (GameManager moves the NEXT preview). */
+    static onLeftHandedChanged: (() => void) | null = null;
+
+    /** Shared source of truth for the left-handed preference. */
+    static get leftHanded(): boolean {
+        return SafeStorage.get(LS_LEFT_HANDED) === '1';
+    }
 
     /** Host hooks — set by the owning scene (GameManager). Null in MainMenu. */
     canOpen:      (() => boolean) | null = null;
@@ -88,6 +100,7 @@ export class Settings extends Component {
         this.sfxToggle?.node.on('toggle',   () => { if (!this._syncing) AudioManager.instance.toggleSfx(); }, this);
         this.musicToggle?.node.on('toggle', () => { if (!this._syncing) AudioManager.instance.toggleMusic(); }, this);
         this.fsToggle?.node.on('toggle',    () => { if (!this._syncing) this._toggleFullscreen(); }, this);
+        this.leftHandToggle?.node.on('toggle', () => { if (!this._syncing) this._toggleLeftHanded(); }, this);
 
         // Hide the fullscreen row when unsupported (no requestFullscreen) OR on CrazyGames:
         // custom in-game fullscreen buttons are prohibited there (the platform owns fullscreen).
@@ -192,7 +205,13 @@ export class Settings extends Component {
         if (this.sfxToggle)   this.sfxToggle.isChecked   = !AudioManager.instance.sfxMuted;
         if (this.musicToggle) this.musicToggle.isChecked = !AudioManager.instance.musicMuted;
         if (this.fsToggle)    this.fsToggle.isChecked    = sys.isBrowser && !!document.fullscreenElement;
+        if (this.leftHandToggle) this.leftHandToggle.isChecked = Settings.leftHanded;
         this._syncing = false;
+    }
+
+    private _toggleLeftHanded(): void {
+        SafeStorage.set(LS_LEFT_HANDED, Settings.leftHanded ? '0' : '1');
+        Settings.onLeftHandedChanged?.();
     }
 
     private _toggleVibration(): void {

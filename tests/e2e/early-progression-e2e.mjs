@@ -100,7 +100,8 @@ try {
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/index.html` });
     check('first visit lands in the Game', await waitGame());
 
-    // ---- 1. round 1 = Frog only
+    // ---- 1. round 1 = Frog only (let the prefill finish settling into place first: it rises ~70 px at spawn)
+    await sleep(1500);
     const b0 = await evaluate(board);
     const parked = b0.filter(w => !w.launcher && !w.launched);
     check('3 prefill warriors, all Frog level 1', parked.length === 3 && parked.every(w => w.type === 0 && w.level === 1), parked);

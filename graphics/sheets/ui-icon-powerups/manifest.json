@@ -1,0 +1,9 @@
+{
+ "title": "Powerups icon",
+ "use": "icona del bottone POWERUPS del menu principale (al posto del medaglione Aura rimpicciolito); SIMPLE, sizeMode CUSTOM",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-19, progetto FunWarriors, chat \"Generate Game Sprite Sheet\" (allegato ui-icons/source.png). Misura come icon-ranking (≈116 px di larghezza).",
+ "pieces": [
+  { "name": "icon-powerups", "src": [415, 145, 1119, 863], "size": [108, 110], "slice": [0, 0, 0, 0] }
+ ]
+}

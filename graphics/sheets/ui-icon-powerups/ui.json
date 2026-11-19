@@ -1,0 +1,22 @@
+{
+ "width": 1424,
+ "height": 413,
+ "scale": 2,
+ "pieces": [
+  {
+   "name": "icon-powerups",
+   "slot": {
+    "x": 24,
+    "y": 137,
+    "w": 216,
+    "h": 220
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ]
+}
