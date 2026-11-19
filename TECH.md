@@ -466,3 +466,15 @@ L'approccio modale dal menu (`resources.load` + `getComponent`/duck-typing) si �
 
 ## Tutorial powerup: polling invece di hook (2026-11-11)
 La modale del primo powerup della partita parte da un controllo per-frame (`_tickPowerupInfo`) sul powerup del launcher, non da hook nei punti in cui i powerup vengono assegnati: le fonti sono tante (prima comparsa di specie, BOOST, REVIVE, swap Next↔Launcher, debug, ripristino snapshot) e un hook dimenticato lascerebbe il powerup senza spiegazione. Riusa la pausa del BOOST (`_enterAdPause/_exitAdPause`), che gestisce già round-up differiti e resize durante la pausa. Le illustrazioni stanno in `resources/` e si caricano solo all'apertura, per non pesare sul boot (load time Playgama).
+
+## Arene: difficoltà come classi "hazard" (2026-11-19)
+Ogni difficoltà è una classe `ArenaHazard` (tick, dampingFactor, clear, spawnNow) creata da `ArenaHazards.setArena` con un `HazardContext` costruito da GameManager (layer, geometria della pista convertita nello spazio fisico del Box2DLayer, `shot()`, `lineY/topY/wallX`). Le zone a terra (`FloorDecal`) agiscono SOLO via damping per-warrior (moltiplicato, ripristinato se nessun altro l'ha cambiato nel frattempo); gli ostacoli (`Obstacle`) sono corpi statici creati e distrutti fuori dai callback fisici (setTimeout 0). Il tick gira solo a fisica accesa e quando l'arte dell'arena è caricata (niente pericoli invisibili). Perché: tenere GameManager fuori dalle regole delle singole arene e poterne aggiungere senza toccarlo.
+
+## Warrior ghiacciato: stato sul Warrior, regole nell'hazard (2026-11-19)
+`Warrior.frozen` blocca `canMergeWith` (merge a contatto, per vicinanza e Aura); `Warrior.onIceHit` è l'unico aggancio nel contatto. La forza del colpo si giudica sulle velocità campionate al tick precedente, perché in CC 3.8 i contatti arrivano dopo lo step (velocità già scambiate); il giudizio si applica al tick successivo, mai dentro il callback fisico. Lo scongelamento dei poteri passa da `ArenaHazards.thaw(w)`, chiamato nei punti in cui un potere "tocca" un warrior.
+
+## Round-up e merge (2026-11-19)
+Durante il freeze del round-up (fisica spenta) `mergeWarriors` rimanda ogni merge (creare o distruggere corpi a fisica spenta corrompe la broadphase). Per non far aspettare 2–3 s le coppie già attaccate, `advanceRound` le unisce subito con `_mergeTouchingPairs()`: il merge dura 0,12 s, la fisica si spegne a 0,17 s.
+
+## Texture WebP con PNG di riserva (2026-11-19)
+Compressione di Cocos per la piattaforma web (preset utente `fw-webp`): il browser scarica una sola delle due varianti. Scelta per il limite Playgama di 5 MB al primo frame; nessuna differenza visibile negli screenshot dei test. I JPG restano JPG.

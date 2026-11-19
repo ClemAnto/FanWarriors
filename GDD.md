@@ -599,3 +599,24 @@ KPI da monitorare dopo il lancio:
 - **Sessione media**: target >4 minuti
 - **Partite per sessione**: target >2.5
 - **Completion rate round 1-3**: target >70% (per validare onboarding)
+
+## 15c. Thunder Rain (v0.10.43, 2026-11-19)
+
+Quarto potere a gettoni: **dal round 4**, 4 gettoni per attivarlo; il primo Lupo della partita ne porta 3. Quando il portatore lanciato si ferma in pista, dal cielo cadono fulmini sui warrior **isolati** (nessun warrior della stessa specie, o di livello ±1, entro 120 px): almeno 3, al massimo 8. Ogni colpito si dissolve e manda la sua energia al portatore, che sale di livello con la somma.
+
+## 21. Arene (v0.10.46–0.10.48, 2026-11-19)
+
+Ogni **4 round** si cambia arena: round 1–3 Piazza del castello, **4** Lago ghiacciato, **8** Palude nebbiosa, **12** Segrete del castello, **16** Fucina del vulcano, poi il giro ricomincia (dal 20). Il cambio avviene nella pausa del passaggio di round (allungata a ~2,9 s): banner "NEW ARENA..." con il nome e "ALL POINTS ×k", dissolvenza dello sfondo e pista nuova disegnata dal muro di fondo verso il basso con una scia di stelline. Una partita che si apre (ripresa o scelta dal menu) in un round oltre il castello mostra subito la stessa animazione.
+
+**Moltiplicatore:** tutti i punti × (1 + 0,125 × arene raggiunte): ×1,125 dal round 4, ×1,25 dall'8, e continua a crescere dopo il giro. Mostrato sotto lo SCORE.
+
+**Difficoltà (sempre dentro la pista, mai sopra i muri):**
+- **Castello:** nessuna.
+- **Lago ghiacciato:** ogni 7–11 s si ghiaccia per 9–13 s una zona della pista (max 2): lì si scivola molto di più. **Il warrior lanciato che ci passa sopra si congela**: chiuso in un blocco di ghiaccio non può fare merge, anche dopo che la pozza si è sciolta, finché un altro warrior non lo colpisce forte. Due ghiacciati che si scontrano forte si liberano entrambi; i poteri (e il loro contagio) e il cambio arena scongelano. Ogni scongelamento fa esplodere il blocco in pezzetti di ghiaccio. Chi scivola sul ghiaccio solleva spruzzi.
+- **Palude:** il centro della pista, dalla linea al muro di fondo, è fango profondo: chi ci finisce frena di colpo (conviene lanciare sui lati); chi lo attraversa solleva schizzi di fango.
+- **Segrete:** ogni 7–11 s una testa di scheletro esce dal pavimento (max 2), devia i warrior come un ostacolo e dopo 4–5,5 s risprofonda.
+- **Vulcano:** crepe incandescenti (6–8 s) rallentano i warrior lanciati che ci passano; massi di lava cadono dal cielo (ombra che cresce, pista che trema), deviano i warrior e si frantumano dopo 5–7 s o quando un warrior in movimento li colpisce.
+
+**Scelta del round:** dopo una partita il menu propone ◀ ROUND N ▶ sopra PLAY (da 1 al round massimo raggiunto).
+
+**Altro (2026-11-19):** Drago dal round 10; i warrior si rimpiccioliscono un poco a ogni passaggio di round dal 3 (fino a 0,75 al round 16); NEXT sul muro sinistro (a destra con l'opzione Left-handed); le coppie già attaccate all'inizio di un passaggio di round si uniscono subito; ogni sparizione di warrior è animata.
