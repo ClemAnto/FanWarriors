@@ -4394,7 +4394,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (arenaChange) this._trackEvent('arena_reached', { arena: ARENAS[arenaIndexForRound(this.currentRound)].id, round: this.currentRound, start_round: this._startRound });
         else {
             this.arenaMgr?.preloadAround(this.currentRound);
-            if ((this.currentRound - 1) % ARENA_ROUNDS >= 2) this.arenaHazards?.preload((arenaIndexForRound(this.currentRound) + 1) % ARENAS.length);
+            if (this.currentRound % ARENA_ROUNDS >= 2) this.arenaHazards?.preload((arenaIndexForRound(this.currentRound) + 1) % ARENAS.length);
         }
         this._trackProgressionStarted(false);
         this._refreshTokenCounters();
@@ -4415,7 +4415,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
             this.vfx.showRoundUpBanner(this.currentRound);
-            // New arena (round 6, 11, 16…): "NEW ARENA..." + background cross-fade + track wipe, with a longer pause.
+            // New arena (round 5, 10, 15…): "NEW ARENA..." + background cross-fade + track wipe, with a longer pause.
             if (arenaChange) {
                 this.arenaMgr!.playChange(this.currentRound);
                 // the old arena's hazards go now, the new ones once the new track is in place

@@ -18,7 +18,7 @@ export interface ArenaConf {
     track: string | null;
 }
 
-/** Rounds spent in each arena: round 1–5 arena 0, 6–10 arena 1… */
+/** Arena length: the arena changes at round 5, 10, 15… (round 1–4 arena 0, 5–9 arena 1, 10–14 arena 2…). */
 export const ARENA_ROUNDS = 5;
 
 export const ARENAS: readonly ArenaConf[] = [
@@ -31,21 +31,29 @@ export const ARENAS: readonly ArenaConf[] = [
 
 /** Index in ARENAS of the arena where `round` is played. */
 export function arenaIndexForRound(round: number): number {
-    return Math.floor((Math.max(1, Math.floor(round)) - 1) / ARENA_ROUNDS) % ARENAS.length;
+    return arenasReached(round) % ARENAS.length;
 }
 
-/** True when reaching `round` moves the game to a new arena (round 6, 11, 16…). */
+/** Arenas left behind by `round` (0 before round 5, 1 from round 5, 2 from round 10…; keeps counting after the cycle). */
+export function arenasReached(round: number): number {
+    return Math.floor(Math.max(1, Math.floor(round)) / ARENA_ROUNDS);
+}
+
+/** True when reaching `round` moves the game to a new arena (round 5, 10, 15…). */
 export function isArenaChangeRound(round: number): boolean {
-    return round > 1 && (round - 1) % ARENA_ROUNDS === 0;
+    return round >= ARENA_ROUNDS && round % ARENA_ROUNDS === 0;
 }
 
-/** Minimum multiplier of every score (2026-11-19): it grows with the arena difficulty, +0.5 per arena
- *  reached — ×1 in the first arena, ×1.5 from round 6, ×2 from round 11… (it keeps growing after the cycle). */
+/** Score multiplier gained with each arena reached (0.5 in v0.10.46, then 0.25, now 0.125). */
+export const ARENA_MULTIPLIER_STEP = 0.125;
+
+/** Minimum multiplier of every score (2026-11-19): it grows with the arena difficulty, +ARENA_MULTIPLIER_STEP per
+ *  arena reached — ×1 in the first arena, ×1.125 from round 5, ×1.25 from round 10… (it keeps growing after the cycle). */
 export function scoreMultiplierForRound(round: number): number {
-    return 1 + 0.5 * Math.floor((Math.max(1, Math.floor(round)) - 1) / ARENA_ROUNDS);
+    return 1 + ARENA_MULTIPLIER_STEP * arenasReached(round);
 }
 
-/** "×1.5", "×2" */
+/** "×1.125", "×1.25", "×1.5" */
 export function formatMultiplier(k: number): string {
-    return `×${Number.isInteger(k) ? k : k.toFixed(1)}`;
+    return `×${Number(k.toFixed(3))}`;
 }

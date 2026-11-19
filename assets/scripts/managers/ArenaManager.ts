@@ -82,7 +82,7 @@ export class ArenaManager extends Component {
         this._loadFx();
         this._loadArena(ARENAS[cur]);
         // From the 3rd round of an arena, fetch the next one too: it is needed at the next arena change.
-        if ((round - 1) % ARENA_ROUNDS >= 2) this._loadArena(ARENAS[(cur + 1) % ARENAS.length]);
+        if (round % ARENA_ROUNDS >= 2) this._loadArena(ARENAS[(cur + 1) % ARENAS.length]);
     }
 
     /** Show the arena of `round` at once (game start / restored game): quick fade, no banner. */

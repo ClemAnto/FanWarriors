@@ -146,14 +146,14 @@ try {
             return { bg: ${frameName('am.background')}, track: ${frameName('am.trackSprite')}, w: ut.width, h: ut.height }; })()`);
 
         // ---- arena change at round 6: from round 5, one advance
-        await evaluate(`(() => { const gm = ${GM}; gm.timerRemaining = 999; gm.setDebugRound(5); gm.setTotalMerges(gm._roundThreshold(4)); return true; })()`);
+        await evaluate(`(() => { const gm = ${GM}; gm.timerRemaining = 999; gm.setDebugRound(4); gm.setTotalMerges(gm._roundThreshold(3)); return true; })()`);
         await sleep(600);
         await evaluate(`(() => { const am = ${AM}, gm = ${GM}; window.__ar = { fade: 0, wipe: 0, paused: 0 }; __ar.t = setInterval(() => { __ar.fade = Math.max(__ar.fade, am.backgroundNext.node.getComponent('cc.UIOpacity').opacity); if (am.trackWipe.active) __ar.wipe = Math.max(__ar.wipe, am.trackWipe.getComponent('cc.UITransform').height); if (gm.roundUpPause) __ar.paused = Date.now(); }, 16); __ar.t0 = Date.now(); gm.advanceRound(); return true; })()`);
-        check(`${p}: round 6 reached`, await evaluate(`${GM}.currentRound === 6`));
+        check(`${p}: round 5 reached`, await evaluate(`${GM}.currentRound === 5`));
         check(`${p}: "NEW ARENA..." banner with the arena name`, await waitFor(() => evaluate(`(() => { const am = ${AM}; return am.banner.active && am.bannerTitle.string === 'NEW ARENA...' && am.bannerName.string === 'FROZEN LAKE'; })()`), 2000, 50),
             await evaluate(`(() => { const am = ${AM}; return [am.banner.active, am.bannerName.string]; })()`));
         const mult = await evaluate(`(() => { const am = ${AM}, gm = ${GM}; return { bonus: am.bannerBonus.node.activeInHierarchy && am.bannerBonus.string, hud: gm.scoreMultiplierLabel.node.active && gm.scoreMultiplierLabel.string, pts: gm._pts(100) }; })()`);
-        check(`${p}: arena score multiplier x1.5 on the banner, under the score and in the points`, mult.bonus === 'ALL POINTS ×1.5' && mult.hud === '×1.5' && mult.pts === 150, mult);
+        check(`${p}: arena score multiplier x1.125 on the banner, under the score and in the points`, mult.bonus === 'ALL POINTS ×1.125' && mult.hud === '×1.125' && mult.pts === 113, mult);
         await sleep(1000);
         await shot(`${p}-1-arena-banner`);
         check(`${p}: background cross-fading`, await waitFor(() => evaluate(`__ar.fade > 20`), 4000, 40), await evaluate(`__ar.fade`));
@@ -175,7 +175,7 @@ try {
 
         if (p === 'phone') {
             // the other arenas, and the wrap-around after the 5th
-            for (const [round, name, idx] of [[11, 'MISTY SWAMP', 2], [16, 'CASTLE DUNGEONS', 3], [21, 'VOLCANO FORGE', 4], [26, 'CASTLE SQUARE', 0]]) {
+            for (const [round, name, idx] of [[10, 'MISTY SWAMP', 2], [15, 'CASTLE DUNGEONS', 3], [20, 'VOLCANO FORGE', 4], [25, 'CASTLE SQUARE', 0]]) {
                 await evaluate(`(() => { const gm = ${GM}; gm.timerRemaining = 999; gm.setDebugRound(${round - 1}); gm.setTotalMerges(gm._roundThreshold(${round - 2})); return true; })()`);
                 await waitFor(() => evaluate(`!${AM}.busy`), 4000);
                 await sleep(400);
@@ -188,7 +188,7 @@ try {
                 if (idx > 0) await hazardCheck(p, idx);
             }
         }
-        check(`${p}: highest round recorded`, Number(await evaluate(`window.__fwStore ? window.__fwStore.fw_max_round : localStorage.getItem('fw_max_round')`)) >= 6);
+        check(`${p}: highest round recorded`, Number(await evaluate(`window.__fwStore ? window.__fwStore.fw_max_round : localStorage.getItem('fw_max_round')`)) >= 5);
 
         // ---- round picker in the MainMenu: max round 7, default the highest, step down to 6, PLAY
         await evaluate(`(() => { ${GM}._clearSnapshot(); return true; })()`);

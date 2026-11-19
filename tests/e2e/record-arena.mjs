@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Video of an arena change on a phone: round 5 → 6, "NEW ARENA..." banner, background cross-fade and
+// Video of an arena change on a phone: round 4 → 5, "NEW ARENA..." banner, background cross-fade and
 // the ice track sweeping down from the back wall. Headless Chrome screencast → ffmpeg → MP4.
 //
 //   npm run build && node tests/e2e/record-arena.mjs [--out <file.mp4>] [--size 390x844]
@@ -114,8 +114,8 @@ try {
     }
     await sleep(2500);
 
-    // Round 5 with a few warriors on the track, the ice arena already loaded: then one round-up → round 6.
-    await evaluate(`(() => { const gm = ${COMP}('GameManager'); gm.timerRemaining = 999; gm.setDebugRound(5); gm.setTotalMerges(gm._roundThreshold(5) - 1); return true; })()`);
+    // Round 4 with a few warriors on the track, the ice arena already loaded: then one round-up → round 5.
+    await evaluate(`(() => { const gm = ${COMP}('GameManager'); gm.timerRemaining = 999; gm.setDebugRound(4); gm.setTotalMerges(gm._roundThreshold(4) - 1); return true; })()`);
     await waitFor(`(() => { const am = ${COMP}('ArenaManager'); return am._frames.size >= 2 && !!am._sparkle && !!am._glow; })()`, 15000);
     await sleep(1500);
     await send('Page.startScreencast', { format: 'jpeg', quality: 85, everyNthFrame: 1 });
