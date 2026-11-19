@@ -1,7 +1,7 @@
 import { SafeStorage } from '../utils/SafeStorage';
 
 /** Same ids as GameManager's PowerupKind. */
-export type PowerupId = 'aura' | 'wildRiver' | 'brotherhood' | 'psychoForce';
+export type PowerupId = 'aura' | 'wildRiver' | 'brotherhood' | 'psychoForce' | 'thunderRain';
 
 export interface PowerupInfo {
     id: PowerupId;
@@ -38,11 +38,16 @@ export const POWERUP_INFO: Record<PowerupId, PowerupInfo> = {
         lore: 'A mind spell that makes strangers feel like kin: any two of the same level can join together.',
         how: 'From round 8, when 25+ warriors crowd the track and no kind has 6+. Rescue powers return after 10 launches and 10 merges.',
     },
+    thunderRain: {
+        id: 'thunderRain', name: 'THUNDER RAIN', art: 'powerups/thunderrain', inGame: true,
+        lore: 'A storm cloud follows the champion: its lightning strikes every lonely warrior and pours their strength into it.',
+        how: 'From round 4: collect 4 storm tokens. The first Wolf of each game brings 3 of them.',
+    },
 };
 
 /** Order of the main-menu catalog = order of discovery in a game (only powerups the game can actually grant). */
 export const POWERUP_CATALOG: PowerupId[] =
-    (['aura', 'brotherhood', 'wildRiver', 'psychoForce'] as PowerupId[]).filter(id => POWERUP_INFO[id].inGame);
+    (['aura', 'brotherhood', 'thunderRain', 'wildRiver', 'psychoForce'] as PowerupId[]).filter(id => POWERUP_INFO[id].inGame);
 
 /** Per-player tutorial state: discovered (met at least once) and "don't show again". */
 export class PowerupTutorialStore {

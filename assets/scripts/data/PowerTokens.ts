@@ -18,6 +18,7 @@ export const TOKENS: readonly TokenConfig[] = [
     { kind: 'brotherhood', fromRound: 2, needed: 3, color: [180,  60, 240] },
     { kind: 'wildRiver',   fromRound: 5, needed: 4, color: [220,  60,  60] },
     { kind: 'psychoForce', fromRound: 7, needed: 4, color: [ 60, 230, 255] },
+    { kind: 'thunderRain', fromRound: 4, needed: 4, color: [255, 210,  50] },
 ];
 
 export const TOKEN_FIRST_DELAY_SEC = 4;     // after the first round with tokens starts
@@ -37,7 +38,7 @@ export const TOKEN_INTERVALS: readonly { minOnTrack: number; sec: number }[] = [
 ];
 
 /** Tokens dropped by the first appearance of a new species: a full charge of the power unlocked in the
- *  same round (Cat → Brotherhood, Eagle → WildRiver, Lion → PsychoForce), otherwise a single random one. */
+ *  same round (Cat → Brotherhood, Wolf → Thunder Rain, Eagle → WildRiver, Lion → PsychoForce), otherwise a single random one. */
 export const NEW_SPECIES_TOKENS_UNLOCK = 3;
 export const NEW_SPECIES_TOKENS_OTHER  = 1;
 export const TOKEN_BLINK_SEC       = 1.5;   // blinking before it vanishes

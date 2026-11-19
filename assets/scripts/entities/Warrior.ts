@@ -50,7 +50,10 @@ export class Warrior extends Component {
     // Cached in buildPhysics() — velocity is read dozens of times per frame in GameManager hot paths
     private _rb: RigidBody2D | null = null;
 
-    get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE; }
+    /** Global size factor of every warrior (1 → WARRIOR_MIN_SCALE): steps down at the round-ups that lower
+     *  the game-over line, from round 3 (GameManager._shrinkWarriors). New warriors are born at the current scale. */
+    static sizeScale = 1;
+    get radius(): number { return (LEVEL_CONFIG[this.level]?.radius ?? 30) * LAYOUT_SCALE * Warrior.sizeScale; }
     get velocity(): Vec2 { return this._rb?.linearVelocity ?? new Vec2(0, 0); }
     set velocity(v: Vec2) { if (this._rb) this._rb.linearVelocity = v; }
 
@@ -202,8 +205,8 @@ export class Warrior extends Component {
         }
     }
 
-    /** Re-fit the collider and visual to the current LAYOUT_SCALE after a live viewport resize.
-     *  Position is handled by the caller (GameManager re-maps it within the funnel). */
+    /** Re-fit the collider and visual to the current radius (LAYOUT_SCALE × sizeScale): after a live
+     *  viewport resize or a warrior shrink step. Position is left to the caller. */
     rescaleToLayout(): void {
         const r = this.radius; // getter uses the live (post-resize) LAYOUT_SCALE
         const col = this.getComponent(CircleCollider2D);

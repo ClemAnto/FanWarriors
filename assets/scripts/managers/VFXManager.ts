@@ -1,8 +1,5 @@
 import { Node, Graphics, Color, Label, UIOpacity, Vec2, Vec3, tween, Tween, UITransform, SpriteFrame, Sprite, resources, Texture2D, Rect, gfx, Font, assetManager } from 'cc';
 
-/** Extra seconds the round-up banner (and the round-up freeze) lasts when a new species is revealed. */
-export const ROUND_UP_SPECIES_EXTRA_SEC = 0.8;
-
 // Scratch objects riusati negli onUpdate dei tween (per-frame) — i setter CC3
 // (Label.color, Sprite.color, Graphics.fillColor, UITransform.anchorPoint) copiano
 // il valore, quindi condividere l'istanza è sicuro. Mai trattenerli oltre la chiamata.
@@ -446,7 +443,7 @@ export class VFXManager {
     }
 
 
-    showRoundUpBanner(newRound: number, silhouetteFrame: SpriteFrame | null): void {
+    showRoundUpBanner(newRound: number): void {
         const prevRound = newRound - 1;
 
         // Timing constants (game-seconds; at 0.2x slowmo these are ×5 in real time)
@@ -455,12 +452,9 @@ export class VFXManager {
         const T_CUR      = 0.30;
         const T_EXIT     = 0.84;  // old number starts flying up
         const T_ENTER    = 0.96;  // new number starts rising from below
-        // A new species: its silhouette shows right away (with the ROUND word) and the banner stays
-        // ROUND_UP_SPECIES_EXTRA_SEC longer, so there is time to look at it.
-        const extra      = silhouetteFrame ? ROUND_UP_SPECIES_EXTRA_SEC : 0;
-        const T_SPECIES  = 0.36;
-        const T_FADEOUT  = 1.74 + extra;
-        const T_DESTROY  = 2.10 + extra;
+        // No new-species silhouette any more (removed 2026-11-19): same length for every round.
+        const T_FADEOUT  = 1.74;
+        const T_DESTROY  = 2.10;
         const T_FO_DUR   = T_DESTROY - T_FADEOUT;  // 0.36
 
         const root = new Node('RoundUpBanner');
@@ -554,55 +548,6 @@ export class VFXManager {
             .delay(T_ENTER)
             .to(0.48, { position: new Vec3(0, -22, 0) }, { easing: 'quadOut' })
             .start();
-
-        // ── new species reveal (optional) ─────────────────────────────────────
-        if (silhouetteFrame) {
-            // Pushed further below the number (was -148: the black silhouette sat ~8px under
-            // the digits and read as a rendering artifact, not as the species teaser).
-            const rowNode = new Node('NewSpeciesRow');
-            rowNode.setParent(root);
-            rowNode.setPosition(0, -172);
-            const rowOp = rowNode.addComponent(UIOpacity);
-            rowOp.opacity = 0;
-            tween(rowOp)
-                .delay(T_SPECIES).to(0.24, { opacity: 210 })
-                .delay(T_FADEOUT - T_SPECIES - 0.24)
-                .to(T_FO_DUR, { opacity: 0 })
-                .start();
-
-            const silNode = new Node('Silhouette');
-            silNode.setParent(rowNode);
-            silNode.setPosition(0, 30);
-            silNode.addComponent(UITransform).setContentSize(76, 76);
-            const silSp = silNode.addComponent(Sprite);
-            silSp.sizeMode    = Sprite.SizeMode.CUSTOM;
-            silSp.spriteFrame = silhouetteFrame;
-            // Dark violet instead of pure black + a gentle breathing pulse: reads as an
-            // intentional "mystery creature" teaser rather than a stray shadow.
-            silSp.color       = new Color(38, 22, 56, 255);
-            // Pops in, then breathes gently until the banner fades (counted repeats: the root is
-            // destroyed at T_DESTROY, no repeatForever on soon-to-die nodes).
-            silNode.setScale(0.6, 0.6, 1);
-            const breaths = Math.max(1, Math.floor((T_FADEOUT - T_SPECIES - 0.3) / 0.7));
-            tween(silNode)
-                .delay(T_SPECIES)
-                .to(0.30, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
-                .repeat(breaths, tween<Node>()
-                    .to(0.35, { scale: new Vec3(1.07, 1.07, 1) }, { easing: 'sineInOut' })
-                    .to(0.35, { scale: new Vec3(1, 1, 1) },       { easing: 'sineInOut' }))
-                .start();
-
-            const textNode = new Node('SpeciesText');
-            textNode.setParent(rowNode);
-            textNode.setPosition(0, -32);
-            const textLbl = textNode.addComponent(Label);
-            textLbl.string   = 'a new warrior is coming...';
-            textLbl.fontSize = 20;
-            textLbl.lineHeight = 26;
-            textLbl.isBold   = false;
-            textLbl.color    = new Color(230, 230, 230, 255);
-            this._applyFont(textLbl);
-        }
     }
 
     // ── explosion VFX ─────────────────────────────────────────────────────

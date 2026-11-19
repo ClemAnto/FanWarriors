@@ -1,0 +1,10 @@
+{
+ "title": "Thunder Rain",
+ "use": "medaglione del powerup THUNDER RAIN (modale, menu POWERUPS, badge sopra il warrior) e gettone sulla pista (anche icona del contatore HUD); SIMPLE, sizeMode CUSTOM",
+ "scale": 2,
+ "note": "ChatGPT 2026-11-19, progetto FunWarriors, chat \"Generate Game Sprite Sheet\" (allegati i source.png di ui-powerups e ui-tokens). Misure uguali ai fratelli: medaglione 144x148, gettone 72x53.",
+ "pieces": [
+  { "name": "powerup-thunderrain", "src": [115, 200, 688, 784],  "size": [144, 148], "slice": [0, 0, 0, 0] },
+  { "name": "token-thunderrain",   "src": [799, 283, 1399, 737], "size": [72, 53],   "slice": [0, 0, 0, 0] }
+ ]
+}

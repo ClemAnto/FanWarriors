@@ -277,3 +277,18 @@ un solo sprite per gettone (niente bordo separato). Pezzi esportati a 72×53 @2x
 Generate an image. New version of the three tokens, SIMPLER and ALREADY IN PERSPECTIVE with their thickness. The attached screenshot is the game: the coins must lie flat on the floor seen from the SAME camera angle as the round bases under the warriors (tilted, foreshortened). Each coin: the top face is an ellipse about 2.2 times wider than tall, and below it the coin's side band (its thickness) is visible as a darker gold band whose height is about 1/8 of the coin width, following the curve of the front edge; nothing of the side is visible at the back. Make the coins much SIMPLER than before: a plain smooth gold rim (no studs, no rivets, no gems, no beading, no decorations), the colored enamel center (ruby red WILD RIVER, violet BROTHERHOOD, cyan PSYCHO FORCE) and the same embossed cream symbol as before, drawn foreshortened with the face. Keep the same style, outline thickness and palette as the previous sheet. Three pieces only (no separate edge piece), all exactly the same size, side by side and well spaced (at least 60 px of empty space around each), real transparent PNG (alpha), not a drawn checkerboard, no shadow on the floor, no glow, no text.
 ```
 Esito: alfa vero al primo colpo; ellisse un po' meno inclinata del chiesto (rapporto ~0,63 invece di 0,45), compensata in gioco con `TILT_Y` 0.85.
+
+## 7. THUNDER RAIN (2026-11-19)
+
+**Medaglione + gettone** (`graphics/sheets/ui-thunder`), nella chat "Generate Game Sprite Sheet" del progetto
+FunWarriors, allegati `ui-powerups/source.png` e `ui-tokens/source.png`. Alfa vero al primo colpo.
+
+```
+Generate an image. A new power for the game, THUNDER RAIN (a storm cloud whose lightning strikes the lonely warriors). The two attached sheets are the existing medallion icons and the existing in-perspective tokens: make the new pieces as if they belonged to those exact sheets (same size, same gold rim, same outline thickness, same palette and rendering). Two pieces only, side by side, well spaced (at least 60 px of empty space around each): 1. THUNDER RAIN MEDALLION: same round medallion as the attached icons, seen perfectly straight on, thick gold rim, deep storm-indigo enamel center, symbol: a small puffy cream cloud with a bold bright yellow zig-zag lightning bolt coming down from it, cream and yellow with the same dark-brown outline as the other symbols. 2. THUNDER RAIN TOKEN: the same coin as the attached tokens (simple smooth gold rim, already in the same perspective with the same thickness band), storm-indigo enamel center and the same cloud and lightning symbol drawn foreshortened with the face. Real transparent PNG (alpha), not a drawn checkerboard, no shadow, no glow, no text.
+```
+
+**Illustrazione** (`graphics/powerups/thunderrain.png`, crop 1536×768 da y 80), chat nuova "Genera immagine Thunder
+Rain" nello stesso progetto, allegati `graphics/powerups/brotherhood.png` e `psychoforce.png`. Prompt: il blocco
+stile illustrazioni in una riga, poi "Power: THUNDER RAIN, highlight color bright golden yellow" e i tre schizzi
+(rana con nuvoletta che sale verso due gatti vicini, un lupo e una gallina soli; due fulmini dorati sul lupo e
+sulla gallina, i gatti intatti; due sfere dorate tornano alla rana, che cresce).

@@ -525,7 +525,8 @@ export class InputController extends Component {
         const lvl = this.warrior?.level ?? 1;
         const r1  = LEVEL_CONFIG[1]?.radius ?? 18;
         const r   = LEVEL_CONFIG[lvl]?.radius ?? r1;
-        return MAX_IMPULSE_BASE * this._scale * Math.pow(r / r1, 2);
+        // Mass goes with the area: a shrunken warrior (Warrior.sizeScale) gets a smaller impulse → same speed.
+        return MAX_IMPULSE_BASE * this._scale * Math.pow(r / r1, 2) * Warrior.sizeScale * Warrior.sizeScale;
     }
 
     private clampLaunchDir(dir: Vec2): Vec2 {

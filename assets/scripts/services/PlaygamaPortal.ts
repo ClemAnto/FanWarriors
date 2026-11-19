@@ -146,6 +146,7 @@ export class PlaygamaPortal implements PortalSdk {
                 clearTimeout(graceTimer);
                 clearTimeout(safetyTimer);
                 this._detachBreakListener(bridge, ev);
+                this._releaseAdPause();
                 resolve();
             };
             const listener = (state: string): void => {
@@ -195,6 +196,7 @@ export class PlaygamaPortal implements PortalSdk {
                 clearTimeout(graceTimer);
                 clearTimeout(safetyTimer);
                 try { bridge.advertisement.off?.(ev, listener); } catch { /* ignore */ }
+                this._releaseAdPause();
                 // Never opened (failed / no fill / silent) → 'unavailable': the game tells the player.
                 resolve(rewarded ? 'rewarded' : opened ? 'skipped' : 'unavailable');
             };
@@ -232,6 +234,16 @@ export class PlaygamaPortal implements PortalSdk {
         } catch (e) {
             console.warn('[Portal] Playgama event subscription failed (ignored):', e);
         }
+    }
+
+    /**
+     * The Bridge raises PAUSE_STATE_CHANGED(true) while an ad is on screen, which stops the engine
+     * (PlatformPause). The matching "resume" can arrive seconds late — or only on the next tap —
+     * leaving the game frozen after the ad. The ad is over: resume now (handlers dedupe a later
+     * resume from the Bridge).
+     */
+    private _releaseAdPause(): void {
+        for (const h of this._stateHandlers) { try { h.pause(false); } catch { /* ignore */ } }
     }
 
     private _detachBreakListener(bridge: PlaygamaBridgeLike, ev: string): void {

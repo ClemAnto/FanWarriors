@@ -18,6 +18,8 @@ export class TokenCounters extends Component {
     wildRiver: Node | null = null;
     @property({ type: Node, tooltip: 'Psycho Force counter (Icon, Count, Glow children)' })
     psychoForce: Node | null = null;
+    @property({ type: Node, tooltip: 'Thunder Rain counter (Icon, Count, Glow children)' })
+    thunderRain: Node | null = null;
 
     /** Editor scale of every node we animate: animations always land back on it. */
     private _base = new Map<Node, Vec3>();
@@ -32,7 +34,7 @@ export class TokenCounters extends Component {
     }
 
     private _of(kind: TokenKind): Node | null {
-        return kind === 'brotherhood' ? this.brotherhood : kind === 'wildRiver' ? this.wildRiver : this.psychoForce;
+        return kind === 'brotherhood' ? this.brotherhood : kind === 'wildRiver' ? this.wildRiver : kind === 'thunderRain' ? this.thunderRain : this.psychoForce;
     }
 
     /** Show/hide a power's counter (shown once a token of that power was collected) and write its
@@ -46,7 +48,7 @@ export class TokenCounters extends Component {
         if (n.active === visible) return;
         n.active = visible;
         if (visible) this._popIn(n);
-        this.node.active = !!(this.brotherhood?.active || this.wildRiver?.active || this.psychoForce?.active);
+        this.node.active = !!(this.brotherhood?.active || this.wildRiver?.active || this.psychoForce?.active || this.thunderRain?.active);
         if (this.node.active) {
             this.getComponent(Layout)?.updateLayout();
             this.getComponent(Widget)?.updateAlignment();

@@ -438,6 +438,7 @@ try {
     await sleep(2500); await evaluate(HELPERS);
     await evaluate(`__fw.comp('Settings').onQuit(), true`);
     await waitFor(`cc.director.getScene()?.name === 'MainMenu'`, 30000).then(() => ok('Quit → menu'), () => fail('Quit → menu'));
+    await expect('Quit deletes the saved game (PLAY starts a new one)', `localStorage.getItem('fw_game_state') === null`);
     await sleep(4000);
     await expect('menu stays after Quit (no bounce into the game)', `cc.director.getScene()?.name === 'MainMenu'`);
     await send('Page.navigate', { url: home });

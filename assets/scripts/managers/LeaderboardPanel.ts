@@ -74,6 +74,10 @@ export class LeaderboardPanel extends Component {
         const board = this._board;
         this._boardOp = board.getComponent(UIOpacity) ?? board.addComponent(UIOpacity);
         this.closeButton?.node.on(Button.EventType.CLICK, this._close, this);
+        // The rows in the scene carry editor placeholders ("AAA", sample scores): hide them before
+        // the first frame renders, otherwise they flash until start() / the async submit+load runs.
+        this._clearRows();
+        this._setStatus('Loading…');
     }
 
     start(): void {

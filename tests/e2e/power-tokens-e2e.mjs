@@ -112,7 +112,7 @@ try {
     check('floating bonus score shown (as for a merge)', await evaluate(`(() => { const ui = cc.director.getScene().getChildByName('Canvas').getChildByName('UILayer'); return ui.children.some(c => c.name === 'FloatingScore'); })()`));
     const tc = events('token_collected')[0];
     check('token_collected payload', tc?.power === 'brotherhood' && tc?.count === 1 && tc?.needed === 3 && tc?.round === 2, tc);
-    await sleep(900);   // flight to the counter
+    await sleep(3200);   // star: ~2 s in the air, then the flight to the counter
     check('score +25 × round', (await evaluate(`${GM}.score`)) - score0 >= 50, (await evaluate(`${GM}.score`)) - score0);
     check('counter shown after the first token: 1/3', (await counterText('brotherhood')) === '1/3', await counterText('brotherhood'));
     check('other powers still without a counter', (await counterText('wildRiver')) === null && (await counterText('psychoForce')) === null);
@@ -120,9 +120,9 @@ try {
 
     // ---- charge the power
     check('2nd token', await collectOne('brotherhood'));
-    await sleep(900);
+    await sleep(3200);
     check('3rd token', await collectOne('brotherhood'));
-    await sleep(900);
+    await sleep(3200);
     console.log('     collected:', JSON.stringify(events('token_collected').map(e => e.count)));
     check('counter stays, back to 0/3 after charging', (await counterText('brotherhood')) === '0/3', await counterText('brotherhood'));
     // The power goes to the next launcher activated: if the 3rd shot crossed the line before

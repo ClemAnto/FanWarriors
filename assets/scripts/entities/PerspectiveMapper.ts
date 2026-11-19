@@ -21,12 +21,13 @@ export class PerspectiveMapper extends Component {
     animScale   = 1.0;
     breathScale = 1.0;
     squashX     = 1.0;  // horizontal-only squash for side-wall impact
+    shakeX      = 0;    // extra world-X offset for vibrations (Brotherhood energy intake)
 
     lateUpdate(): void {
         if (!this.viewNode?.isValid) return;
         const wp = this.node.worldPosition;
         const sy = this.node.parent?.scale.y ?? 1;
-        this.viewNode.setWorldPosition(wp.x, wp.y * sy + this.yOffset + this.bounceY, wp.z);
+        this.viewNode.setWorldPosition(wp.x + this.shakeX, wp.y * sy + this.yOffset + this.bounceY, wp.z);
         const base  = perspectiveDepthScale(wp.y) * VISUAL_SCALE * this.animScale * this.breathScale;
         this.viewNode.setScale(base * this.squashX, base, 1);
     }

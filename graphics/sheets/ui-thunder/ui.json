@@ -1,0 +1,37 @@
+{
+ "width": 1858,
+ "height": 677,
+ "scale": 2,
+ "pieces": [
+  {
+   "name": "powerup-thunderrain",
+   "slot": {
+    "x": 24,
+    "y": 137,
+    "w": 288,
+    "h": 296
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "name": "token-thunderrain",
+   "slot": {
+    "x": 24,
+    "y": 515,
+    "w": 144,
+    "h": 106
+   },
+   "slice": [
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ]
+}

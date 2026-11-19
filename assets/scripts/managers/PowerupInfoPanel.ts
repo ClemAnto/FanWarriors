@@ -3,7 +3,7 @@ import { POWERUP_INFO, POWERUP_CATALOG, PowerupId, PowerupTutorialStore } from '
 
 const { ccclass, property } = _decorator;
 
-const ICON_ORDER: PowerupId[] = ['aura', 'wildRiver', 'brotherhood', 'psychoForce'];
+const ICON_ORDER: PowerupId[] = ['aura', 'wildRiver', 'brotherhood', 'psychoForce', 'thunderRain'];
 const LOCKED_LORE = 'Keep playing to discover this power.';
 const ZOOM_MARGIN = 40;   // design px kept free around the zoomed illustration
 const ZOOM_MAX = 4;       // pinch / wheel zoom cap (× the fitted size)
@@ -11,6 +11,8 @@ const INTRO_DIM_SEC = 0.35;     // the frozen scene darkens before the medallion
 const INTRO_DIM_ALPHA = 235;    // backdrop alpha during the intro (the card's own backdrop is lighter)
 const INTRO_MEDAL_SCALE = 1.7; // medallion size over the warrior (× its size in the card)
 const INTRO_FLY_SEC = 0.45;     // flight into the card's medallion slot
+const SPECIES_SCALE = 2.0;      // the new warrior over the launcher (× the medallion slot)
+const SPECIES_HOLD_SEC = 1.7;   // time on screen before it flies back onto the launcher
 const ZOOM_TAP_SLOP = 12; // UI px a finger may travel and still count as a tap (closes the zoom)
 
 /**
@@ -19,6 +21,9 @@ const ZOOM_TAP_SLOP = 12; // UI px a finger may travel and still count as a tap 
  *
  *  - showSingle(id, onClosed): in game, the first time a powerup appears in a game. The host pauses
  *    the game before and resumes it in onClosed. "Don't show again" mutes it for next games.
+ *  - showSpecies(frame, name, from, onClosed): in game, the first time a species shows up in a game:
+ *    the same spotlight (dark scene, glow, burst) with the warrior big over the launcher and a
+ *    "NEW WARRIOR" caption, then it shrinks back onto the launcher. No card, closes by itself.
  *  - showCatalog(): from the main menu, every catalog powerup with left/right arrows; the ones
  *    never met show the locked medallion, "???" and how to find them (no illustration).
  */
@@ -41,7 +46,7 @@ export class PowerupInfoPanel extends Component {
     @property(Node) nextButton: Node | null = null;
     @property({ type: Label, tooltip: 'Catalog page, e.g. "1 / 2" (hidden in game).' })
     pageLabel: Label | null = null;
-    @property({ type: [SpriteFrame], tooltip: 'Medallions in order: Aura, Wild River, Brotherhood, Psycho Force.' })
+    @property({ type: [SpriteFrame], tooltip: 'Medallions in order: Aura, Wild River, Brotherhood, Psycho Force, Thunder Rain.' })
     iconFrames: SpriteFrame[] = [];
     @property(SpriteFrame) lockedFrame: SpriteFrame | null = null;
     @property({ type: Node, tooltip: 'Fullscreen zoomed illustration (inactive); tap anywhere closes it.' })
@@ -56,6 +61,8 @@ export class PowerupInfoPanel extends Component {
     @property(Node) spotlightGlow: Node | null = null;
     @property(Node) spotlightBurst: Node | null = null;
     @property(Sprite) spotlightMedal: Sprite | null = null;
+    @property({ type: Label, tooltip: 'Caption above the spotlight ("NEW WARRIOR" + name), used only by showSpecies.' })
+    spotlightCaption: Label | null = null;
 
     private _ids: PowerupId[] = [];
     private _index = 0;
@@ -157,6 +164,7 @@ export class PowerupInfoPanel extends Component {
         if (this.iconSprite) this.iconSprite.enabled = false;   // the flying medallion takes its place
 
         medal.spriteFrame = this.iconFor(this._ids[0]);
+        if (this.spotlightCaption) this.spotlightCaption.node.active = false;
         spot.active = true;
         spot.setPosition(this._toPanel(from));
         medal.node.setScale(0, 0, 1);
@@ -187,6 +195,95 @@ export class PowerupInfoPanel extends Component {
                     .to(0.35, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })).start();
             }).start();
         }
+    }
+
+    /** New species spotlight (see class doc). The host pauses the game before and resumes it in onClosed. */
+    showSpecies(frame: SpriteFrame | null, name: string, from: Node, onClosed: () => void): void {
+        const spot = this.spotlightNode, medal = this.spotlightMedal, card = this.cardNode, dim = this.dimNode;
+        if (!spot || !medal || !card || !dim || !from?.isValid) { onClosed(); return; }
+        this._stopIntro();
+        this._closeZoom(true);
+        this._closing = false;
+        this._intro = true;   // the (invisible) card stays non-interactive
+        this.node.active = true;
+        const op = this._opacity();
+        Tween.stopAllByTarget(op);
+        op.opacity = 255;
+
+        const cardOp = this._fade(card)!;
+        cardOp.opacity = 0;
+        const dimOp = this._fade(dim)!;
+        dimOp.opacity = 0;
+        tween(dimOp).to(INTRO_DIM_SEC, { opacity: 255 }, { easing: 'quadOut' }).start();
+        const dimSp = dim.getComponent(Sprite);
+        if (dimSp) {
+            if (this._dimAlpha < 0) this._dimAlpha = dimSp.color.a;
+            const c = dimSp.color.clone(); c.a = INTRO_DIM_ALPHA; dimSp.color = c;
+        }
+
+        const home = this._toPanel(from);
+        spot.active = true;
+        spot.setPosition(home);
+        medal.spriteFrame = frame;
+        medal.node.setScale(0, 0, 1);
+        medal.node.setPosition(0, 0, 0);
+        const popAt = INTRO_DIM_SEC * 0.5, S = SPECIES_SCALE;
+        const breaths = Math.max(1, Math.round(SPECIES_HOLD_SEC / 0.56));
+        tween(medal.node)
+            .delay(popAt)
+            .to(0.34, { scale: new Vec3(S, S, 1) }, { easing: 'backOut' })
+            .repeat(breaths, tween<Node>()
+                .to(0.28, { scale: new Vec3(S * 1.07, S * 1.07, 1) }, { easing: 'sineInOut' })
+                .to(0.28, { scale: new Vec3(S, S, 1) }, { easing: 'sineInOut' }))
+            .call(() => this._speciesBack(onClosed))
+            .start();
+        for (const n of [this.spotlightGlow, this.spotlightBurst]) {
+            if (!n) continue;
+            this._additive(n);
+            const fx = this._fade(n)!;
+            fx.opacity = 0;
+            n.setScale(0, 0, 1);
+            n.setPosition(0, 0, 0);
+            n.angle = 0;
+            tween(fx).delay(popAt).to(0.25, { opacity: 255 }).start();
+            tween(n).delay(popAt).to(0.4, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' }).call(() => {
+                if (n === this.spotlightBurst) tween(n).by(4, { angle: -180 }).repeatForever().start();
+            }).start();
+        }
+        const cap = this.spotlightCaption;
+        if (cap) {
+            cap.string = ['NEW WARRIOR', name.toUpperCase()].join('\n');
+            cap.node.active = true;
+            const capOp = this._fade(cap.node)!;
+            capOp.opacity = 0;
+            // Above the warrior, but kept on screen when the launcher sits low.
+            const ut = this.node.getComponent(UITransform)!;
+            const top = ut.height * (1 - ut.anchorY) - 90;
+            cap.node.setPosition(0, Math.min(190, top - home.y), 0);
+            cap.node.setScale(0.6, 0.6, 1);
+            tween(capOp).delay(popAt + 0.15).to(0.2, { opacity: 255 }).start();
+            tween(cap.node).delay(popAt + 0.15).to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+        }
+    }
+
+    /** End of the species spotlight: the warrior shrinks back onto the launcher, the scene lights up again. */
+    private _speciesBack(onClosed: () => void): void {
+        const back = 0.35;
+        const medal = this.spotlightMedal!;
+        tween(medal.node).to(back, { scale: new Vec3(0.6, 0.6, 1) }, { easing: 'quadIn' }).start();
+        const fades: (Node | null)[] = [this.spotlightGlow, this.spotlightBurst, this.spotlightCaption?.node ?? null, medal.node, this.dimNode];
+        for (const n of fades) {
+            if (!n) continue;
+            tween(this._fade(n)!).to(back, { opacity: 0 }, { easing: 'quadIn' }).start();
+        }
+        this.scheduleOnce(() => {
+            this._stopIntro();   // restores card / backdrop for the next powerup modal
+            const mop = medal.node.getComponent(UIOpacity);
+            if (mop) mop.opacity = 255;
+            if (this.spotlightCaption) this.spotlightCaption.node.active = false;
+            this.node.active = false;
+            onClosed();
+        }, back + 0.02);
     }
 
     private _flyIntoCard(): void {
