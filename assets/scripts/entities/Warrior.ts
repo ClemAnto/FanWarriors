@@ -51,6 +51,10 @@ export class Warrior extends Component {
     onPsychoContact: ((source: Warrior, target: Warrior) => void) | null = null;
     onBrotherhoodContact: ((source: Warrior, target: Warrior) => void) | null = null;
     brotherhoodInfected: boolean = false;
+    /** FROZEN LAKE (2026-11-19): shut in a block of ice — no merges until a hard hit breaks it (IceZoneHazard). */
+    frozen: boolean = false;
+    /** While frozen: called on every contact with another warrior (IceZoneHazard judges the hit). */
+    onIceHit: ((by: Warrior) => void) | null = null;
     // Cached in buildPhysics() — velocity is read dozens of times per frame in GameManager hot paths
     private _rb: RigidBody2D | null = null;
 
@@ -242,6 +246,7 @@ export class Warrior extends Component {
      *  by the contact merge and GameManager's proximity merge, so both obey the same rules. */
     canMergeWith(o: Warrior): boolean {
         if (o === this || o.level !== this.level) return false;
+        if (this.frozen || o.frozen) return false;
         if (o.type !== this.type && !this.psychoForce && !o.psychoForce) return false;
         if (this.wildRiverSparkle || o.wildRiverSparkle) return false;
         if (this.onWildRiverContact || o.onWildRiverContact) return false;
@@ -282,6 +287,7 @@ export class Warrior extends Component {
         }
 
         if (this.launched && !this.crossedLine && otherW.crossedLine) this.hitOtherWarrior = true;
+        if (this.frozen) this.onIceHit?.(otherW);
 
         // WildRiver contact — spread only after 300ms of sustained contact
         if (this.onWildRiverContact && otherW && !this._wrsContactCbs.has(otherW)) {

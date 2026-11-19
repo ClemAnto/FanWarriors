@@ -13,6 +13,8 @@ export interface HazardContext {
     /** Floor decals (ice, mud, cracks, holes): above the track, under tokens and warriors. */
     floorLayer: Node;
     warriors(): readonly Warrior[];
+    /** The last launched warrior, moving or not (null before the first launch, or when it carries a power). */
+    shot(): Warrior | null;
     /** Physics Y of the game-over line (warriors pile up above it). */
     lineY(): number;
     /** Physics Y of the inner edge of the back wall. */
@@ -204,18 +206,40 @@ export function burst(ctx: HazardContext, frame: SpriteFrame | null, at: Vec3, c
 /** Uniform random in [a, b]. */
 export const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 
-/** Free spot (physics) on the track above the line, clear of warriors and of `taken`. */
-export function freeSpot(ctx: HazardContext, clearance: number, taken: { x: number; y: number; r: number }[], yFrom = 0.18, yTo = 0.78): { x: number; y: number } | null {
+/** Half extents (physics units) of a floor decal `screenW` × `screenH` px on screen. */
+export function decalHalf(ctx: HazardContext, screenW: number, screenH: number): { x: number; y: number } {
+    const s = screenScale(ctx);
+    return { x: screenW / 2 / s.x, y: screenH / 2 / s.y };
+}
+
+/** Free spot (physics) on the track above the line, clear of warriors and of `taken`. With `half` (the
+ *  element's half extents, physics units) the whole element stays on the track: inside the side walls
+ *  (where they are narrowest along its height) and under the back wall. */
+export function freeSpot(ctx: HazardContext, clearance: number, taken: { x: number; y: number; r: number }[], yFrom = 0.18, yTo = 0.78, half?: { x: number; y: number }): { x: number; y: number } | null {
     const lo = ctx.lineY(), hi = ctx.topY();
+    const hx = Math.max(clearance * 1.2, half?.x ?? 0), hy = half?.y ?? 0;
     for (let tries = 0; tries < 14; tries++) {
         const y = lo + (hi - lo) * rand(yFrom, yTo);
-        const [l, r] = ctx.wallX(y);
-        const x = rand(l + clearance * 1.2, r - clearance * 1.2);
-        if (x <= l || x >= r) continue;
+        if (y + hy > hi) continue;
+        const [l0, r0] = ctx.wallX(y - hy), [l1, r1] = ctx.wallX(y + hy);
+        const l = Math.max(l0, l1) + hx, r = Math.min(r0, r1) - hx;
+        if (l >= r) continue;
+        const x = rand(l, r);
         const near = ctx.warriors().some(w => w.node?.isValid && Math.hypot(w.node.position.x - x, w.node.position.y - y) < w.radius + clearance * 1.3);
         if (near) continue;
         if (taken.some(t => Math.hypot(t.x - x, t.y - y) < t.r + clearance * 1.4)) continue;
         return { x, y };
+    }
+    return null;
+}
+
+/** Free spot for a floor decal `screenW` px wide (height `aspect` × width) wholly on the track: a smaller
+ *  one (×0.85, up to 3 times) if a big one does not fit. Returns the spot and the size that fits. */
+export function fitDecalSpot(ctx: HazardContext, screenW: number, aspect: number, taken: { x: number; y: number; r: number }[], yFrom: number, yTo: number): { x: number; y: number; w: number; h: number } | null {
+    for (let i = 0; i < 4; i++, screenW *= 0.85) {
+        const screenH = screenW * aspect;
+        const spot = freeSpot(ctx, 0, taken, yFrom, yTo, decalHalf(ctx, screenW, screenH));
+        if (spot) return { x: spot.x, y: spot.y, w: screenW, h: screenH };
     }
     return null;
 }

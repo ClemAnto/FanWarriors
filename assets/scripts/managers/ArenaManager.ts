@@ -85,6 +85,16 @@ export class ArenaManager extends Component {
         if (round % ARENA_ROUNDS >= 2) this._loadArena(ARENAS[(cur + 1) % ARENAS.length]);
     }
 
+    /** Wait (at most `maxSec`) for the frames of the arena of `round`, so that its change plays in full. */
+    prepare(round: number, maxSec = 4): Promise<void> {
+        const conf = ARENAS[arenaIndexForRound(round)];
+        this._loadFx();
+        return Promise.race([
+            this._framesOf(conf).then(() => undefined),
+            new Promise<void>(ok => setTimeout(ok, maxSec * 1000)),
+        ]);
+    }
+
     /** Show the arena of `round` at once (game start / restored game): quick fade, no banner. */
     applyImmediate(round: number): void {
         const idx = arenaIndexForRound(round);

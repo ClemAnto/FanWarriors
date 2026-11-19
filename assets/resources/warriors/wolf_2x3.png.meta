@@ -129,6 +129,10 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "3e2737f4-cfd0-4b19-a10a-903b03a95c0d@6c48a"
+    "redirect": "3e2737f4-cfd0-4b19-a10a-903b03a95c0d@6c48a",
+    "compressSettings": {
+      "useCompressTexture": true,
+      "presetId": "fw-webp"
+    }
   }
 }

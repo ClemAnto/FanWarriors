@@ -1,5 +1,5 @@
 import { Color, tween } from 'cc';
-import { ArenaHazard, FloorDecal, HazardContext, burst, freeSpot, rand, MOVING_SPEED } from './HazardKit';
+import { ArenaHazard, FloorDecal, HazardContext, burst, fitDecalSpot, rand, MOVING_SPEED } from './HazardKit';
 import { Warrior } from '../Warrior';
 import { SFX } from '../../managers/AudioManager';
 
@@ -35,10 +35,11 @@ export class LavaCrackHazard extends ArenaHazard {
 
     spawnNow(): boolean {
         const [l, r] = this.ctx.wallX(this.ctx.lineY());
-        const screenW = (r - l) * this.ctx.box2dLayer.worldScale.x * rand(0.38, 0.5);
-        const spot = freeSpot(this.ctx, 0, this._cracks.map(c => ({ x: c.decal.x, y: c.decal.y, r: c.decal.rx })), 0.08, 0.7);
+        const taken = this._cracks.map(c => ({ x: c.decal.x, y: c.decal.y, r: c.decal.rx }));
+        // the whole crack on the track: a shorter one if a long one does not fit
+        const spot = fitDecalSpot(this.ctx, (r - l) * this.ctx.box2dLayer.worldScale.x * rand(0.38, 0.5), 0.5, taken, 0.08, 0.7);
         if (!spot) return false;
-        const decal = new FloorDecal(this.ctx, 'LavaCrack', this.ctx.frame('lava-crack'), spot.x, spot.y, screenW, screenW * 0.5);
+        const decal = new FloorDecal(this.ctx, 'LavaCrack', this.ctx.frame('lava-crack'), spot.x, spot.y, spot.w, spot.h);
         decal.mapper.animScale = 0.4;
         tween(decal.mapper).to(0.45, { animScale: 1 }, { easing: 'quadOut' }).start();
         decal.fadeIn(0.35);

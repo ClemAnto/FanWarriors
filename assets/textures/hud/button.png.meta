@@ -131,7 +131,8 @@
     "hasAlpha": true,
     "redirect": "86b1400e-1472-4464-86e9-be88f5124ab5@6c48a",
     "compressSettings": {
-      "useCompressTexture": false
+      "useCompressTexture": true,
+      "presetId": "fw-webp"
     }
   }
 }

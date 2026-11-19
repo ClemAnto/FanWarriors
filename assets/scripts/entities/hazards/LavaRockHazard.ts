@@ -1,5 +1,5 @@
 import { Color, tween, Tween } from 'cc';
-import { ArenaHazard, FloorDecal, HazardContext, Obstacle, burst, freeSpot, rand, MOVING_SPEED } from './HazardKit';
+import { ArenaHazard, FloorDecal, HazardContext, Obstacle, burst, decalHalf, freeSpot, rand, MOVING_SPEED } from './HazardKit';
 import { SFX } from '../../managers/AudioManager';
 
 const FIRST_SEC = 6, EVERY_MIN = 9, EVERY_MAX = 14, LIFE_MIN = 5, LIFE_MAX = 7, MAX_AT_ONCE = 2;
@@ -39,9 +39,10 @@ export class LavaRockHazard extends ArenaHazard {
 
     spawnNow(): boolean {
         const r = this.ctx.obstacleRadius();
-        const spot = freeSpot(this.ctx, r, this._rocks.map(k => ({ x: k.obstacle.body.position.x, y: k.obstacle.body.position.y, r })), 0.15, 0.62);
-        if (!spot) return false;
         const sx = this.ctx.box2dLayer.worldScale.x;
+        // its shadow stays on the track too
+        const spot = freeSpot(this.ctx, r, this._rocks.map(k => ({ x: k.obstacle.body.position.x, y: k.obstacle.body.position.y, r })), 0.15, 0.62, decalHalf(this.ctx, r * 2.8 * sx, r * 1.3 * sx));
+        if (!spot) return false;
         // the shadow grows where it will land
         const shadow = new FloorDecal(this.ctx, 'RockShadow', this.ctx.frame('aura'), spot.x, spot.y, r * 2.8 * sx, r * 1.3 * sx);
         shadow.sprite.color = new Color(20, 10, 10, 255);
@@ -64,7 +65,8 @@ export class LavaRockHazard extends ArenaHazard {
         if (k.broken || !k.obstacle.alive) return;
         k.landed = true;
         k.obstacle.solidify(0.6);
-        k.obstacle.onHit = w => { if (w.velocity.length() >= MOVING_SPEED || w.launched) setTimeout(() => this._shatter(k), 50); };
+        // only a warrior that runs into it (a resting neighbour touching it does not count: launched stays true after the shot)
+        k.obstacle.onHit = w => { if (w.velocity.length() >= MOVING_SPEED) setTimeout(() => this._shatter(k), 50); };
         k.shadow.fadeOut(0.2);
         this.ctx.shake(9, 0.3);
         this.ctx.sfx(SFX.EXPLOSION_1, 0.7);

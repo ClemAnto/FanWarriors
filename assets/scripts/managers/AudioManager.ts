@@ -43,6 +43,9 @@ export enum SFX {
     IMPLODE            = 'audio/sfx/implode',
     PSYCHO_FORCE       = 'audio/sfx/psycho_force',
     SHRINK_EMBERS      = 'audio/sfx/shrink_embers',
+    // Frozen Lake (2026-11-19): a shot frozen in ice / the ice broken by a hard hit
+    ICE_FREEZE         = 'audio/sfx/ice_freeze',
+    ICE_SHATTER        = 'audio/sfx/ice_shatter',
     MUSIC_MAIN         = 'audio/music/main',
     MUSIC_MENU         = 'audio/music/menu',
 }
@@ -149,6 +152,8 @@ export class AudioManager extends Component {
     }
 
     private _loadsStarted = false;
+    /** Downloads under way (a beat after startLoading). */
+    private _audioReady = false;
 
     /**
      * Start downloading the sounds (and the requested music): called once the game is playable
@@ -158,8 +163,13 @@ export class AudioManager extends Component {
     startLoading(): void {
         if (this._loadsStarted) return;
         this._loadsStarted = true;
-        this._preloadAll();
-        if (this._musicWanted) this.playMusic(this._currentMusic);
+        // a beat after the first playable frame: sound effects (~0.5 MB) and music (~1.4 MB) stay out of
+        // the first load (Playgama: < 5 MB before the game is playable); the first shot takes longer anyway
+        this.scheduleOnce(() => {
+            this._audioReady = true;
+            this._preloadAll();
+            if (this._musicWanted) this.playMusic(this._currentMusic);
+        }, 1.2);
     }
 
     private _musicWanted = false;
@@ -231,7 +241,7 @@ export class AudioManager extends Component {
         if (clip && this._musicSource.clip === clip && this._musicSource.playing) return; // same → keep
         this._musicSource.stop();  // interrupt whatever is playing (menu loop) before switching
         this._musicWanted = true;
-        if (!this._loadsStarted) return;                  // before the first playable frame: started by startLoading()
+        if (!this._audioReady) return;                    // before the first playable frame (+1.2 s): started by startLoading()
         if (!clip) { this._loadMusic(track); return; }  // not loaded yet → play in the load callback
         this._musicSource.clip   = clip;
         this._musicSource.volume = this._effectiveMusicVolume();

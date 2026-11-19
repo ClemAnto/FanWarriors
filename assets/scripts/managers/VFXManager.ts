@@ -62,24 +62,28 @@ export class VFXManager {
                 this._sparkleFrame = sf;
             });
         });
-        resources.load('particles/stardust/spriteFrame', SpriteFrame, (err, frame) => {
-            if (!err && frame) { this._stardustFrame = frame; return; }
-            resources.load('particles/stardust', Texture2D, (err2, tex) => {
-                if (err2 || !tex) { console.warn('[VFXManager] stardust unavailable'); return; }
-                const sf = new SpriteFrame(); sf.texture = tex;
-                sf.rect = new Rect(0, 0, tex.width, tex.height);
-                this._stardustFrame = sf;
+        // Stardust and atom only dress the big explosions (Champion and up): off the first load (Playgama
+        // budget: < 5 MB before the first playable frame), fetched a few seconds later.
+        setTimeout(() => {
+            resources.load('particles/stardust/spriteFrame', SpriteFrame, (err, frame) => {
+                if (!err && frame) { this._stardustFrame = frame; return; }
+                resources.load('particles/stardust', Texture2D, (err2, tex) => {
+                    if (err2 || !tex) { console.warn('[VFXManager] stardust unavailable'); return; }
+                    const sf = new SpriteFrame(); sf.texture = tex;
+                    sf.rect = new Rect(0, 0, tex.width, tex.height);
+                    this._stardustFrame = sf;
+                });
             });
-        });
-        resources.load('particles/atom/spriteFrame', SpriteFrame, (err, frame) => {
-            if (!err && frame) { this._atomFrame = frame; return; }
-            resources.load('particles/atom', Texture2D, (err2, tex) => {
-                if (err2 || !tex) { console.warn('[VFXManager] atom unavailable'); return; }
-                const sf = new SpriteFrame(); sf.texture = tex;
-                sf.rect = new Rect(0, 0, tex.width, tex.height);
-                this._atomFrame = sf;
+            resources.load('particles/atom/spriteFrame', SpriteFrame, (err, frame) => {
+                if (!err && frame) { this._atomFrame = frame; return; }
+                resources.load('particles/atom', Texture2D, (err2, tex) => {
+                    if (err2 || !tex) { console.warn('[VFXManager] atom unavailable'); return; }
+                    const sf = new SpriteFrame(); sf.texture = tex;
+                    sf.rect = new Rect(0, 0, tex.width, tex.height);
+                    this._atomFrame = sf;
+                });
             });
-        });
+        }, 4000);
         resources.load('particles/aura/spriteFrame', SpriteFrame, (err, frame) => {
             if (!err && frame) { this._auraFrame = frame; return; }
             resources.load('particles/aura', Texture2D, (err2, tex) => {

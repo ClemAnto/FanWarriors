@@ -135,7 +135,8 @@ const POWER_UP_PUSH_VY       = 3.2;  // Box2D velocity units added on Y (track "
 // Brotherhood energy: the launched warrior gains max(1, floor(Σ imploded levels / this)) levels.
 const BROTHERHOOD_LEVELS_PER_GAIN = 5;
 // Two equal warriors resting side by side (no new contact event) merge after this long (was 2 s).
-const PROXIMITY_MERGE_SEC = 0.4;
+const PROXIMITY_MERGE_SEC = 0.15;   // touching (≤ PROXIMITY_TOUCH) this long → merge (was 0.4 s; 2026-11-19: merges felt late)
+const PROXIMITY_TOUCH     = 1.08;   // centre distance / sum of radii that counts as touching (contact slop, upward drift)
 // Thunder Rain (2026-11-19): once its carrier has landed on the track and stopped, lightning falls on every
 // ISOLATED warrior (none of the same species or of a similar level near it: it can hardly ever merge),
 // destroys it and sends its energy to the carrier (same gain rule as Brotherhood).
@@ -147,15 +148,15 @@ const THUNDER_STRIKE_GAP     = 0.13; // s between two bolts (a rain, not a singl
 const THUNDER_HIT_DELAY      = 0.26; // s from a bolt's start to its impact (ManaLightning CHARGE + CONNECT)
 const THUNDER_SKY_PX         = 620;  // design px above the warrior where the bolt starts
 const THUNDER_CALM_SEC       = 0.25; // carrier at rest this long before the storm breaks
-// Shrinking warriors (2026-11-19): when a round-up lowers the game-over line (a new species from round 3),
-// ALL warriors shrink to the scale of the round, burning off embers: from 1 (round 2) down to
-// WARRIOR_MIN_SCALE in the round the Dragon arrives (−3.6% per round: 0.96 / 0.93 / 0.89 / 0.82 / 0.75).
+// Shrinking warriors (2026-11-19): at every round-up from round 3 ALL warriors shrink to the scale of the
+// round, burning off embers: from 1 (round 2) down to WARRIOR_MIN_SCALE at round 16 (−1.8% per round;
+// it used to be −3.6% only at the round-ups that lower the line, down to the Dragon's round).
 const WARRIOR_SHRINK_FROM_ROUND  = 3;
 const WARRIOR_SHRINK_SEC         = 1.1;  // inside the round-up freeze (physics off: colliders are rebuilt)
 const WARRIOR_MIN_SCALE          = 0.75;
-const WARRIOR_MIN_SCALE_ROUND    = WARRIORS.find(w => w.type === 'dragon')?.introRound ?? 9;  // the Dragon's round
+const WARRIOR_MIN_SCALE_ROUND    = 16;   // was the Dragon's round (9): slower since 2026-11-19, −1.8% per round
 
-/** Smallest warrior scale allowed in `round`: 1 before round 3, then linear down to WARRIOR_MIN_SCALE at the Dragon's round. */
+/** Smallest warrior scale allowed in `round`: 1 before round 3, then linear down to WARRIOR_MIN_SCALE at round WARRIOR_MIN_SCALE_ROUND. */
 function warriorScaleFloor(round: number): number {
     const first = WARRIOR_SHRINK_FROM_ROUND - 1;
     const t = Math.max(0, Math.min(1, (round - first) / Math.max(1, WARRIOR_MIN_SCALE_ROUND - first)));
@@ -887,8 +888,13 @@ export class GameManager extends Component implements IGameManagerDebug {
             SafeStorage.remove(LS_MENU_ON_BOOT);    // playing again: a saved game may resume at boot
             // A board saved before the round picker existed: its round counts as reached.
             if (this.currentRound > maxRoundReached()) SafeStorage.set(LS_MAX_ROUND, String(this.currentRound));
-            this.arenaMgr?.applyImmediate(this.currentRound);   // arena of the start / restored round (castle: no-op)
-            this.arenaHazards?.setArena(arenaIndexForRound(this.currentRound));
+            // Arena of the start / restored round: from the castle with the arena-change animation of the
+            // round-up (2026-11-19), so the player sees where the game goes on.
+            if (arenaIndexForRound(this.currentRound) > 0 && this.arenaMgr) void this._playArenaIntro();
+            else {
+                this.arenaMgr?.applyImmediate(this.currentRound);   // castle: no-op, but preloads the next arena's art
+                this.arenaHazards?.setArena(arenaIndexForRound(this.currentRound));
+            }
             this._trackEvent('game_started', { restored: restoring, round: this.currentRound, start_round: this._startRound, max_round: maxRoundReached(), ...GameManager._telemetryContext() });
             this._trackProgressionStarted(!freshGame);
             this._refreshTokenCounters();
@@ -1054,6 +1060,15 @@ export class GameManager extends Component implements IGameManagerDebug {
             box2dLayer: this.box2dLayer,
             warriorsLayer: this.warriorsLayer,
             warriors: () => this.warriors,
+            shot: () => {
+                const w = this.inflightWarrior;
+                // the last launched warrior: it keeps running over the track after the next launcher is ready
+                if (!w?.node?.isValid || w.merging || this.state === GameState.GameOver || this.state === GameState.Paused) return null;
+                // a power carrier is never frozen: its power runs on contacts and on its stop
+                const carrier = w === this._auraWarrior || w === this._wrLaunchWarrior || w === this._pfLaunchWarrior
+                    || w === this._brotherhoodCarrier || w === this._thunderCarrier || !!w.psychoForce;
+                return carrier ? null : w;
+            },
             lineY: () => this.gameOverLineLocal,
             topY: () => {
                 const top = trackNode?.getChildByName('WallTop');
@@ -1395,6 +1410,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const infectDelay = i * BROTHERHOOD_CASCADE_DELAY;
             this.scheduleOnce(() => {
                 if (!w.node?.isValid) { w.brotherhoodInfected = false; this._gatherSkip(gather); return; }
+                this.arenaHazards?.thaw(w);   // a frozen warrior comes out of the ice
                 const brs = BrotherhoodSparkleEffect.attach(w);
                 this.scheduleOnce(() => this._implodeBrotherhoodWarrior(w, brs, gather), BROTHERHOOD_IMPLODE_HOLD);
             }, infectDelay);
@@ -1526,6 +1542,7 @@ export class GameManager extends Component implements IGameManagerDebug {
                 const f   = v.force * t;
                 const len = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
                 w.applyForce(new Vec2(dxL / len * f, dyL / len * f));
+                if (w.frozen) this.arenaHazards?.thaw(w);   // the Brotherhood vortex's pull breaks the ice
             }
         }
     }
@@ -2190,7 +2207,16 @@ export class GameManager extends Component implements IGameManagerDebug {
                 this.vfx.spawnFloatingScore(wx, wyC, 50 * w.level);
                 this.framesAboveLine.delete(w);
                 this.framesBelowLine.delete(w);
-                w.node.destroy();
+                // swallowed by the black hole: a short pop and shrink, never gone in a blink
+                w.merging = true;
+                w.forceStop();
+                w.setDragMode(true);
+                const m = w.mapper;
+                if (m?.node?.isValid) {
+                    Tween.stopAllByTarget(m);
+                    tween(m).to(0.06, { animScale: 1.2 }, { easing: 'quadOut' }).to(0.14, { animScale: 0 }, { easing: 'backIn' })
+                        .call(() => { if (w.node?.isValid) w.node.destroy(); }).start();
+                } else w.node.destroy();
             }, i * 0.08);
         });
         const explodeSet = new Set(toExplode);
@@ -2556,6 +2582,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._pfImploding) return;
         if (target === this._pfLaunchWarrior) return;
         if (!target.node?.isValid || !target.crossedLine) return;
+        this.arenaHazards?.thaw(target);   // a frozen warrior comes out of the ice
         if (DEBUG) console.log(`[PF] infect type=${target.type} lv=${target.level}`);
 
         // Tinta ciano direttamente sullo sprite del warrior (no overlay)
@@ -2737,6 +2764,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         if (this._wrsImploding) return;
         if (target.isWRLauncher) return;
         if (!target.node?.isValid) return;
+        this.arenaHazards?.thaw(target);   // a frozen warrior comes out of the ice
         if (DEBUG) console.log(`[WRS] contagio: src type=${source?.type ?? 'WR'} lv=${source?.level ?? '-'} → tgt type=${target.type} lv=${target.level}`);
         const spreadFn = (s: Warrior, t: Warrior) => this._onWRSSpread(s, t);
         target.onWildRiverContact = spreadFn;
@@ -2944,6 +2972,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _strikeThunder(w: Warrior, gather: EnergyGather): void {
         if (!w.node?.isValid || !w.viewNode?.isValid) { this._gatherSkip(gather); return; }
+        this.arenaHazards?.thaw(w);   // a frozen warrior comes out of the ice
         const p = w.viewNode.worldPosition;
         const lit = this._thunderLightning;
         if (lit?.isValid && lit.segmentPrefab) {
@@ -3159,6 +3188,7 @@ export class GameManager extends Component implements IGameManagerDebug {
             const f   = baseF * t;
             const len = Math.sqrt(dxL * dxL + dyL * dyL) || 1;
             w.applyForce(new Vec2(dxL / len * f, dyL / len * f));
+            if (w.frozen) this.arenaHazards?.thaw(w);   // the Aura's push breaks the ice
 
             if (!canZap) continue;
             const elapsed = (this._auraProxTimers.get(w) ?? 0) + dt;
@@ -3180,6 +3210,7 @@ export class GameManager extends Component implements IGameManagerDebug {
      */
     private _zappWarrior(w: Warrior, fallback: Warrior | null = null): void {
         if (!w.node?.isValid || w.merging) return;
+        this.arenaHazards?.thaw(w);
         w.merging = true;
         w.forceStop();
         w.setDragMode(true);
@@ -3427,6 +3458,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
         // Yellow tint flash + visual hop
         if (target.node?.isValid) {
+            this.arenaHazards?.thaw(target);   // a frozen warrior comes out of the ice (before its tint is saved)
             const spr = target.viewNode?.getComponent(Sprite);
             if (spr) {
                 const orig = spr.color.clone();
@@ -3472,6 +3504,7 @@ export class GameManager extends Component implements IGameManagerDebug {
 
     private _evolveWarrior(target: Warrior, accEnergy: number): void {
         if (!target.node?.isValid) return;
+        this.arenaHazards?.thaw(target);   // a frozen warrior comes out of the ice before it evolves
 
         const aType      = target.type;
         const posX       = target.node.position.x;
@@ -3493,6 +3526,11 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.warriors =this.warriors.filter(w => w !== target);
         this.framesAboveLine.delete(target);
         this.framesBelowLine.delete(target);
+        // never gone in a blink (2026-11-19): its ghost flashes and fades where it stood
+        const tv = target.viewNode?.isValid ? target.viewNode : null;
+        const tFrame = tv?.getComponent(Sprite)?.spriteFrame ?? null;
+        const tSize = tv?.getComponent(UITransform)?.contentSize.width ?? 0;
+        if (tv && tFrame && tSize > 0) this.vfx.flashMergeGhost(tv.worldPosition.x, tv.worldPosition.y, tFrame, tSize, WARRIORS[aType]?.color);
         if (target.node.isValid) target.node.destroy();
 
         if (finalLevel > maxLevel) {
@@ -4177,12 +4215,11 @@ export class GameManager extends Component implements IGameManagerDebug {
                 if (dist < (a.radius + b.radius) * 0.85) {
                     a.merging = true;
                     b.merging = true;
-                    this._proximityTimers.clear();
                     a.onMergeReady(a, b);
                     return;
                 }
 
-                if (dist < (a.radius + b.radius) * 1.05) {
+                if (dist < (a.radius + b.radius) * PROXIMITY_TOUCH) {
                     const uA = a.node.uuid, uB = b.node.uuid;
                     const key = uA < uB ? `${uA}|${uB}` : `${uB}|${uA}`;
                     activePairs.add(key);
@@ -4202,6 +4239,30 @@ export class GameManager extends Component implements IGameManagerDebug {
         for (const key of this._proximityTimers.keys()) {
             if (!activePairs.has(key)) this._proximityTimers.delete(key);
         }
+    }
+
+    /** Every mergeable pair already touching merges now. Called as a round-up starts: the freeze that follows
+     *  (2.2–2.9 s, physics off) defers every merge, so a pair touching at that moment used to wait the whole
+     *  banner before merging (2026-11-19). Merges started here end (0.12 s) before physics stops (0.17 s). */
+    private _mergeTouchingPairs(): void {
+        const taken = new Set<Warrior>();
+        const ok = (w: Warrior): boolean => !!w.node?.isValid && (w.launched || w.crossedLine) && !w.merging && !taken.has(w);
+        for (let i = 0; i < this.warriors.length; i++) {
+            const a = this.warriors[i];
+            if (!ok(a) || !a.onMergeReady) continue;
+            for (let j = i + 1; j < this.warriors.length; j++) {
+                const b = this.warriors[j];
+                if (!ok(b) || a.type !== b.type || !a.canMergeWith(b)) continue;
+                const p = a.node.position, q = b.node.position;
+                if (Math.hypot(p.x - q.x, p.y - q.y) >= (a.radius + b.radius) * PROXIMITY_TOUCH) continue;
+                taken.add(a); taken.add(b);
+                a.merging = true;
+                b.merging = true;
+                a.onMergeReady(a, b);
+                break;
+            }
+        }
+        this._proximityTimers.clear();
     }
 
     private _sortWarriorLayerByY(): void {
@@ -4385,9 +4446,34 @@ export class GameManager extends Component implements IGameManagerDebug {
         }
     }
 
+    /**
+     * Game opened in a round past the castle (restored game, round picker): the round-up's arena change
+     * plays right away — physics and input frozen, round banner, "NEW ARENA..." + cross-fade + track wipe —
+     * then the arena's difficulty starts and the game goes on.
+     */
+    private async _playArenaIntro(): Promise<void> {
+        const round = this.currentRound, idx = arenaIndexForRound(round);
+        this.roundUpPause = true;
+        this.inputCtrl.freezeInput();
+        // freeze after a beat: the bodies just built (restored board) settle in the broadphase first
+        await new Promise<void>(ok => this.scheduleOnce(() => ok(), 0.17));
+        if (!this.node?.isValid) return;
+        PhysicsSystem2D.instance.enable = false;
+        await this.arenaMgr!.prepare(round);
+        if (!this.node?.isValid || this.state === GameState.GameOver) return;
+        if (this.currentRound !== round) { void this._finishRoundUp(false); return; }
+        AudioManager.instance.play(SFX.ROUND_UP);
+        AudioManager.instance.duckMusicTo(0.15);
+        this.vfx.showRoundUpBanner(round);
+        this.arenaMgr!.playChange(round);
+        this.scheduleOnce(() => { if (arenaIndexForRound(this.currentRound) === idx) this.arenaHazards?.setArena(idx); }, ARENA_CHANGE_SEC * 0.85);
+        this.scheduleOnce(() => { void this._finishRoundUp(false); }, Math.max(ROUND_UP_PAUSE_SEC, ARENA_CHANGE_SEC));
+    }
+
     private advanceRound(): void {
         this._trackProgressionCompleted('round_up');
         this.currentRound++;
+        this._mergeTouchingPairs();   // before the freeze: no pair left waiting through the banner
         this._trackEvent('round_reached', { round: this.currentRound });
         if (this.currentRound > maxRoundReached()) SafeStorage.set(LS_MAX_ROUND, String(this.currentRound));
         const arenaChange = isArenaChangeRound(this.currentRound) && !!this.arenaMgr;
@@ -4415,7 +4501,7 @@ export class GameManager extends Component implements IGameManagerDebug {
         this.scheduleOnce(() => {
             PhysicsSystem2D.instance.enable = false;
             this.vfx.showRoundUpBanner(this.currentRound);
-            // New arena (round 5, 10, 15…): "NEW ARENA..." + background cross-fade + track wipe, with a longer pause.
+            // New arena (round 4, 8, 12…): "NEW ARENA..." + background cross-fade + track wipe, with a longer pause.
             if (arenaChange) {
                 this.arenaMgr!.playChange(this.currentRound);
                 // the old arena's hazards go now, the new ones once the new track is in place
@@ -4433,10 +4519,10 @@ export class GameManager extends Component implements IGameManagerDebug {
             // New species unlocked → game-over line steps down as part of the reward.
             // Runs inside the physics freeze: warriors are static while the line moves,
             // and a descending line can only GRANT crossings, never cause game over/malus.
-            if (WARRIORS.some(w => w.introRound === this.currentRound)) {
-                this._syncGoLineToRound(this.currentRound, true);
-                this._shrinkWarriors();   // …and every warrior shrinks a little, burning off embers
-            }
+            if (WARRIORS.some(w => w.introRound === this.currentRound)) this._syncGoLineToRound(this.currentRound, true);
+            // every round-up from round 3: all warriors shrink a little, burning off embers (2026-11-19: a small
+            // step each round instead of bigger ones only when the line steps down)
+            this._shrinkWarriors();
             this.scheduleOnce(() => { void this._finishRoundUp(interstitialRound); }, pauseSec);
         }, 0.17);
     }

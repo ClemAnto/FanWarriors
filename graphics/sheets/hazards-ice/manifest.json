@@ -1,0 +1,12 @@
+{
+ "title": "Frozen Lake - warrior ghiacciato",
+ "use": "FROZEN LAKE (IceZoneHazard): blocco di ghiaccio sul warrior lanciato che passa su una pozza, scheggia e fiocco per il congelamento e la rottura; SIMPLE, sizeMode CUSTOM, dimensionati da codice. L'interno del blocco resta semitrasparente: si vede il warrior dentro",
+ "scale": 2,
+ "outDir": "assets/resources/hazards",
+ "note": "ChatGPT 2026-11-19, progetto FunWarriors, chat \"Generate Ice Sprite Sheet\" (allegati hazards/source.png e warriors/frog_2x2.png). Caricati con resources.load solo nell'arena del ghiaccio.",
+ "pieces": [
+  { "name": "ice-block", "src": [93, 124, 820, 983],   "size": [170, 201], "slice": [0, 0, 0, 0] },
+  { "name": "ice-shard", "src": [923, 188, 1166, 439], "size": [48, 50],   "slice": [0, 0, 0, 0] },
+  { "name": "ice-flake", "src": [1068, 746, 1240, 937], "size": [36, 40],  "slice": [0, 0, 0, 0] }
+ ]
+}

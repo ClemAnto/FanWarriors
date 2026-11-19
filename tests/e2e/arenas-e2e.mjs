@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Arenas + round picker check (2026-11-19), on the standard web-mobile build in headless Chrome,
 // at phone (~591 design px wide), tablet (960) and desktop (2276):
-//   - ARENAS: reaching round 6 (and 11, 16, 21) shows "NEW ARENA..." with the arena name, cross-fades
+//   - ARENAS: reaching round 4 (and 8, 12, 16) shows "NEW ARENA..." with the arena name, cross-fades
 //     the background and wipes the new track skin from the back wall to the front; the round-up pause
 //     is stretched to fit it; the track size (it drives the walls) never changes; round 26 wraps to arena 1;
 //   - ROUND PICKER: after a game got past round 1, the MainMenu shows ◀ ROUND N ▶ above PLAY (1 … highest
@@ -71,26 +71,94 @@ const VIEWPORTS = [
 const frameName = sp => `(${sp} && ${sp}.spriteFrame ? ${sp}.spriteFrame._uuid : null)`;
 
 const RB = w => `${w}.node.getComponent('cc.RigidBody2D')`;
+const IC = `cc.director.getScene().getComponentInChildren('InputController')`;
+// A real launch from the launcher towards physics (tx, ty) at power t (0…1); samples the shot's top speed.
+const fire = (tx, ty, t) => evaluate(`(() => { const ic = ${IC}, w = ic.warrior; if (!w) return null; const p = w.node.position;
+    const d = new cc.Vec2(${tx} - p.x, ${ty} - p.y).normalize(); ic.warrior = null; w.applyImpulse(d.multiplyScalar(${t} * ic.maxImpulse())); ic.onLaunch(w, ${t});
+    window.__shot = w; window.__vmax = 0; clearInterval(window.__vt);
+    window.__vt = setInterval(() => { if (w.node && w.node.isValid) { window.__vmax = Math.max(window.__vmax, w.velocity.length()); if (w.frozen) window.__froze = true; if (!window.__splash) window.__splash = ${GM}.warriorsLayer.children.some(c => c.name === 'Splash'); } }, 16); window.__splash = false; window.__froze = false; return true; })()`);
+// Zap the warriors on the way from the launcher to physics (tx, ty), so the shot gets there.
+const clearPath = (tx, ty) => evaluate(`(() => { const gm = ${GM}, l = ${IC}.warrior; if (!l) return 0; const a = l.node.position; let n = 0;
+    for (const w of [...gm.warriors]) { if (w === l || w === window.__iced || !w.node || !w.node.isValid || !w.crossedLine) continue; const q = w.node.position;
+        const dx = ${tx} - a.x, dy = ${ty} - a.y, k = Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / (dx * dx + dy * dy)));
+        if (Math.hypot(a.x + dx * k - q.x, a.y + dy * k - q.y) < w.radius + l.radius * 1.6) { gm._zappWarrior(w); n++; } }
+    return n; })()`);
+const launcherReady = () => waitFor(() => evaluate(`!!${IC}.warrior && ${GM}.state === 1`), 12000);
+// FROZEN LAKE: the shot that runs over a patch is shut in ice (no merges) until a hard hit breaks it.
+async function iceFreezeCheck(p, z) {
+    const H = `${GM}.arenaHazards.hazards[0]`;
+    check(`${p}: launcher ready`, await launcherReady(), await evaluate(`[${GM}.state, !!${IC}.warrior]`));
+    await clearPath(z.x, z.y);
+    await sleep(400);
+    check(`${p}: launch towards the ice patch`, await fire(z.x, z.y, 0.8));
+    const frozen = await waitFor(() => evaluate(`!!window.__froze`), 4000, 30);
+    await sleep(200);
+    const f = await evaluate(`(() => { const w = __shot; if (!w.node || !w.node.isValid) return { gone: true, froze: __froze, vmax: __vmax }; const twin = Object.assign(Object.create(Object.getPrototypeOf(w)), { type: w.type, level: w.level, merging: false });
+        return { frozen: w.frozen, n: ${H}.frozenCount, shell: !!w.viewNode.getChildByName('IceShell'), merge: w.canMergeWith(twin), vmax: __vmax }; })()`);
+    check(`${p}: the shot running over the ice patch freezes (ice block, no merges)`, frozen && f.n === 1 && f.shell && f.merge === false, f);
+    check(`${p}: sliding over the ice kicks up a spray`, await evaluate(`window.__splash === true`));
+    if (!f.frozen) return;
+    await sleep(500);
+    await shot(`${p}-7-hazard-ice-frozen`);
+    await evaluate(`(() => { window.__iced = __shot; window.__hits = []; clearInterval(window.__ht); window.__ht = setInterval(() => { if (__iced.node && __iced.node.isValid) __hits.push(+__iced.velocity.length().toFixed(1)); if (__hits.length > 400) __hits.shift(); }, 16); return true; })()`);
+    check(`${p}: still frozen once it stopped (after the patch too)`, await waitFor(() => evaluate(`__iced.velocity.length() < 0.4`), 8000) && await evaluate(`__iced.frozen === true`));
+    // another warrior thrown at it: slowly, then hard (a real contact in the physics world)
+    // (first parked a bit away, so that the throw starts a fresh contact)
+    const place = (gap, speed) => `(() => { const t = __iced, o = __ram, q = t.node.position; o.node.setPosition(q.x, q.y - (t.radius + o.radius + ${gap}), 0); o.velocity = new cc.Vec2(0, ${speed}); return true; })()`;
+    const ram = async speed => {
+        const ok = await evaluate(`(() => { const gm = ${GM}, t = __iced;
+            const pick = () => gm.warriors.find(w => w !== t && w.crossedLine && !w.frozen && !w.merging && w.node && w.node.isValid);
+            if (!pick()) gm.warriors.push(...gm.spawnMgr.prefill());
+            window.__ram = pick(); return !!__ram; })()`);
+        if (!ok) return false;
+        await evaluate(place(80, 0)); await sleep(150);
+        return evaluate(place(speed > 10 ? 60 : 6, speed));   // hard: a few frames of run-up, like a real shot
+    };
+    check(`${p}: a warrior to throw at the frozen one`, await ram(3));
+    await sleep(700);
+    check(`${p}: a soft touch does not break the ice`, await evaluate(`__iced.frozen === true`), await evaluate(`Math.max(...__hits.slice(-50))`));
+    await ram(45);
+    const broke = await waitFor(() => evaluate(`!__iced.frozen`), 2000, 20);
+    await sleep(100);
+    await shot(`${p}-7-hazard-ice-shatter`);
+    const r = await evaluate(`({ hits: __hits.slice(-12), n: ${H}.frozenCount, shell: !!(__iced.viewNode && __iced.viewNode.isValid && __iced.viewNode.getChildByName('IceShell')), valid: __iced.node.isValid })`);
+    check(`${p}: a hard hit by another warrior breaks the ice`, broke && r.valid && r.n === 0 && !r.shell, r);
+    check(`${p}: the ice bursts into small chunks`, await evaluate(`(() => { let n = 0; const walk = x => { if (x.name === 'IceChunk') n++; x.children.forEach(walk); }; walk(${GM}.warriorsLayer); return n >= 6; })()`));
+    // two frozen warriors crashing hard: both come out of the ice
+    const pair = await evaluate(`(() => { const gm = ${GM}, h = gm.arenaHazards.hazards[0];
+        const ws = gm.warriors.filter(w => w.crossedLine && !w.merging && w.node && w.node.isValid).slice(0, 2); if (ws.length < 2) gm.warriors.push(...gm.spawnMgr.prefill());
+        const [a, b] = gm.warriors.filter(w => w.crossedLine && !w.merging && w.node && w.node.isValid); if (!a || !b) return null;
+        h.freeze(a); h.freeze(b); window.__pa = a; window.__pb = b; const q = a.node.position;
+        b.node.setPosition(q.x, q.y - (a.radius + b.radius + 80), 0); return true; })()`);
+    await sleep(600);
+    await evaluate(`(() => { const a = __pa, b = __pb, q = a.node.position; b.node.setPosition(q.x, q.y - (a.radius + b.radius + 10), 0); b.velocity = new cc.Vec2(0, 35); return true; })()`);
+    const both = await waitFor(() => evaluate(`!__pa.frozen && !__pb.frozen`), 2000, 20);
+    check(`${p}: two frozen warriors crashing hard both thaw`, pair && both, await evaluate(`[__pa.frozen, __pb.frozen]`));
+    // still frozen at the arena change → thawed by it (checked in the swamp)
+    await evaluate(`(() => { ${GM}.arenaHazards.hazards[0].freeze(__pa); return true; })()`);
+    await evaluate(`clearInterval(window.__vt), clearInterval(window.__ht), true`);
+}
 // Arena difficulties: each arena's hazard does its job (phone only).
 async function hazardCheck(p, idx) {
     const H = `${GM}.arenaHazards`;
-    const need = [0, 1, 1, 2, 4][idx];
+    const need = [0, 4, 1, 2, 4][idx];
     const ready = await waitFor(() => evaluate(`(() => { const h = ${H}; return !!h && h.arena === ${idx} && h.hazards.length > 0 && h._frames.size >= ${need}; })()`), 10000);
     check(`${p}: arena ${idx} difficulty active, art loaded`, ready, await evaluate(`(() => { const h = ${H}; return h && [h.arena, h.hazards.length, h._frames.size]; })()`));
     // a settled warrior to stand in the zones
-    const pick = `(${GM}.warriors.find(w => w.node && w.node.isValid && w.crossedLine && !w.merging))`;
+    const pick = `((gm => { const ok = w => w.node && w.node.isValid && w.crossedLine && !w.merging && !w.frozen; if (!gm.warriors.some(ok)) gm.warriors.push(...gm.spawnMgr.prefill()); return gm.warriors.find(ok); })(${GM}))`;
     const standOn = async (x, y) => {
-        await evaluate(`(() => { const w = ${pick}; if (!w) return false; w.node.setPosition(${x}, ${y}, 0); window.__hw = w; return true; })()`);
+        await evaluate(`(() => { const o = window.__hw; const w = o && o.node && o.node.isValid && !o.frozen && !o.merging ? o : ${pick}; if (!w) return false; if (w !== o) w.settle(); w.node.setPosition(${x}, ${y}, 0); window.__hw = w; return true; })()`);
         await sleep(250);
         return evaluate(`(() => { const w = window.__hw; const rb = ${RB('w')}; return { damping: rb.linearDamping, settled: w.settled }; })()`);
     };
-    const base = await evaluate(`(() => { const W = ${pick}; return W ? W.constructor.settledDamping : 0; })()`);
+    const base = await evaluate(`(() => { window.__hw = null; const W = ${pick}; return W ? W.constructor.settledDamping : 0; })()`);
     if (idx === 1) {
         const n = await evaluate(`${H}.spawnNow()`);
         await sleep(700);
         const z = await evaluate(`(() => { const d = ${H}.hazards[0]._patches[0]?.decal; return d ? { x: d.x, y: d.y, op: d.opacity.opacity } : null; })()`);
         check(`${p}: ice patch appears`, n === 1 && !!z && z.op > 150, z);
         if (z) { const d = await standOn(z.x, z.y); check(`${p}: on the ice a warrior slides more (lower damping)`, d.damping < base * 0.5, { ...d, base }); }
+        if (z && !process.env.NO_ICE) await iceFreezeCheck(p, z);
         await shot(`${p}-7-hazard-ice`);
     } else if (idx === 2) {
         const lane = await waitFor(() => evaluate(`${H}.hazards[0].count === 1 && ${H}.hazards[0]._lane.opacity.opacity > 150`), 4000);
@@ -98,6 +166,10 @@ async function hazardCheck(p, idx) {
         const z = await evaluate(`(() => { const l = ${H}.hazards[0]._lane; return { x: l.x, y: l.y, hw: ${H}.hazards[0]._halfW }; })()`);
         const d = await standOn(z.x, z.y);
         check(`${p}: in the mud a warrior brakes hard (higher damping)`, d.damping > base * 3, { ...d, base });
+        await evaluate(`(() => { window.__hw.velocity = new cc.Vec2(0, 14); window.__msplash = false; clearInterval(window.__mt); window.__mt = setInterval(() => { if (${GM}.warriorsLayer.children.some(c => c.name === 'Splash')) window.__msplash = true; }, 16); return true; })()`);
+        check(`${p}: running through the mud kicks up splashes`, await waitFor(() => evaluate(`window.__msplash === true`), 1500, 30));
+        await evaluate(`clearInterval(window.__mt), true`);
+        await sleep(500);
         const s = await standOn(z.x + z.hw * 2.2, z.y);
         check(`${p}: on the side of the track no mud`, Math.abs(s.damping - base) < 0.01, { ...s, base });
         await shot(`${p}-7-hazard-mud`);
@@ -109,9 +181,12 @@ async function hazardCheck(p, idx) {
         await shot(`${p}-7-hazard-skull`);
         check(`${p}: the skull sinks back after a few seconds`, await waitFor(() => evaluate(`${H}.hazards[0].count === 0`), 9000));
     } else if (idx === 4) {
-        await evaluate(`${H}.spawnNow()`);
+        // (a rock needs a free spot: retried, the board may be crowded)
+        await evaluate(`(() => { const [c, r] = ${H}.hazards; c.spawnNow(); for (let i = 0; i < 8 && !r.spawnNow(); i++); if (!r.count) { const gm = ${GM}; for (const w of [...gm.warriors]) if (w.crossedLine && w.node && w.node.isValid) gm._zappWarrior(w); } return true; })()`);
         await sleep(1000);
-        const v = await evaluate(`(() => { const [c, r] = ${H}.hazards; const k = r._rocks[0]; window.__rock = k; return { cracks: c.count, rock: !!k, landed: !!k && k.landed, solid: !!k && k.obstacle.solid }; })()`);
+        await evaluate(`(() => { const r = ${H}.hazards[1]; for (let i = 0; i < 8 && !r.count && !r.spawnNow(); i++); return true; })()`);
+        await sleep(1000);
+        const v = await evaluate(`(() => { const [c, r] = ${H}.hazards; const k = r._rocks[0]; window.__rock = k; return { cracks: c.count, rock: !!k, landed: !!k && k.landed, solid: !!k && k.obstacle.solid, dbg: k ? null : { line: r.ctx.lineY(), top: r.ctx.topY(), wl: r.ctx.wallX(r.ctx.lineY()), wt: r.ctx.wallX(r.ctx.topY()), orad: r.ctx.obstacleRadius(), sx: r.ctx.box2dLayer.worldScale.x, sc: r.ctx.box2dLayer.scale.y, n: r.ctx.warriors().filter(w => w.node && w.node.isValid).length } }; })()`);
         check(`${p}: a glowing crack opens and a lava rock lands (solid)`, v.cracks === 1 && v.rock && v.landed && v.solid, v);
         await shot(`${p}-7-hazard-lava`);
         check(`${p}: the lava rock shatters after a few seconds`, await waitFor(() => evaluate(`!!window.__rock && window.__rock.broken`), 10000));
@@ -145,11 +220,20 @@ try {
         const base = await evaluate(`(() => { const am = ${AM}; const ut = am.trackSprite.node.getComponent('cc.UITransform');
             return { bg: ${frameName('am.background')}, track: ${frameName('am.trackSprite')}, w: ut.width, h: ut.height }; })()`);
 
-        // ---- arena change at round 6: from round 5, one advance
-        await evaluate(`(() => { const gm = ${GM}; gm.timerRemaining = 999; gm.setDebugRound(4); gm.setTotalMerges(gm._roundThreshold(3)); return true; })()`);
+        // ---- arena change at round 4: from round 3, one advance
+        await evaluate(`(() => { const gm = ${GM}; gm.timerRemaining = 999; gm.setDebugRound(3); gm.setTotalMerges(gm._roundThreshold(2)); return true; })()`);
         await sleep(600);
+        // two mergeable warriors touching when the round-up starts merge right away, not after the banner
+        const pairOk = await evaluate(`(() => { const gm = ${GM}; const ok = w => w.node && w.node.isValid && w.crossedLine && !w.merging;
+            if (gm.warriors.filter(ok).length < 2) gm.warriors.push(...gm.spawnMgr.prefill());
+            const [a, b] = gm.warriors.filter(ok); if (!a || !b) return false;
+            b.type = a.type; b.level = a.level; const q = a.node.position; b.node.setPosition(q.x + a.radius + b.radius, q.y, 0);
+            window.__mp = [a, b]; return true; })()`);
+        await sleep(30);
         await evaluate(`(() => { const am = ${AM}, gm = ${GM}; window.__ar = { fade: 0, wipe: 0, paused: 0 }; __ar.t = setInterval(() => { __ar.fade = Math.max(__ar.fade, am.backgroundNext.node.getComponent('cc.UIOpacity').opacity); if (am.trackWipe.active) __ar.wipe = Math.max(__ar.wipe, am.trackWipe.getComponent('cc.UITransform').height); if (gm.roundUpPause) __ar.paused = Date.now(); }, 16); __ar.t0 = Date.now(); gm.advanceRound(); return true; })()`);
-        check(`${p}: round 5 reached`, await evaluate(`${GM}.currentRound === 5`));
+        check(`${p}: round 4 reached`, await evaluate(`${GM}.currentRound === 4`));
+        await sleep(400);
+        check(`${p}: a touching pair merges as the round-up starts (not after the banner)`, pairOk && await evaluate(`__mp.every(w => !w.node || !w.node.isValid)`) && await evaluate(`${GM}.roundUpPause`));
         check(`${p}: "NEW ARENA..." banner with the arena name`, await waitFor(() => evaluate(`(() => { const am = ${AM}; return am.banner.active && am.bannerTitle.string === 'NEW ARENA...' && am.bannerName.string === 'FROZEN LAKE'; })()`), 2000, 50),
             await evaluate(`(() => { const am = ${AM}; return [am.banner.active, am.bannerName.string]; })()`));
         const mult = await evaluate(`(() => { const am = ${AM}, gm = ${GM}; return { bonus: am.bannerBonus.node.activeInHierarchy && am.bannerBonus.string, hud: gm.scoreMultiplierLabel.node.active && gm.scoreMultiplierLabel.string, pts: gm._pts(100) }; })()`);
@@ -175,7 +259,7 @@ try {
 
         if (p === 'phone') {
             // the other arenas, and the wrap-around after the 5th
-            for (const [round, name, idx] of [[10, 'MISTY SWAMP', 2], [15, 'CASTLE DUNGEONS', 3], [20, 'VOLCANO FORGE', 4], [25, 'CASTLE SQUARE', 0]]) {
+            for (const [round, name, idx] of [[8, 'MISTY SWAMP', 2], [12, 'CASTLE DUNGEONS', 3], [16, 'VOLCANO FORGE', 4], [20, 'CASTLE SQUARE', 0]]) {
                 await evaluate(`(() => { const gm = ${GM}; gm.timerRemaining = 999; gm.setDebugRound(${round - 1}); gm.setTotalMerges(gm._roundThreshold(${round - 2})); return true; })()`);
                 await waitFor(() => evaluate(`!${AM}.busy`), 4000);
                 await sleep(400);
@@ -184,11 +268,12 @@ try {
                 await sleep(2100);
                 await shot(`${p}-4-arena-${idx}-r${round}`);
                 await waitFor(() => evaluate(`!${GM}.roundUpPause`), 15000);
+                if (round === 8) check(`${p}: the arena change thaws every frozen warrior`, await evaluate(`!!window.__pa && !__pa.frozen && !(__pa.viewNode && __pa.viewNode.isValid && __pa.viewNode.getChildByName('IceShell'))`));
                 check(`${p}: round ${round} → ${name}`, seen && await evaluate(`${AM}.shownIndex === ${idx}`), await evaluate(`[${AM}.bannerName.string, ${AM}.shownIndex]`));
                 if (idx > 0) await hazardCheck(p, idx);
             }
         }
-        check(`${p}: highest round recorded`, Number(await evaluate(`window.__fwStore ? window.__fwStore.fw_max_round : localStorage.getItem('fw_max_round')`)) >= 5);
+        check(`${p}: highest round recorded`, Number(await evaluate(`window.__fwStore ? window.__fwStore.fw_max_round : localStorage.getItem('fw_max_round')`)) >= 4);
 
         // ---- round picker in the MainMenu: max round 7, default the highest, step down to 6, PLAY
         await evaluate(`(() => { ${GM}._clearSnapshot(); return true; })()`);
@@ -209,6 +294,10 @@ try {
         check(`${p}: game started from round 6`, await waitGame() && await evaluate(`${GM}.currentRound === 6 && ${GM}._startRound === 6`));
         const g6 = await evaluate(`(() => { const gm = ${GM}; return { label: gm.roundLabel && gm.roundLabel.string, merges: gm.totalMerges, need: gm._roundThreshold(5), warriors: gm.warriors.length }; })()`);
         check(`${p}: round label 6, merges at the round-6 threshold, board prefilled`, g6.label === '6' && g6.merges === g6.need && g6.warriors > 0, g6);
+        check(`${p}: start round 6 opens with the arena change (frozen, "NEW ARENA..." FROZEN LAKE)`, await waitFor(() => evaluate(`${GM}.roundUpPause && ${AM}.banner.active && ${AM}.bannerName.string === 'FROZEN LAKE'`), 5000, 50));
+        await sleep(1300);
+        await shot(`${p}-6-start-arena-intro`);
+        check(`${p}: then the game goes on (pause over, ice difficulty on)`, await waitFor(() => evaluate(`!${GM}.roundUpPause && ${GM}.arenaHazards.arena === 1 && ${GM}.arenaHazards.hazards.length === 1`), 8000));
         check(`${p}: start round 6 plays in the ice arena`, await waitFor(() => evaluate(`${AM}.shownIndex === 1 && ${AM}.background.spriteFrame.name === 'background'`), 6000));
         await sleep(600);
         await shot(`${p}-6-start-round-6`);

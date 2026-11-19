@@ -18,8 +18,8 @@ export interface ArenaConf {
     track: string | null;
 }
 
-/** Arena length: the arena changes at round 5, 10, 15… (round 1–4 arena 0, 5–9 arena 1, 10–14 arena 2…). */
-export const ARENA_ROUNDS = 5;
+/** Arena length: the arena changes at round 4, 8, 12… (round 1–3 arena 0, 4–7 arena 1, 8–11 arena 2…). Was 5 until 2026-11-19. */
+export const ARENA_ROUNDS = 4;
 
 export const ARENAS: readonly ArenaConf[] = [
     { id: 'castle',  name: 'CASTLE SQUARE',   bg: null,                                track: null },
@@ -34,12 +34,12 @@ export function arenaIndexForRound(round: number): number {
     return arenasReached(round) % ARENAS.length;
 }
 
-/** Arenas left behind by `round` (0 before round 5, 1 from round 5, 2 from round 10…; keeps counting after the cycle). */
+/** Arenas left behind by `round` (0 before round 4, 1 from round 4, 2 from round 8…; keeps counting after the cycle). */
 export function arenasReached(round: number): number {
     return Math.floor(Math.max(1, Math.floor(round)) / ARENA_ROUNDS);
 }
 
-/** True when reaching `round` moves the game to a new arena (round 5, 10, 15…). */
+/** True when reaching `round` moves the game to a new arena (round 4, 8, 12…). */
 export function isArenaChangeRound(round: number): boolean {
     return round >= ARENA_ROUNDS && round % ARENA_ROUNDS === 0;
 }
@@ -48,7 +48,7 @@ export function isArenaChangeRound(round: number): boolean {
 export const ARENA_MULTIPLIER_STEP = 0.125;
 
 /** Minimum multiplier of every score (2026-11-19): it grows with the arena difficulty, +ARENA_MULTIPLIER_STEP per
- *  arena reached — ×1 in the first arena, ×1.125 from round 5, ×1.25 from round 10… (it keeps growing after the cycle). */
+ *  arena reached — ×1 in the first arena, ×1.125 from round 4, ×1.25 from round 8… (it keeps growing after the cycle). */
 export function scoreMultiplierForRound(round: number): number {
     return 1 + ARENA_MULTIPLIER_STEP * arenasReached(round);
 }

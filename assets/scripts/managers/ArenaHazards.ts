@@ -13,6 +13,9 @@ const { ccclass, property } = _decorator;
 /** Art of each arena's difficulty (resources/hazards/<name>, lazy-loaded with the arena). */
 const FRAMES: Record<string, string> = {
     'ice-patch': 'hazards/ice-patch/spriteFrame',
+    'ice-block': 'hazards/ice-block/spriteFrame',
+    'ice-shard': 'hazards/ice-shard/spriteFrame',
+    'ice-flake': 'hazards/ice-flake/spriteFrame',
     'mud-pool': 'hazards/mud-pool/spriteFrame',
     'lava-crack': 'hazards/lava-crack/spriteFrame',
     'lava-rock': 'hazards/lava-rock/spriteFrame',
@@ -24,15 +27,15 @@ const FRAMES: Record<string, string> = {
 /** Frames each arena needs (by arena id). */
 const ARENA_FRAMES: Record<string, string[]> = {
     castle: [],
-    ice: ['ice-patch'],
-    swamp: ['mud-pool'],
+    ice: ['ice-patch', 'ice-block', 'ice-shard', 'ice-flake'],
+    swamp: ['mud-pool', 'aura'],
     dungeon: ['skull-head', 'floor-hole'],
     volcano: ['lava-crack', 'lava-rock', 'lava-shard', 'aura'],
 };
 
 /**
  * Arena difficulties (2026-11-19): the hazards of the arena on screen. Castle: none. Frozen Lake:
- * patches of ice for a while (everybody slides more). Misty Swamp: deep mud down the middle (brakes).
+ * patches of ice for a while (everybody slides more; the shot that runs over one freezes until a hard hit). Misty Swamp: deep mud down the middle (brakes).
  * Castle Dungeons: skulls popping out of the floor (deflect the shots). Volcano Forge: glowing cracks
  * (slow the shots) and falling lava rocks (deflect, shatter).
  * Behaviour only: the floor decals go in `floorLayer` (World/HazardLayer, in Game.scene), obstacles
@@ -96,6 +99,12 @@ export class ArenaHazards extends Component {
         if ((ARENA_FRAMES[ARENAS[this._arena]?.id] ?? []).some(n => !this._frames.has(n))) return;
         for (const h of this._hazards) h.tick(dt);
         this._applyDamping();
+    }
+
+    /** A power (or its contagion) touched `w`: it comes out of the ice, if it was frozen (Frozen Lake). */
+    thaw(w: Warrior): void {
+        if (!w?.frozen) return;
+        for (const h of this._hazards) if (h instanceof IceZoneHazard) h.thaw(w);
     }
 
     /** QA: spawn one element of each hazard of the current arena now. */

@@ -34,3 +34,7 @@ Powerup (2026-11-19, scelti da Claude su richiesta dell'utente in base ad attacc
   implode.mp3         CC0  qubodup, Freesound #814047 "Fantasy Implosion"
   psycho_force.mp3    CC0  LilMati, Freesound #441225 "Teleport"
   shrink_embers.mp3   CC0  alienistcog, Freesound #123711 "burner-sizzle-short"
+
+Frozen Lake, warrior ghiacciato (2026-11-19, scelti da Claude; alternative in audio/listen.html; tagliati e normalizzati a -18 LUFS):
+  ice_freeze.mp3   CC0  Kenney, "Interface Sounds" glass_001
+  ice_shatter.mp3  CC0  Kenney, "Impact Sounds" impactGlass_medium_001

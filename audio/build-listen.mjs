@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const pk = JSON.parse(fs.readFileSync(path.join(DIR, 'freesound', 'sources.json'), 'utf8'));
-const kenneyPack = { maximize_004: 'Interface Sounds', minimize_004: 'Interface Sounds', phaserDown3: 'Digital Audio', powerUp10: 'Digital Audio', powerUp1: 'Digital Audio', handleCoins2: 'RPG Audio', jingles_NES02: 'Music Jingles', jingles_STEEL00: 'Music Jingles', zap1: 'Digital Audio', zapTwoTone: 'Digital Audio', phaserUp3: 'Digital Audio', powerUp4: 'Digital Audio', powerUp2: 'Digital Audio', highUp: 'Digital Audio', phaserDown1: 'Digital Audio', phaserDown2: 'Digital Audio', phaseJump1: 'Digital Audio', zapThreeToneUp: 'Digital Audio', lowDown: 'Digital Audio' };
+const kenneyPack = { maximize_004: 'Interface Sounds', minimize_004: 'Interface Sounds', phaserDown3: 'Digital Audio', powerUp10: 'Digital Audio', powerUp1: 'Digital Audio', handleCoins2: 'RPG Audio', jingles_NES02: 'Music Jingles', jingles_STEEL00: 'Music Jingles', zap1: 'Digital Audio', zapTwoTone: 'Digital Audio', phaserUp3: 'Digital Audio', powerUp4: 'Digital Audio', powerUp2: 'Digital Audio', highUp: 'Digital Audio', phaserDown1: 'Digital Audio', phaserDown2: 'Digital Audio', phaseJump1: 'Digital Audio', zapThreeToneUp: 'Digital Audio', lowDown: 'Digital Audio', glass_001: 'Interface Sounds', glass_003: 'Interface Sounds', glass_006: 'Interface Sounds', impactGlass_heavy_000: 'Impact Sounds', impactGlass_heavy_002: 'Impact Sounds', impactGlass_medium_001: 'Impact Sounds' };
 // Powerup sounds (2026-11-19). The token sounds (token_*, power_ready) were picked on 2026-11-18: their
 // library folders and SOURCES.txt stay as they are.
 const desc = {
@@ -17,6 +17,8 @@ const desc = {
     implode: 'BROTHERHOOD / WILD RIVER: un warrior implode (risucchio magico breve)',
     psycho_force: 'PSYCHO FORCE: la fascia psichica parte e unisce warrior di specie diverse (suono "mentale")',
     shrink_embers: 'Cambio round: tutti i warrior si rimpiccioliscono bruciando scintille (sfrigolio / brillio discendente)',
+    ice_freeze: 'FROZEN LAKE: il warrior lanciato passa su una pozza e resta chiuso nel ghiaccio (tintinnio cristallino corto)',
+    ice_shatter: 'FROZEN LAKE: un colpo forte rompe il ghiaccio del warrior congelato (vetro che va in frantumi)',
 };
 const data = {};
 for (const id of Object.keys(desc)) {

@@ -130,6 +130,10 @@
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
     "redirect": "136c741e-af97-46bd-99cc-1ef517cecf8d@6c48a",
-    "flipVertical": false
+    "flipVertical": false,
+    "compressSettings": {
+      "useCompressTexture": true,
+      "presetId": "fw-webp"
+    }
   }
 }

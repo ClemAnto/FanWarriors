@@ -4,5 +4,24 @@
     "background": {
       "type": "color"
     }
+  },
+  "textureCompressConfig": {
+    "userPreset": {
+      "fw-webp": {
+        "name": "webp + png fallback",
+        "options": {
+          "web": {
+            "webp": {
+              "quality": 85
+            },
+            "png": {
+              "quality": 90
+            }
+          }
+        }
+      }
+    },
+    "genMipmaps": false,
+    "customConfigs": {}
   }
 }

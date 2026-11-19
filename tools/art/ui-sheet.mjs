@@ -231,6 +231,8 @@ function writeUiMeta(file, w, h, [left, top, right, bottom]) {
     const meta = fs.existsSync(metaFile) ? JSON.parse(fs.readFileSync(metaFile, 'utf8')) : { ver: '1.0.27', importer: 'image', imported: false, uuid: crypto.randomUUID(), files: [], subMetas: {}, userData: {} };
     const uuid = meta.uuid, name = path.basename(file, '.png');
     meta.userData = { ...meta.userData, type: 'sprite-frame', hasAlpha: true };
+    // WebP in the build (PNG fallback; preset 'fw-webp' in settings/v2/packages/builder.json)
+    meta.userData.compressSettings ??= { useCompressTexture: true, presetId: 'fw-webp' };
     const subs = meta.subMetas || (meta.subMetas = {});
     subs['6c48a'] = { importer: 'texture', uuid: `${uuid}@6c48a`, displayName: name, id: '6c48a', name: 'texture', ver: '1.0.22', imported: false, files: [], subMetas: {}, ...subs['6c48a'],
         userData: { ...(subs['6c48a'] || {}).userData, wrapModeS: 'clamp-to-edge', wrapModeT: 'clamp-to-edge', minfilter: 'linear', magfilter: 'linear', mipfilter: 'none', anisotropy: 0, isUuid: true, imageUuidOrDatabaseUri: uuid, visible: false } };

@@ -1,5 +1,5 @@
 import { Color, tween, Tween } from 'cc';
-import { ArenaHazard, FloorDecal, HazardContext, Obstacle, burst, freeSpot, rand } from './HazardKit';
+import { ArenaHazard, FloorDecal, HazardContext, Obstacle, burst, decalHalf, freeSpot, rand } from './HazardKit';
 import { SFX } from '../../managers/AudioManager';
 
 const FIRST_SEC = 4, EVERY_MIN = 7, EVERY_MAX = 11, UP_MIN = 4, UP_MAX = 5.5, MAX_AT_ONCE = 2;
@@ -35,9 +35,10 @@ export class SkullHazard extends ArenaHazard {
 
     spawnNow(): boolean {
         const r = this.ctx.obstacleRadius();
-        const spot = freeSpot(this.ctx, r, this._skulls.map(s => ({ x: s.obstacle.body.position.x, y: s.obstacle.body.position.y, r })), 0.12, 0.62);
-        if (!spot) return false;
         const sx = this.ctx.box2dLayer.worldScale.x;
+        // the hole around it stays on the track too
+        const spot = freeSpot(this.ctx, r, this._skulls.map(s => ({ x: s.obstacle.body.position.x, y: s.obstacle.body.position.y, r })), 0.12, 0.62, decalHalf(this.ctx, r * 3.2 * sx, r * 1.6 * sx));
+        if (!spot) return false;
         const hole = new FloorDecal(this.ctx, 'SkullHole', this.ctx.frame('floor-hole'), spot.x, spot.y, r * 3.2 * sx, r * 1.6 * sx);
         hole.fadeIn(0.15);
         const view = r * 4;

@@ -45,7 +45,9 @@ export class WarriorSpriteCache {
             }
             for (const tex of textures) WarriorSpriteCache._register(tex);
             onDone();
-            loadAll();  // remaining species in the background (already-loaded sheets come from cache)
+            // remaining species in the background, a moment after the game is playable (they are needed
+            // from round 2; meanwhile the first frames get the bandwidth)
+            setTimeout(() => loadAll(), 2000);
         });
     }
 
